@@ -80,6 +80,10 @@ type DocRuntimeBase = {
   replicaFactory: ReplicaFactoryLike
   syncProtocol: SyncProtocol
   schemaHash: string
+  /** Optional set of ancestor hashes from the schema's migration chain.
+   *  Forwarded to `sync/doc-ensure` so `present` messages can advertise
+   *  multi-version compatibility. */
+  supportedHashes?: readonly string[]
 }
 
 /**
@@ -502,6 +506,9 @@ export class Synchronizer {
       replicaType: runtime.replicaFactory.replicaType,
       syncProtocol: runtime.syncProtocol,
       schemaHash: runtime.schemaHash,
+      ...(runtime.supportedHashes
+        ? { supportedHashes: runtime.supportedHashes }
+        : {}),
       event,
     })
   }

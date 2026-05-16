@@ -4,7 +4,11 @@
 // schema must never change across releases. These tests protect against
 // accidental changes to the canonical serialization or hash algorithm.
 
-import { computeSchemaHash, Schema } from "@kyneta/schema"
+import {
+  computeSchemaHash,
+  HASH_ALGORITHM_VERSION,
+  Schema,
+} from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
 
 // ===========================================================================
@@ -23,11 +27,17 @@ const SimpleDoc = Schema.struct({
 describe("computeSchemaHash", () => {
   // ── Format ──
 
-  it("produces a 34-character hex string with '00' version prefix", () => {
+  it("produces a 34-character hex string with HASH_ALGORITHM_VERSION prefix", () => {
     const hash = computeSchemaHash(SimpleDoc)
     expect(hash).toHaveLength(34)
-    expect(hash.slice(0, 2)).toBe("00")
-    expect(/^00[0-9a-f]{32}$/.test(hash)).toBe(true)
+    expect(hash.slice(0, 2)).toBe(HASH_ALGORITHM_VERSION)
+    expect(hash.startsWith(HASH_ALGORITHM_VERSION)).toBe(true)
+    expect(/^[0-9a-f]{32}$/.test(hash.slice(2))).toBe(true)
+  })
+
+  it("HASH_ALGORITHM_VERSION is the current published prefix", () => {
+    // Locks the version against accidental change without a coordinated bump.
+    expect(HASH_ALGORITHM_VERSION).toBe("01")
   })
 
   // ── Determinism ──
@@ -121,6 +131,6 @@ describe("computeSchemaHash", () => {
 
     const hash = computeSchemaHash(complex)
     expect(hash).toHaveLength(34)
-    expect(hash.startsWith("00")).toBe(true)
+    expect(hash.startsWith(HASH_ALGORITHM_VERSION)).toBe(true)
   })
 })

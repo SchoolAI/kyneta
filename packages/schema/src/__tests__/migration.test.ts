@@ -519,6 +519,192 @@ describe("bind() with migrations", () => {
 
     expect(bound.identityBinding.forward.get("b")).toBe(deriveIdentity("a", 1))
   })
+
+  // Phase 2: chain validation is unconditional — production builds also throw
+  // on malformed chains rather than silently producing wrong identity bindings.
+  it("bind() throws on invalid migration chain regardless of NODE_ENV", () => {
+    // add("x") where "x" already exists in the migrationBase — flagged by
+    // validateChain regardless of build mode.
+    const invalid = Schema.struct({ x: Schema.string() })
+      .migrationBase({ x: { originPath: "x", generation: 1 } })
+      .migrated(Migration.add("x"))
+
+    const originalEnv = (globalThis as any).process?.env?.NODE_ENV
+    try {
+      ;(globalThis as any).process = (globalThis as any).process ?? {}
+      ;(globalThis as any).process.env = (globalThis as any).process.env ?? {}
+      ;(globalThis as any).process.env.NODE_ENV = "production"
+      expect(() =>
+        bind({
+          schema: invalid,
+          factory: () => plainSubstrateFactory,
+          syncProtocol: SYNC_AUTHORITATIVE,
+        }),
+      ).toThrow(/Migration chain validation failed/)
+    } finally {
+      ;(globalThis as any).process.env.NODE_ENV = originalEnv
+    }
+  })
+})
+
+// ===========================================================================
+// Phase 4b — computeSupportedHashes (recursive tree walk)
+// ===========================================================================
+
+describe("computeSupportedHashes (via bind.supportedHashes)", () => {
+  // Helper: compute the same canonical hash a peer would compute for a
+  // freshly-constructed schema (no chain). The supportedHashes set should
+  // contain these hashes for every reachable historical schema shape.
+  const hashOf = (s: any): string => {
+    const bound = bind({
+      schema: s,
+      factory: () => plainSubstrateFactory,
+      syncProtocol: SYNC_AUTHORITATIVE,
+    })
+    return bound.schemaHash
+  }
+
+  it("T0/T1a multi-step chain: every ancestor hash is reachable", () => {
+    // v1 = {a: string}; .rename(a→b) → v2 = {b: string}; .add(c) → v3 = {b, c}
+    const v1 = Schema.struct({ a: Schema.string() })
+    const v2 = Schema.struct({ b: Schema.string() })
+    const v3 = Schema.struct({ b: Schema.string(), c: Schema.number() })
+
+    const migrated = Schema.struct({
+      b: Schema.string(),
+      c: Schema.number(),
+    })
+      .migrated(Migration.rename("a", "b"))
+      .migrated(Migration.add("c"))
+
+    const bound = bind({
+      schema: migrated,
+      factory: () => plainSubstrateFactory,
+      syncProtocol: SYNC_AUTHORITATIVE,
+    })
+
+    expect(bound.supportedHashes.size).toBe(3)
+    expect(bound.supportedHashes.has(hashOf(v3))).toBe(true)
+    expect(bound.supportedHashes.has(hashOf(v2))).toBe(true)
+    expect(bound.supportedHashes.has(hashOf(v1))).toBe(true)
+  })
+
+  it("T2 halt: pre-T2 ancestor is NOT in the set", () => {
+    // Chain: .add(c).migrated(remove(b).drop())
+    // Current = {a, c}; the remove makes b's pre-image unreachable for sync
+    // (T2 halt) — supportedHashes should not include the pre-remove shape.
+    const migrated = Schema.struct({
+      a: Schema.string(),
+      c: Schema.number(),
+    })
+      .migrated(Migration.add("c"))
+      .migrated(Migration.remove("b", Schema.boolean()).drop())
+
+    const bound = bind({
+      schema: migrated,
+      factory: () => plainSubstrateFactory,
+      syncProtocol: SYNC_AUTHORITATIVE,
+    })
+
+    // T2 step is the latest entry — walk halts immediately. Only the
+    // current hash is in the set.
+    expect(bound.supportedHashes.size).toBe(1)
+    expect(bound.supportedHashes.has(bound.schemaHash)).toBe(true)
+  })
+
+  it("T3 epoch boundary: hashes prior to epoch are NOT in the set", () => {
+    // Chain: .epoch().add(c) — current = {a, c}, post-epoch entries
+    // are [.add(c)] only. The walk should produce two hashes: current
+    // and pre-add(c); the epoch then halts traversal — pre-epoch
+    // (anything reachable through prior history) is unreachable.
+    const migrated = Schema.struct({
+      a: Schema.string(),
+      c: Schema.boolean(),
+    })
+      .epoch()
+      .migrated(Migration.add("c"))
+
+    const bound = bind({
+      schema: migrated,
+      factory: () => plainSubstrateFactory,
+      syncProtocol: SYNC_AUTHORITATIVE,
+    })
+
+    // Walk back: undo .add(c) → {a}; then encounters .epoch() and halts.
+    const postEpochPreC = Schema.struct({ a: Schema.string() })
+
+    expect(bound.supportedHashes.size).toBe(2)
+    expect(bound.supportedHashes.has(bound.schemaHash)).toBe(true)
+    expect(bound.supportedHashes.has(hashOf(postEpochPreC))).toBe(true)
+  })
+
+  it("chain.base horizon: walk halts at entries-exhaustion cleanly", () => {
+    // A chain with migrationBase has its pre-base history pruned.
+    // The walk should terminate cleanly when entries are exhausted —
+    // not throw, not loop.
+    const migrated = Schema.struct({ a: Schema.string(), c: Schema.number() })
+      .migrationBase({ a: { originPath: "original", generation: 1 } })
+      .migrated(Migration.add("c"))
+
+    const bound = bind({
+      schema: migrated,
+      factory: () => plainSubstrateFactory,
+      syncProtocol: SYNC_AUTHORITATIVE,
+    })
+
+    // Walk: current → undo .add(c) → {a} → entries exhausted, halt.
+    // Two hashes: current and pre-add(c).
+    expect(bound.supportedHashes.size).toBe(2)
+    expect(bound.supportedHashes.has(bound.schemaHash)).toBe(true)
+  })
+
+  it("nested-chain cartesian product: every (root × nested) combo is hashed", () => {
+    // Root chain length 2 × nested chain length 2 = 4 reachable combinations.
+    const innerCurrent = Schema.struct({ p: Schema.string() }).migrated(
+      Migration.rename("o", "p"),
+    )
+
+    const rootCurrent = Schema.struct({
+      inner: innerCurrent,
+      outer: Schema.number(),
+    }).migrated(Migration.add("outer"))
+
+    const bound = bind({
+      schema: rootCurrent,
+      factory: () => plainSubstrateFactory,
+      syncProtocol: SYNC_AUTHORITATIVE,
+    })
+
+    // Cartesian product:
+    //   root states: [{inner, outer}, {inner}]                              (length 2)
+    //   inner states: [{p:string}, {o:string}]                              (length 2)
+    // → 4 combined shapes.
+    expect(bound.supportedHashes.size).toBe(4)
+    expect(bound.supportedHashes.has(bound.schemaHash)).toBe(true)
+
+    // Spot-check one specific combination: {inner: {o: string}, outer: number}.
+    const innerPreRename = Schema.struct({ o: Schema.string() })
+    const combo = Schema.struct({
+      inner: innerPreRename,
+      outer: Schema.number(),
+    })
+    expect(bound.supportedHashes.has(hashOf(combo))).toBe(true)
+
+    // Spot-check the root-without-outer × inner-pre-rename combination.
+    const comboNoOuter = Schema.struct({ inner: innerPreRename })
+    expect(bound.supportedHashes.has(hashOf(comboNoOuter))).toBe(true)
+  })
+
+  it("schema with no migrations: singleton set containing current hash", () => {
+    const s = Schema.struct({ title: Schema.string() })
+    const bound = bind({
+      schema: s,
+      factory: () => plainSubstrateFactory,
+      syncProtocol: SYNC_AUTHORITATIVE,
+    })
+    expect(bound.supportedHashes.size).toBe(1)
+    expect(bound.supportedHashes.has(bound.schemaHash)).toBe(true)
+  })
 })
 
 // ===========================================================================

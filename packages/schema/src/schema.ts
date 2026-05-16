@@ -21,8 +21,12 @@ import type { Segment } from "./path.js"
 // ---------------------------------------------------------------------------
 
 /** Runtime discriminant for the Schema union. Symbol-keyed: invisible to
- *  JSON.stringify and Object.keys, but TypeScript narrows on it. */
-export const KIND = Symbol("kyneta:kind")
+ *  JSON.stringify and Object.keys, but TypeScript narrows on it.
+ *
+ *  `Symbol.for` so dual-loaded copies of this module (monorepo hoisting,
+ *  ESM/CJS interop) share identity — otherwise every `schema[KIND]`
+ *  switch would silently mis-narrow across module boundaries. */
+export const KIND = Symbol.for("kyneta:kind")
 export type KindSymbol = typeof KIND
 
 // ---------------------------------------------------------------------------
@@ -30,7 +34,12 @@ export type KindSymbol = typeof KIND
 // ---------------------------------------------------------------------------
 
 /** Phantom composition-law accumulator. Type-level only — never populated
- *  at runtime. Enables compile-time bind() validation via ExtractLaws<S>. */
+ *  at runtime. Enables compile-time bind() validation via ExtractLaws<S>.
+ *
+ *  Intentionally plain `Symbol(...)` rather than `Symbol.for(...)`: if any
+ *  consumer ever reads `[LAWS]` at runtime, that is a bug we want to
+ *  surface as a phantom-vs-reality mismatch, not paper over via shared
+ *  symbol identity. */
 export const LAWS = Symbol("kyneta:laws")
 export type LawsSymbol = typeof LAWS
 

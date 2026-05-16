@@ -67,7 +67,7 @@ import type { Schema as SchemaNode } from "./schema.js"
  *
  * Context: jj:smmulzkm (two-phase substrate construction)
  */
-export const BACKING_DOC = Symbol("kyneta.backingDoc")
+export const BACKING_DOC = Symbol.for("kyneta:backingDoc")
 
 // ---------------------------------------------------------------------------
 // STRUCTURAL_YJS_CLIENT_ID — deterministic identity for container creation
@@ -83,7 +83,7 @@ export const BACKING_DOC = Symbol("kyneta.backingDoc")
  */
 export const STRUCTURAL_YJS_CLIENT_ID = 0
 
-export { computeSchemaHash, fnv1a128 } from "./hash.js"
+export { computeSchemaHash, HASH_ALGORITHM_VERSION } from "./hash.js"
 
 // ---------------------------------------------------------------------------
 // Version — external version marker

@@ -2,17 +2,31 @@
 //
 // Extracted from substrate.ts so that migration.ts can depend on
 // hashing without importing the full substrate interface surface.
+//
+// Implementation routes through `@sindresorhus/fnv1a` (single-pass,
+// bigint-native, true 128-bit FNV-1a over UTF-8 bytes). Predecessor
+// was an in-house two-pass FNV-1a-64 with shared prime that
+// overstated its effective entropy. See plan: jj:snrmsznm.
 
+import fnv1a from "@sindresorhus/fnv1a"
 import { KIND, type Schema as SchemaNode } from "./schema.js"
+
+/**
+ * Algorithm-version prefix on `computeSchemaHash` output. Bump on any
+ * change to the hash bytes (algorithm, canonicalization, or byte
+ * encoding). Wire- and storage-visible.
+ *
+ * - `"00"`: two-pass FNV-1a-64 with shared prime, UTF-16 code-unit input
+ *   (retired; see plan jj:snrmsznm).
+ * - `"01"`: single-pass FNV-1a-128 via `@sindresorhus/fnv1a`, UTF-8 bytes.
+ */
+export const HASH_ALGORITHM_VERSION = "01" as const
 
 /**
  * Compute a deterministic fingerprint from a schema's structural shape.
  *
- * Uses FNV-1a at 128 bits (two independent 64-bit passes with different
- * seeds). Synchronous, no platform dependency.
- *
  * The result is a 34-character hex string:
- *   - 2-char algorithm version prefix ("00" = FNV-1a-128)
+ *   - 2-char algorithm-version prefix (`HASH_ALGORITHM_VERSION`)
  *   - 32-char hex hash (16 bytes)
  *
  * The canonical serialization captures field names (alphabetical order),
@@ -21,13 +35,22 @@ import { KIND, type Schema as SchemaNode } from "./schema.js"
  * backend-specific details.
  *
  * This is a **versioning commitment** — the hash must never change for
- * the same schema across releases. The canonical serialization format
- * and FNV-1a algorithm are stable contracts.
+ * the same schema across releases *at the same algorithm version*. The
+ * version prefix is the explicit signal when bytes change.
  */
 export function computeSchemaHash(schema: SchemaNode): string {
-  const canonical = canonicalizeSchema(schema)
-  const hash = fnv1a128(canonical)
-  return `00${hash}`
+  return `${HASH_ALGORITHM_VERSION}${fnv1aHex(canonicalizeSchema(schema))}`
+}
+
+/**
+ * 32-char hex of FNV-1a-128 over UTF-8 bytes. Algorithm-internal —
+ * not version-tagged. Used by `computeSchemaHash` (which prepends
+ * `HASH_ALGORITHM_VERSION`) and by `deriveIdentity` (which uses raw
+ * 32 hex chars because identities are opaque positional addresses
+ * consumed only by `SchemaBinding` internals).
+ */
+export function fnv1aHex(input: string): string {
+  return fnv1a(input, { size: 128 }).toString(16).padStart(32, "0")
 }
 
 /**
@@ -116,30 +139,4 @@ function canonicalizeSchema(schema: SchemaNode): string {
         `canonicalizeSchema: unknown schema kind "${(schema as any)[KIND]}"`,
       )
   }
-}
-
-/**
- * FNV-1a at 128 bits, implemented as two independent 64-bit passes
- * with different seeds. Returns a 32-character hex string.
- */
-export function fnv1a128(input: string): string {
-  // Pass 1: standard FNV-1a 64-bit
-  let h1 = BigInt("0xcbf29ce484222325")
-  const p1 = BigInt("0x100000001b3")
-  const mask64 = BigInt("0xFFFFFFFFFFFFFFFF")
-  for (let i = 0; i < input.length; i++) {
-    h1 ^= BigInt(input.charCodeAt(i))
-    h1 = (h1 * p1) & mask64
-  }
-
-  // Pass 2: FNV-1a 64-bit with offset seed
-  let h2 = BigInt("0x6c62272e07bb0142")
-  const p2 = BigInt("0x100000001b3")
-  for (let i = 0; i < input.length; i++) {
-    h2 ^= BigInt(input.charCodeAt(i))
-    h2 = (h2 * p2) & mask64
-  }
-
-  // Concatenate both halves as 32 hex chars
-  return h1.toString(16).padStart(16, "0") + h2.toString(16).padStart(16, "0")
 }

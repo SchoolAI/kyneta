@@ -1,6 +1,7 @@
 import { CHANGEFEED, type HasChangefeed } from "@kyneta/changefeed"
 import { describe, expect, expectTypeOf, it } from "vitest"
 import {
+  BACKING_DOC,
   bottomInterpreter,
   type ChangefeedBrand,
   type CounterRef,
@@ -17,6 +18,7 @@ import {
   interpret,
   KIND,
   type MapSchema,
+  MIGRATION_CHAIN,
   type MovableSequenceSchema,
   type NavigableMapRef,
   type NavigableSequenceRef,
@@ -1981,6 +1983,16 @@ describe("[KIND] is invisible to serialization", () => {
     expect(Object.keys(s)).not.toContain(KIND.toString())
     expect(Object.keys(s)).not.toContain("Symbol(kyneta:kind)")
     expect(Object.keys(s)).toEqual(["scalarKind"])
+  })
+
+  // Cross-copy hardening — Symbol.for guarantees a single global identity for
+  // `KIND` even if @kyneta/schema is dual-loaded (monorepo hoisting, ESM/CJS
+  // interop). A regression to bare `Symbol(...)` would break every
+  // `schema[KIND]` switch across module-copy boundaries silently.
+  it("KIND, MIGRATION_CHAIN, BACKING_DOC use Symbol.for", () => {
+    expect(KIND).toBe(Symbol.for("kyneta:kind"))
+    expect(MIGRATION_CHAIN).toBe(Symbol.for("kyneta:migrationChain"))
+    expect(BACKING_DOC).toBe(Symbol.for("kyneta:backingDoc"))
   })
 
   it("schema[KIND] is accessible and correctly valued", () => {

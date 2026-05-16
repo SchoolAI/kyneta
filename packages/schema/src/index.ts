@@ -384,7 +384,7 @@ export type {
 export {
   BACKING_DOC,
   computeSchemaHash,
-  fnv1a128,
+  HASH_ALGORITHM_VERSION,
   replicaTypesCompatible,
   requiresBidirectionalSync,
   STRUCTURAL_YJS_CLIENT_ID,

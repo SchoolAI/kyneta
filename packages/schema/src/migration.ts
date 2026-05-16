@@ -14,7 +14,7 @@
 //
 // No substrate changes. No wire changes. Pure schema-level algebra.
 
-import { fnv1a128 } from "./hash.js"
+import { computeSchemaHash, fnv1aHex } from "./hash.js"
 import {
   KIND,
   type ProductSchema,
@@ -50,8 +50,11 @@ export type MigratedSchema<S extends ProductSchema = ProductSchema> = S & {
  * Invisible to `canonicalizeSchema` (which switches on `[KIND]`),
  * invisible to `JSON.stringify`, invisible to `Object.keys`.
  * Only code that knows the symbol can read it.
+ *
+ * `Symbol.for` so dual-loaded copies share identity — see `KIND` for
+ * the same rationale.
  */
-export const MIGRATION_CHAIN = Symbol("kyneta:migrationChain")
+export const MIGRATION_CHAIN = Symbol.for("kyneta:migrationChain")
 
 // ---------------------------------------------------------------------------
 // NodeIdentity — opaque 128-bit identity hash
@@ -566,14 +569,172 @@ export function deriveStepTier(
 /**
  * Derive a deterministic NodeIdentity from an origin path and generation.
  *
- * `fnv1a128(originPath + ":" + generation)` — stable across runs,
- * across machines, across time.
+ * `fnv1aHex(originPath + ":" + generation)` — stable across runs,
+ * across machines, across time. Returns raw 32-char hex (no algorithm
+ * prefix — identities are opaque positional addresses consumed only by
+ * `SchemaBinding` internals).
  */
 export function deriveIdentity(
   originPath: string,
   generation: number,
 ): NodeIdentity {
-  return fnv1a128(`${originPath}:${generation}`) as NodeIdentity
+  return fnv1aHex(`${originPath}:${generation}`) as NodeIdentity
+}
+
+// =========================================================================
+// PrimitiveDelta — the algebra of "what one primitive does"
+// =========================================================================
+//
+// Three things in `migration.ts` case-analyze `MigrationPrimitive.kind`:
+//
+//   1. `deriveManifest`'s reverse-walk on a path set (paths-only).
+//   2. `applyPrimitiveDelta`'s forward-apply on origins/generations (paths +
+//      generation bumps).
+//   3. The chain walk in `computeSupportedHashes` (Phase 4b) inverts each
+//      primitive against a rolling schema (paths + schema payloads).
+//
+// `PathEffect` is the shared root-product-path summary. `pathEffectOf(prim)`
+// is the single case-analysis site; the three interpreters consume the
+// effect tag in their own way. `invertPathEffect` produces the inverse for
+// backwards walks. Sub-product primitives (variant/constraint/nullable)
+// produce `subProduct` — they don't affect root paths.
+//
+// Phase 4b's schema-tree inversion uses `pathEffectOf` for path mechanics
+// plus the *current* schema to recover field payloads on inversion (since
+// `Migration.add(path)` does not carry the added field's schema — it lives
+// in the post-image). Variants/constraints are out of scope for the
+// schema-tree walk's initial implementation; the walk halts conservatively
+// at the first such primitive within a chain.
+
+/** Root-product-path effect of a single primitive. */
+export type PathEffect =
+  | { readonly tag: "create"; readonly path: string }
+  | { readonly tag: "destroy"; readonly path: string }
+  | { readonly tag: "rename"; readonly from: string; readonly to: string }
+  | { readonly tag: "destroyAndCreate"; readonly path: string }
+  | { readonly tag: "subProduct" }
+
+/**
+ * Map a primitive to its root-product-path effect. The one place where
+ * `MigrationPrimitive.kind` is case-analyzed for path/identity semantics
+ * — all three walks (paths, origins, schema-tree) consume the result.
+ */
+export function pathEffectOf(prim: MigrationPrimitive): PathEffect {
+  switch (prim.kind) {
+    case "add":
+      return { tag: "create", path: prim.path }
+    case "remove":
+      return { tag: "destroy", path: prim.path }
+    case "rename":
+    case "move":
+      return { tag: "rename", from: prim.from, to: prim.to }
+    case "retype":
+      return { tag: "destroyAndCreate", path: prim.path }
+    case "transform": {
+      // T1a-promoted transform preserves identity (no path effect);
+      // unpromoted T3 transform destroys+recreates.
+      const tier = deriveTier(prim)
+      return tier === "T1a"
+        ? { tag: "subProduct" }
+        : { tag: "destroyAndCreate", path: prim.path }
+    }
+    // Variant- and constraint-level primitives mutate a sub-product
+    // type, not a root path.
+    case "addVariant":
+    case "removeVariant":
+    case "widenConstraint":
+    case "narrowConstraint":
+    case "addNullable":
+    case "dropNullable":
+    case "renameVariant":
+    case "renameDiscriminant":
+      return { tag: "subProduct" }
+  }
+}
+
+/** Invert a path effect for reverse-walk interpretation. */
+export function invertPathEffect(eff: PathEffect): PathEffect {
+  switch (eff.tag) {
+    case "create":
+      return { tag: "destroy", path: eff.path }
+    case "destroy":
+      return { tag: "create", path: eff.path }
+    case "rename":
+      return { tag: "rename", from: eff.to, to: eff.from }
+    case "destroyAndCreate":
+    case "subProduct":
+      return eff
+  }
+}
+
+/** Apply a path effect to a path set. Returns a new set. */
+export function applyPathEffectToPaths(
+  eff: PathEffect,
+  paths: ReadonlySet<string>,
+): Set<string> {
+  const next = new Set(paths)
+  switch (eff.tag) {
+    case "create":
+      next.add(eff.path)
+      break
+    case "destroy":
+      next.delete(eff.path)
+      break
+    case "rename":
+      if (next.has(eff.from)) {
+        next.delete(eff.from)
+        next.add(eff.to)
+      }
+      break
+    case "destroyAndCreate":
+    case "subProduct":
+      break
+  }
+  return next
+}
+
+/**
+ * Apply a path effect to origins/generations. Returns new maps — the
+ * functional shape closes the FC/IS smell from the previous mutation-
+ * in-place implementation (see `packages/schema/report.md` item B).
+ */
+export function applyPathEffectToOrigins(
+  eff: PathEffect,
+  origins: ReadonlyMap<string, IdentityOrigin>,
+  generations: ReadonlyMap<string, number>,
+): { origins: Map<string, IdentityOrigin>; generations: Map<string, number> } {
+  const nextOrigins = new Map(origins)
+  const nextGenerations = new Map(generations)
+  switch (eff.tag) {
+    case "create": {
+      const gen = (nextGenerations.get(eff.path) ?? 0) + 1
+      nextGenerations.set(eff.path, gen)
+      nextOrigins.set(eff.path, { originPath: eff.path, generation: gen })
+      break
+    }
+    case "destroy": {
+      nextOrigins.delete(eff.path)
+      break
+    }
+    case "rename": {
+      const origin = nextOrigins.get(eff.from)
+      if (origin) {
+        nextOrigins.delete(eff.from)
+        nextOrigins.set(eff.to, origin)
+      }
+      break
+    }
+    case "destroyAndCreate": {
+      nextOrigins.delete(eff.path)
+      const gen = (nextGenerations.get(eff.path) ?? 0) + 1
+      nextGenerations.set(eff.path, gen)
+      nextOrigins.set(eff.path, { originPath: eff.path, generation: gen })
+      break
+    }
+    case "subProduct":
+      break
+  }
+  return { origins: nextOrigins, generations: nextGenerations }
 }
 
 // =========================================================================
@@ -642,47 +803,19 @@ export function deriveManifest(
     }
   } else {
     // No base — reconstruct the pre-migration path set by undoing
-    // all chain entries in reverse to find what paths existed before
-    // the first migration. This is a reverse walk: renames undo,
-    // adds undo (remove), removes undo (add).
-    const preMigrationPaths = new Set(currentPaths)
+    // all chain entries in reverse. Walk halts at the first epoch
+    // (pre-epoch state is a fresh start by definition).
+    let preMigrationPaths: ReadonlySet<string> = new Set(currentPaths)
     for (let i = chain.entries.length - 1; i >= 0; i--) {
       const entry = chain.entries[i]
       if (!entry) continue
-      if (entry.kind === "epoch") {
-        // Epoch resets everything — paths before the epoch are
-        // unknowable from the chain alone. The pre-epoch state
-        // is determined by the epoch's primitives (if any) applied
-        // to the post-epoch paths.
-        // For epoch entries, we stop reverse-walking — everything
-        // before the epoch is a fresh start.
-        break
-      }
-      const primitives = entry.primitives.map(unwrapPrimitive)
-      // Undo in reverse order within the step
-      for (let j = primitives.length - 1; j >= 0; j--) {
-        const prim = primitives[j]
-        if (!prim) continue
-        switch (prim.kind) {
-          case "add":
-            preMigrationPaths.delete(prim.path)
-            break
-          case "remove":
-            preMigrationPaths.add(prim.path)
-            break
-          case "rename":
-            preMigrationPaths.delete(prim.to)
-            preMigrationPaths.add(prim.from)
-            break
-          case "move":
-            preMigrationPaths.delete(prim.to)
-            preMigrationPaths.add(prim.from)
-            break
-          // Variant-level and constraint primitives don't affect
-          // root product paths.
-          default:
-            break
-        }
+      if (entry.kind === "epoch") break
+      // Invert each primitive in reverse order within the step.
+      for (let j = entry.primitives.length - 1; j >= 0; j--) {
+        const input = entry.primitives[j]
+        if (!input) continue
+        const eff = invertPathEffect(pathEffectOf(unwrapPrimitive(input)))
+        preMigrationPaths = applyPathEffectToPaths(eff, preMigrationPaths)
       }
     }
 
@@ -693,36 +826,60 @@ export function deriveManifest(
     }
   }
 
-  // Forward replay: apply each entry in order.
+  // Forward replay: apply each entry in order. `origins` and
+  // `generations` are rebound on every step (functional shell over the
+  // mutable scaffolding) — keeps the algebra honest about whose state
+  // it owns.
+  let workingOrigins: ReadonlyMap<string, IdentityOrigin> = origins
+  let workingGenerations: ReadonlyMap<string, number> = generations
   for (const entry of chain.entries) {
     if (entry.kind === "epoch") {
-      // Epoch resets all identity tracking. Every path that survives
-      // the epoch gets a fresh origin. Paths destroyed by epoch
-      // primitives are removed.
-      //
-      // First, apply epoch primitives (retype, transform, etc.)
-      // These may destroy+recreate paths.
+      // Apply epoch primitives (retype, transform, etc.). They may
+      // destroy+recreate paths.
       for (const prim of entry.primitives) {
-        applyPrimitiveDelta(prim, origins, generations)
+        const eff = pathEffectOf(prim)
+        const next = applyPathEffectToOrigins(
+          eff,
+          workingOrigins,
+          workingGenerations,
+        )
+        workingOrigins = next.origins
+        workingGenerations = next.generations
       }
 
       // Then reset: every surviving path gets a fresh origin.
-      const surviving = new Map(origins)
-      origins.clear()
+      const surviving = new Map(workingOrigins)
+      const resetOrigins = new Map<string, IdentityOrigin>()
+      const resetGenerations = new Map(workingGenerations)
       for (const [path] of surviving) {
-        const gen = (generations.get(path) ?? 0) + 1
-        generations.set(path, gen)
-        origins.set(path, { originPath: path, generation: gen })
+        const gen = (resetGenerations.get(path) ?? 0) + 1
+        resetGenerations.set(path, gen)
+        resetOrigins.set(path, { originPath: path, generation: gen })
       }
+      workingOrigins = resetOrigins
+      workingGenerations = resetGenerations
       continue
     }
 
     // MigrationStep: apply each primitive's identity delta.
     for (const input of entry.primitives) {
-      const prim = unwrapPrimitive(input)
-      applyPrimitiveDelta(prim, origins, generations)
+      const eff = pathEffectOf(unwrapPrimitive(input))
+      const next = applyPathEffectToOrigins(
+        eff,
+        workingOrigins,
+        workingGenerations,
+      )
+      workingOrigins = next.origins
+      workingGenerations = next.generations
     }
   }
+  // Rebind the outer maps to the working state for the manifest-building
+  // step below. (The outer `origins`/`generations` are no longer the
+  // authority — they were just the seed.)
+  origins.clear()
+  for (const [k, v] of workingOrigins) origins.set(k, v)
+  generations.clear()
+  for (const [k, v] of workingGenerations) generations.set(k, v)
 
   // Build the final manifest from the origins map, filtered to
   // only include paths that exist in the current schema.
@@ -741,91 +898,11 @@ export function deriveManifest(
   return manifest
 }
 
-// ---------------------------------------------------------------------------
-// applyPrimitiveDelta — mutate the origins map for a single primitive
-// ---------------------------------------------------------------------------
-
-function applyPrimitiveDelta(
-  prim: MigrationPrimitive,
-  origins: Map<string, IdentityOrigin>,
-  generations: Map<string, number>,
-): void {
-  switch (prim.kind) {
-    case "add": {
-      // Creates a new identity at path.
-      const gen = (generations.get(prim.path) ?? 0) + 1
-      generations.set(prim.path, gen)
-      origins.set(prim.path, { originPath: prim.path, generation: gen })
-      break
-    }
-
-    case "remove": {
-      // Destroys the identity at path.
-      origins.delete(prim.path)
-      break
-    }
-
-    case "rename": {
-      // Preserves identity: move origin from `from` to `to`.
-      const origin = origins.get(prim.from)
-      if (origin) {
-        origins.delete(prim.from)
-        origins.set(prim.to, origin)
-      }
-      break
-    }
-
-    case "move": {
-      // Same as rename — preserves identity at a new path.
-      const origin = origins.get(prim.from)
-      if (origin) {
-        origins.delete(prim.from)
-        origins.set(prim.to, origin)
-      }
-      break
-    }
-
-    case "retype": {
-      // Destroys old identity, creates new at same path.
-      origins.delete(prim.path)
-      const gen = (generations.get(prim.path) ?? 0) + 1
-      generations.set(prim.path, gen)
-      origins.set(prim.path, { originPath: prim.path, generation: gen })
-      break
-    }
-
-    case "transform": {
-      // Default T3 behavior: destroy + recreate (like retype).
-      // Promoted transforms (with full proofs) preserve identity,
-      // but since we don't verify proofs we treat them uniformly:
-      // if the tier is T1a (all proofs), preserve; otherwise destroy+create.
-      const tier = deriveTier(prim)
-      if (tier === "T1a") {
-        // Identity-preserving — no delta
-        break
-      }
-      // T3: destroy + recreate
-      origins.delete(prim.path)
-      const gen = (generations.get(prim.path) ?? 0) + 1
-      generations.set(prim.path, gen)
-      origins.set(prim.path, { originPath: prim.path, generation: gen })
-      break
-    }
-
-    // Variant-level and constraint primitives don't affect product-level
-    // identity (they modify the type at a path, not the path itself).
-    case "addVariant":
-    case "removeVariant":
-    case "widenConstraint":
-    case "narrowConstraint":
-    case "addNullable":
-    case "dropNullable":
-    case "renameVariant":
-    case "renameDiscriminant":
-      // No identity delta at the product-path level.
-      break
-  }
-}
+// `applyPrimitiveDelta` was the previous mutation-in-place forward
+// interpreter; replaced by `applyPathEffectToOrigins` above (returns
+// new maps; consumed by `deriveManifest`'s forward replay). The
+// case-analysis on `MigrationPrimitive.kind` now lives once in
+// `pathEffectOf`.
 
 // =========================================================================
 // deriveSchemaBinding — recursive binding from schema + manifest
@@ -1105,6 +1182,204 @@ export function snapshotManifest(schema: ProductSchema): IdentityManifest {
     return manifest
   }
   return deriveManifest(schema, chain)
+}
+
+// =========================================================================
+// computeSupportedHashes — recursive tree walk for sync compatibility
+// =========================================================================
+
+/**
+ * Compute the set of supported schema hashes for `current`. Walks every
+ * `MigrationChain` in the schema tree — the root chain plus any nested
+ * `ProductSchema` field that carries its own `[MIGRATION_CHAIN]`. The
+ * cartesian product of all per-chain reachable shapes is the result set.
+ *
+ * **Per-chain halt** at first of:
+ *   - **T2 step** — destroys identities; advertising T2 ancestors would
+ *     overstate compatibility (current substrate is path-keyed, no
+ *     identity-tombstone safety net). Aligns the single-set
+ *     `supportedHashes` with the theory's `nativeSupports` semantics.
+ *   - **T3 epoch** — hard identity break; pre-epoch hashes are
+ *     deliberately unreachable.
+ *   - **Un-invertible primitive** — anything not currently in the
+ *     `{add, rename, move}` set at root level (e.g. `addNullable`,
+ *     `widenConstraint`, sub-product variant operations). The schema
+ *     surgery for these is bounded but not yet implemented; the walk
+ *     halts conservatively rather than over-advertising. Future work
+ *     can extend `inverseStepOnSchema` to handle them.
+ *   - **`chain.entries` exhaustion** — the `chain.base` prune horizon;
+ *     pre-base schema shapes are not recoverable from the chain alone.
+ *
+ * Set size scales as the product of chain lengths across all chains in
+ * the tree. For realistic schemas (chains of 1-10 at 1-3 nesting levels)
+ * the set stays in the dozens range.
+ */
+export function computeSupportedHashes(
+  current: ProductSchema,
+): ReadonlySet<string> {
+  const hashes = new Set<string>()
+  for (const shape of reachableShapes(current)) {
+    hashes.add(computeSchemaHash(shape))
+  }
+  return hashes
+}
+
+// --- internal: reachable-shape recursion ---------------------------------
+
+/**
+ * Enumerate every schema shape of `schema` reachable by walking its own
+ * chain backwards (root level) AND every nested-product chain
+ * (recursively). Returns the cartesian product of independent-chain
+ * reachable states.
+ */
+function reachableShapes(schema: ProductSchema): ProductSchema[] {
+  // (1) Chain walk on schema's own chain (if any).
+  const localShapes: ProductSchema[] = [schema]
+  const chain = getMigrationChain(schema as SchemaNode)
+  if (chain) {
+    let rolling = schema
+    for (let i = chain.entries.length - 1; i >= 0; i--) {
+      const entry = chain.entries[i]
+      if (!entry) continue
+      if (entry.kind === "epoch") break // T3 horizon
+      if (entry.tier === "T2") break // T2 horizon
+      const result = inverseStepOnSchema(entry, rolling)
+      if (!result.ok) break // un-invertible primitive — conservative halt
+      rolling = result.schema
+      localShapes.push(rolling)
+    }
+  }
+
+  // (2) For each chain-walked root shape, expand nested-product variants
+  // via cartesian product.
+  const allShapes: ProductSchema[] = []
+  for (const shape of localShapes) {
+    for (const expanded of expandNested(shape)) {
+      allShapes.push(expanded)
+    }
+  }
+  return allShapes
+}
+
+/**
+ * Yield every variant of `schema` arising from independently expanding
+ * each nested-ProductSchema field's reachable shapes. Non-product
+ * fields contribute their current shape unchanged.
+ */
+function* expandNested(
+  schema: ProductSchema,
+): Generator<ProductSchema, void, undefined> {
+  const fieldNames = Object.keys(schema.fields)
+  const fieldVariants: SchemaNode[][] = fieldNames.map(name => {
+    const field = schema.fields[
+      name as keyof typeof schema.fields
+    ] as SchemaNode
+    if (field[KIND] === "product") {
+      return reachableShapes(field as ProductSchema)
+    }
+    return [field]
+  })
+
+  // Odometer-style cartesian product.
+  const indices = new Array<number>(fieldNames.length).fill(0)
+  while (true) {
+    const fields: Record<string, SchemaNode> = {}
+    for (let i = 0; i < fieldNames.length; i++) {
+      const name = fieldNames[i]!
+      const variant = fieldVariants[i]![indices[i]!]!
+      fields[name] = variant
+    }
+    yield { ...schema, fields } as ProductSchema
+    // Advance.
+    let k = indices.length - 1
+    while (k >= 0) {
+      indices[k] = indices[k]! + 1
+      if (indices[k]! < fieldVariants[k]!.length) break
+      indices[k] = 0
+      k--
+    }
+    if (k < 0) break
+  }
+}
+
+type SchemaInversion =
+  | { readonly ok: true; readonly schema: ProductSchema }
+  | { readonly ok: false }
+
+/**
+ * Invert a `MigrationStep` against a rolling schema. Returns the
+ * pre-image schema, or `{ ok: false }` if any primitive in the step is
+ * not currently invertible (forces the chain walk to halt).
+ */
+function inverseStepOnSchema(
+  step: MigrationStep,
+  current: ProductSchema,
+): SchemaInversion {
+  // Apply primitives in reverse order, inverting each.
+  let schema = current
+  for (let j = step.primitives.length - 1; j >= 0; j--) {
+    const input = step.primitives[j]
+    if (!input) continue
+    const prim = unwrapPrimitive(input)
+    const result = inversePrimitiveOnSchema(prim, schema)
+    if (!result.ok) return { ok: false }
+    schema = result.schema
+  }
+  return { ok: true, schema }
+}
+
+/**
+ * Invert a single primitive against the current schema. Initial scope:
+ * cleanly-invertible root-path primitives (`add`, `rename`, `move`).
+ * Everything else halts the walk via `{ ok: false }`; future work can
+ * extend coverage (e.g. `addNullable` is bounded sub-product surgery).
+ */
+function inversePrimitiveOnSchema(
+  prim: MigrationPrimitive,
+  current: ProductSchema,
+): SchemaInversion {
+  switch (prim.kind) {
+    case "add":
+      return removeRootField(current, prim.path)
+    case "rename":
+    case "move":
+      return renameRootField(current, prim.to, prim.from)
+    default:
+      return { ok: false }
+  }
+}
+
+function removeRootField(schema: ProductSchema, path: string): SchemaInversion {
+  if (path.includes(".")) return { ok: false } // dot-paths: future work
+  if (!(path in schema.fields)) return { ok: false }
+  const nextFields: Record<string, SchemaNode> = {}
+  for (const [k, v] of Object.entries(schema.fields)) {
+    if (k !== path) nextFields[k] = v as SchemaNode
+  }
+  return {
+    ok: true,
+    schema: { ...schema, fields: nextFields } as ProductSchema,
+  }
+}
+
+function renameRootField(
+  schema: ProductSchema,
+  fromPath: string,
+  toPath: string,
+): SchemaInversion {
+  if (fromPath.includes(".") || toPath.includes(".")) return { ok: false }
+  if (!(fromPath in schema.fields)) return { ok: false }
+  if (toPath in schema.fields) return { ok: false }
+  const fieldSchema = (schema.fields as Record<string, SchemaNode>)[fromPath]!
+  const nextFields: Record<string, SchemaNode> = {}
+  for (const [k, v] of Object.entries(schema.fields)) {
+    if (k !== fromPath) nextFields[k] = v as SchemaNode
+  }
+  nextFields[toPath] = fieldSchema
+  return {
+    ok: true,
+    schema: { ...schema, fields: nextFields } as ProductSchema,
+  }
 }
 
 // =========================================================================

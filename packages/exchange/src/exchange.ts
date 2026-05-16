@@ -582,6 +582,7 @@ export class Exchange {
         bound.syncProtocol,
         bound.schemaHash,
         "interpret",
+        [...bound.supportedHashes],
       ).then(() => {
         subscribe(ref, changeset => {
           // Filter on the structural `replay` flag — not the `origin`
@@ -600,6 +601,7 @@ export class Exchange {
         replicaFactory: factory.replica,
         syncProtocol: bound.syncProtocol,
         schemaHash: bound.schemaHash,
+        supportedHashes: [...bound.supportedHashes],
       })
 
       subscribe(ref, changeset => {
@@ -720,6 +722,7 @@ export class Exchange {
     syncProtocol: SyncProtocol,
     schemaHash: string,
     mode: "interpret" | "replicate",
+    supportedHashes?: readonly string[],
   ): Promise<void> {
     const meta: StoreMeta = {
       replicaType: replicaFactory.replicaType,
@@ -784,6 +787,7 @@ export class Exchange {
       replicaFactory,
       syncProtocol,
       schemaHash,
+      ...(supportedHashes ? { supportedHashes } : {}),
     } as DocRuntime)
   }
 

@@ -332,26 +332,33 @@ Both are pure. Loro and Yjs substrates use these directly for their Lamport vect
 
 ## `schemaHash` and compatibility
 
-Source: `packages/schema/src/substrate.ts` → `computeSchemaHash`, `src/hash.ts` → `fnv1a128`.
+Source: `packages/schema/src/hash.ts` → `computeSchemaHash`, `HASH_ALGORITHM_VERSION`, `fnv1aHex`.
 
-`computeSchemaHash(manifest)` is a pure, content-addressed function:
+`computeSchemaHash(schema)` is a pure, content-addressed function:
 
 1. Canonicalize the schema tree (stable field ordering, remove thunks, expand laziness).
 2. Serialize to a deterministic byte representation.
-3. Hash with FNV-1a-128 (`src/hash.ts`).
-4. Return the 32-character lowercase hex digest.
+3. Hash with single-pass FNV-1a-128 over UTF-8 bytes (`@sindresorhus/fnv1a` at `size: 128`).
+4. Return a **34-character** lowercase string: `HASH_ALGORITHM_VERSION` (2 chars) + 32-char hex of the 128-bit hash.
 
 The hash is carried in every `present` message (the exchange's doc-announcement protocol). Receivers compare the incoming hash against their local `BoundSchema.schemaHash`:
 
 - **Match** → structurally identical schemas; safe to sync.
-- **Mismatch** → different schemas; receiver consults `supportedHashes` (from the `MigrationChain`) to see if a compatible ancestor exists.
+- **Mismatch** → different schemas; receiver consults `supportedHashes` (from the `MigrationChain` walk) to see if a compatible ancestor exists.
 - **No compatible version** → reject.
 
-### Why FNV-1a-128
+### `HASH_ALGORITHM_VERSION` — the prefix is part of the wire format
 
-- **Fast and deterministic** across JS runtimes (no `crypto.subtle`, no WASM).
+The 2-char prefix is a TLV-style algorithm-version tag. Bumping it signals a coordinated change to the hash bytes (algorithm swap, canonicalization change, or input-encoding shift). Current value is `"01"`. The previous `"00"` (retired) was a two-pass FNV-1a-64 with a shared prime over UTF-16 code units; that overstated its effective entropy and has been replaced with single-pass FNV-1a-128 over UTF-8 bytes. See plan `jj:snrmsznm`.
+
+Ecosystem code that asserts on the prefix (wire-format validators, store-migration tooling) should import `HASH_ALGORITHM_VERSION` rather than hardcoding the string.
+
+### Why single-pass FNV-1a-128
+
+- **Fast and deterministic** across JS runtimes (no `crypto.subtle`, no WASM). BigInt-native in the library.
 - **128 bits** is wide enough to eliminate collision concern for the hundreds-to-millions of distinct schemas any real deployment will see.
 - **Hex-encoded** for readability in logs, wire frames, and test assertions.
+- **Standards-conformant** — `@sindresorhus/fnv1a` hashes UTF-8 bytes (the canonical FNV-1a interpretation). The previous in-house implementation hashed UTF-16 code units; standards-conformance was one motivation for the swap.
 
 ### What `schemaHash` is NOT
 
@@ -759,7 +766,20 @@ The substrate consumes the `SchemaBinding` in its `factoryBuilder` context. Loro
 
 ### `supportedHashes`
 
-A `BoundSchema` declares `supportedHashes`: all schema hashes that can be interpreted by the current schema (the current hash plus every ancestor reachable through the migration chain without an epoch). The exchange includes this in every `present` message; receivers with older schemas check whether one of their hashes is in the sender's `supportedHashes` to decide if sync can proceed.
+Source: `packages/schema/src/migration.ts` → `computeSupportedHashes`.
+
+A `BoundSchema` declares `supportedHashes`: all schema hashes at which the current peer can op-stream sync. Computed by `computeSupportedHashes(schema)`, which recursively walks **every** `MigrationChain` in the schema tree — the root chain plus chains on nested `ProductSchema` fields. The set is the **cartesian product** over independent chains: if the root chain reaches `N` ancestor shapes and a nested field's chain reaches `M`, the result contains `N × M` hashes.
+
+**Per-chain halt** at the first of:
+
+- **T2 step** — destroys identities; advertising T2 ancestors would overstate compatibility (the current path-keyed substrate has no identity-tombstone safety net). This aligns the single-set `supportedHashes` with the theory's `nativeSupports` semantics (`.jj-plan/migrations.md` §8).
+- **T3 epoch** — hard identity break; pre-epoch hashes are deliberately unreachable.
+- **Un-invertible primitive** — anything not currently in `{add, rename, move}` at root level. The schema surgery for `addNullable` / `widenConstraint` / sub-product variant operations is bounded but not yet implemented; the walk halts conservatively rather than over-advertise.
+- **`chain.entries` exhaustion** — the `chain.base` prune horizon; pre-base shapes are not recoverable from the chain alone.
+
+The richer `readSupports` / `nativeSupports` split (allowing degraded entirety-only sync across T2/T3 boundaries — see `.jj-plan/migrations.md` §8.1) is deferred until degraded-sync infrastructure exists.
+
+The exchange includes `supportedHashes` in every `present` message when it carries more info than the primary hash alone. Receivers with older schemas check whether one of their hashes is in the sender's `supportedHashes` to decide if sync can proceed.
 
 ### What migrations are NOT
 
@@ -921,7 +941,7 @@ Selection of the most-used types. Full list in [Canonical symbols](#canonical-sy
 | `src/index.ts` | ~400 | Public barrel — exports every public symbol. |
 | `src/schema.ts` | ~800 | The grammar: types + `Schema.*` constructors + `advanceSchema` + `buildVariantMap` + `isNullableSum`. |
 | `src/bind.ts` | ~500 | `bind`, `BoundSchema`, `BoundReplica`, `BindingTarget`, `createBindingTarget`, `json`, `ephemeral`, resolve outcomes, `FactoryBuilder`. |
-| `src/substrate.ts` | ~300 | `Substrate<V>`, `Replica<V>`, factories, `computeSchemaHash`, `BACKING_DOC`, `fnv1a128`. |
+| `src/substrate.ts` | ~300 | `Substrate<V>`, `Replica<V>`, factories, `BACKING_DOC`. Re-exports `computeSchemaHash` and `HASH_ALGORITHM_VERSION` from `src/hash.ts`. |
 | `src/migration.ts` | ~1000 | 14 primitives, 4 tiers, identity derivation, chain validation, `MIGRATION_CHAIN`. |
 | `src/change.ts` | ~600 | Change vocabulary, constructors, guards, `transformIndex`, `textInstructionsToPatches`, `advanceAddresses`. |
 | `src/interpret.ts` | ~400 | `interpret`, `Interpreter`, `InterpretBuilder`, `InterpreterLayer`, `dispatchSum`, `RawPath`. |

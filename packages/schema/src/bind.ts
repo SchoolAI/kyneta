@@ -28,6 +28,7 @@ import type {
   SchemaBinding,
 } from "./migration.js"
 import {
+  computeSupportedHashes,
   deriveManifest,
   deriveSchemaBinding,
   getMigrationChain,
@@ -130,10 +131,16 @@ export interface BoundSchema<
   /**
    * The set of schema hashes this peer supports for sync compatibility.
    *
-   * Contains at minimum the current schema's hash. For schemas with
-   * T0/T1a migration chains, includes hashes of all intermediate schema
-   * versions reachable without epoch boundaries — enabling heterogeneous
-   * peers to sync without coordination.
+   * Contains the current schema's hash plus every hash reachable
+   * backwards through every `MigrationChain` in the schema tree (root
+   * chain and any nested-product chains, recursively). The set is the
+   * cartesian product over independent chains. Per-chain halt: first
+   * T2 step (lossy), T3 epoch (hard break), un-invertible primitive,
+   * or `chain.base` prune horizon.
+   *
+   * Semantically aligned with the theory's `nativeSupports` — these
+   * are the hashes at which this peer can op-stream sync. See
+   * `computeSupportedHashes` in `migration.ts`.
    */
   readonly supportedHashes: ReadonlySet<string>
 }
@@ -325,9 +332,11 @@ export function bind<S extends SchemaNode>(config: {
     }
   }
 
-  // Development-only chain validation — O(migrations × nodes).
+  // Chain validation — O(migrations × nodes), runs unconditionally.
   // Validates path consistency, detects collisions and missing references.
-  if ((globalThis as any).process?.env?.NODE_ENV !== "production" && chain) {
+  // bind() is module-scope-once, so always-validate has no hot-path cost
+  // and prevents prod builds from silently accepting malformed chains.
+  if (chain) {
     const result = validateChain(config.schema as unknown as ProductSchema)
     if (!result.valid) {
       throw new Error(
@@ -336,10 +345,15 @@ export function bind<S extends SchemaNode>(config: {
     }
   }
 
-  // Compute supported hashes. The current hash is always supported.
-  // Additional hashes from T0/T1a migration history are computed by
-  // walking the chain — deferred to Phase 4 implementation.
-  const supportedHashes: Set<string> = new Set([schemaHash])
+  // Compute supported hashes via the recursive tree walk. Covers the
+  // root chain plus every nested-product chain; cartesian product
+  // across independent chains. Per-chain halt at first T2 step, T3
+  // epoch, un-invertible primitive, or chain.entries exhaustion. See
+  // `computeSupportedHashes` for the full halt rule rationale.
+  const supportedHashes =
+    config.schema[KIND] === "product"
+      ? computeSupportedHashes(config.schema as unknown as ProductSchema)
+      : new Set<string>([schemaHash])
 
   return {
     _brand: "BoundSchema",

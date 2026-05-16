@@ -44,7 +44,8 @@
   "dependencies": {
     "@kyneta/changefeed": "workspace:^",
     "@kyneta/machine": "workspace:^",
-    "@kyneta/random": "workspace:^"
+    "@kyneta/random": "workspace:^",
+    "@sindresorhus/fnv1a": "^3.1.0"
   },
   "devDependencies": {
     "@kyneta/changefeed": "workspace:^",
