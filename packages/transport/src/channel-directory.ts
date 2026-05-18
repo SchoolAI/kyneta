@@ -11,10 +11,9 @@ import type {
 } from "./channel.js"
 import type { ChannelId } from "./types.js"
 
-let channelIssuanceId = 1
-
 export class ChannelDirectory<G> {
   private readonly channels: Map<ChannelId, Channel> = new Map()
+  #nextChannelId = 1
 
   constructor(readonly generate: GenerateFn<G>) {}
 
@@ -42,7 +41,7 @@ export class ChannelDirectory<G> {
    * establish handshake to become "established".
    */
   create(context: G, onReceive: ReceiveFn): ConnectedChannel {
-    const channelId = channelIssuanceId++
+    const channelId = this.#nextChannelId++
 
     const generatedChannel = this.generate(context)
 

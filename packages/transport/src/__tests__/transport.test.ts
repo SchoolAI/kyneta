@@ -4,6 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest"
 import type { GeneratedChannel } from "../channel.js"
+import { ChannelDirectory } from "../channel-directory.js"
 import type { ChannelMsg } from "../messages.js"
 import type { TransportContext } from "../transport.js"
 import { Transport } from "../transport.js"
@@ -171,5 +172,27 @@ describe("Transport lifecycle", () => {
     await adapter._initialize(ctx)
 
     expect(adapter.stopped).toBe(true)
+  })
+
+  it("each ChannelDirectory instance owns its own counter", () => {
+    const generate = vi.fn(() => ({
+      transportType: "test" as const,
+      send: vi.fn(),
+      stop: vi.fn(),
+    }))
+
+    const dir1 = new ChannelDirectory(generate)
+    const dir2 = new ChannelDirectory(generate)
+
+    const ch1 = dir1.create({ label: "a" }, vi.fn())
+    const ch2 = dir2.create({ label: "b" }, vi.fn())
+
+    // Each directory should start its counter at 1
+    expect(ch1.channelId).toBe(1)
+    expect(ch2.channelId).toBe(1)
+
+    // And continue independently
+    const ch3 = dir1.create({ label: "c" }, vi.fn())
+    expect(ch3.channelId).toBe(2)
   })
 })

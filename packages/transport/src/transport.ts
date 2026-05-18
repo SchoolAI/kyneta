@@ -46,8 +46,6 @@ type AdapterParams = {
   transportId?: string
 }
 
-let transportIdCounter = 1
-
 /**
  * Context provided to adapters during initialization.
  * Contains identity and callbacks for channel lifecycle events.
@@ -75,6 +73,8 @@ type AdapterLifecycleState =
   | { state: "stopped" }
 
 export abstract class Transport<G> {
+  static #nextId = 1
+
   readonly transportType: TransportType
   readonly transportId: string
   readonly channels: ChannelDirectory<G>
@@ -85,7 +85,7 @@ export abstract class Transport<G> {
 
   constructor({ transportType, transportId }: AdapterParams) {
     this.transportType = transportType
-    this.transportId = transportId ?? `${transportType}-${transportIdCounter++}`
+    this.transportId = transportId ?? `${transportType}-${Transport.#nextId++}`
     this.channels = new ChannelDirectory(this._generate.bind(this))
   }
 
