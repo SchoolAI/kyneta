@@ -432,7 +432,19 @@ export class FragmentCollector<T> {
 
       case "complete": {
         if (batch === undefined) {
-          // Single-fragment complete (total === 1)
+          // Single-fragment complete (total === 1) — verify size before accepting
+          const actualSize = this.#ops.sizeOf(chunk)
+          if (actualSize !== totalSize) {
+            return {
+              status: "error",
+              error: {
+                type: "size_mismatch",
+                frameId,
+                expected: totalSize,
+                actual: actualSize,
+              },
+            }
+          }
           return { status: "complete", data: chunk }
         }
 

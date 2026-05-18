@@ -420,6 +420,25 @@ describe("FragmentCollector — errors", () => {
     collector.dispose()
   })
 
+  it("rejects single-fragment frame when totalSize does not match chunk size", () => {
+    const timer = createMockTimer()
+    const collector = new FragmentCollector(
+      { timeoutMs: 5000 },
+      STRING_OPS,
+      timer,
+    )
+
+    // total=1 single fragment but totalSize is forged: 99999 vs actual chunk of 1
+    const result = collector.addFragment(1, 0, 1, 99999, "x")
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.error.type).toBe("size_mismatch")
+    }
+
+    collector.dispose()
+  })
+
   it("returns disposed error after dispose", () => {
     const timer = createMockTimer()
     const collector = new FragmentCollector(
