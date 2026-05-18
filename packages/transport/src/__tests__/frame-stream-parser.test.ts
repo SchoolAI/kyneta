@@ -1,6 +1,12 @@
 // frame-stream-parser — round-trip, split, coalesced, and reset tests.
 
-import { complete, encodeBinaryFrame, WIRE_VERSION } from "@kyneta/wire"
+import {
+  complete,
+  decodeBinaryFrame,
+  encodeBinaryFrame,
+  fragment,
+  WIRE_VERSION,
+} from "@kyneta/wire"
 import { describe, expect, it } from "vitest"
 import { FrameStreamParser } from "../frame-stream-parser.js"
 
@@ -114,5 +120,36 @@ describe("FrameStreamParser", () => {
     const r = results[0]
     if (!r || !r.ok) throw new Error("expected ok result")
     expect(new Uint8Array(r.value)).toEqual(frame)
+  })
+
+  it("round-trips a binary fragment frame", () => {
+    const payload = new Uint8Array([0xaa, 0xbb, 0xcc, 0xdd, 0xee])
+    const original = fragment(WIRE_VERSION, 0xabcd, 2, 5, 1000, payload)
+    const encoded = encodeBinaryFrame(original)
+
+    const parser = new FrameStreamParser()
+    const results = parser.feed(encoded)
+
+    expect(results).toHaveLength(1)
+    const r = results[0]
+    expect(r).toBeDefined()
+    if (r === undefined) throw new Error("unreachable")
+    expect(r.ok).toBe(true)
+    if (!r.ok) throw new Error("expected ok result")
+
+    // The parsed frame bytes must match the original encoded bytes exactly
+    expect(new Uint8Array(r.value)).toEqual(encoded)
+
+    // And decodeBinaryFrame must be able to parse the result
+    const decoded = decodeBinaryFrame(r.value)
+    expect(decoded.content.kind).toBe("fragment")
+    if (decoded.content.kind !== "fragment") {
+      throw new Error("expected fragment frame")
+    }
+    expect(decoded.content.frameId).toBe(0xabcd)
+    expect(decoded.content.index).toBe(2)
+    expect(decoded.content.total).toBe(5)
+    expect(decoded.content.totalSize).toBe(1000)
+    expect(new Uint8Array(decoded.content.payload)).toEqual(payload)
   })
 })

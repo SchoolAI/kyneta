@@ -8,7 +8,14 @@
 // FC/IS design: feedBytesStep is the functional core (pure, no side effects,
 // no mutation of inputs). FrameStreamParser is the imperative shell.
 
-import { HEADER_SIZE, ok, type Result, type WireError } from "@kyneta/wire"
+import {
+  BinaryFrameType,
+  FRAGMENT_META_SIZE,
+  HEADER_SIZE,
+  ok,
+  type Result,
+  type WireError,
+} from "@kyneta/wire"
 
 // ---------------------------------------------------------------------------
 // Parser state
@@ -108,8 +115,13 @@ export function feedBytesStep(
           headerBuffer.byteLength,
         )
         const payloadLength = view.getUint32(2, false)
+        const type = view.getUint8(1)
+        const bodyLength =
+          type === BinaryFrameType.FRAGMENT
+            ? payloadLength + FRAGMENT_META_SIZE
+            : payloadLength
 
-        if (payloadLength === 0) {
+        if (bodyLength === 0) {
           // Edge case: zero-length payload — emit header-only frame immediately
           const frame = new Uint8Array(HEADER_SIZE)
           frame.set(headerBuffer)
@@ -123,8 +135,8 @@ export function feedBytesStep(
           current = {
             phase: "payload",
             header: new Uint8Array(headerBuffer),
-            payloadLength,
-            buffer: new Uint8Array(payloadLength),
+            payloadLength: bodyLength,
+            buffer: new Uint8Array(bodyLength),
             offset: 0,
           }
         }
