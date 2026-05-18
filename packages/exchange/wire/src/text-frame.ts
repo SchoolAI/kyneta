@@ -97,8 +97,7 @@ export function encodeTextFrame(frame: Frame<string>): string {
 
   if (content.kind === "complete") {
     const prefix = buildPrefix(version, false)
-    const payloadValue = JSON.parse(content.payload)
-    return JSON.stringify([prefix, payloadValue])
+    return `[${JSON.stringify(prefix)},${content.payload}]`
   }
 
   // Fragment

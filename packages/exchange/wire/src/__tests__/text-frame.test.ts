@@ -8,7 +8,7 @@
 // alias layer (which lives in @kyneta/transport).
 
 import { SYNC_AUTHORITATIVE, SYNC_COLLABORATIVE } from "@kyneta/schema"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { complete, fragment, isComplete, isFragment } from "../frame-types.js"
 import { decodeTextWireMessage, encodeTextWireMessage } from "../index.js"
 import {
@@ -138,6 +138,24 @@ describe("Text frame — complete round-trip", () => {
     // arr[1] should be the parsed object, not a string
     expect(typeof arr[1]).toBe("object")
     expect(arr[1].type).toBe("present")
+  })
+
+  it("does not call JSON.parse when encoding a complete frame", () => {
+    const parseSpy = vi.spyOn(JSON, "parse")
+    const payload = JSON.stringify({ type: "present", docs: [] })
+    const frame = complete(TEXT_WIRE_VERSION, payload)
+    encodeTextFrame(frame)
+    expect(parseSpy).not.toHaveBeenCalled()
+    parseSpy.mockRestore()
+  })
+
+  it("preserves payload string exactly without JSON.parse artifacts", () => {
+    // Values that JavaScript JSON.parse normalizes: 1.0 → 1, 1e2 → 100, -0 → 0
+    const payload = '{"value":1.0,"exp":1e2,"negZero":-0}'
+    const frame = complete(TEXT_WIRE_VERSION, payload)
+    const wire = encodeTextFrame(frame)
+    // Direct concatenation preserves the raw payload; parse/stringify would normalize
+    expect(wire).toBe('["1c",{"value":1.0,"exp":1e2,"negZero":-0}]')
   })
 })
 
