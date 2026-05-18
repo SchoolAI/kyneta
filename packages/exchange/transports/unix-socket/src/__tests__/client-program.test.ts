@@ -20,7 +20,7 @@ const PATH = "/tmp/test.sock"
 function setup(opts: { maxAttempts?: number; enabled?: boolean } = {}) {
   const program = createUnixSocketClientProgram({
     path: PATH,
-    jitterFn: () => 0,
+    randomFn: () => 0,
     reconnect: {
       enabled: opts.enabled ?? true,
       maxAttempts: opts.maxAttempts ?? 10,

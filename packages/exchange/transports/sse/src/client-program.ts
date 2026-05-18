@@ -9,7 +9,7 @@
 
 import type { Program } from "@kyneta/machine"
 import type { ReconnectOptions } from "@kyneta/transport"
-import { computeBackoffDelay, DEFAULT_RECONNECT } from "@kyneta/transport"
+import { DEFAULT_RECONNECT, shouldReconnect } from "@kyneta/transport"
 
 import type { DisconnectReason, SseClientState } from "./types.js"
 
@@ -44,8 +44,8 @@ export type SseClientEffect =
 export interface SseClientProgramOptions {
   url: string
   reconnect?: Partial<ReconnectOptions>
-  /** Inject jitter source for deterministic testing. Default: () => Math.random() * 1000 */
-  jitterFn?: () => number
+  /** Source of `[0, 1)` random values for jitter. Default: `Math.random` */
+  randomFn?: () => number
 }
 
 /**
@@ -58,7 +58,7 @@ export interface SseClientProgramOptions {
 export function createSseClientProgram(
   options: SseClientProgramOptions,
 ): Program<SseClientMsg, SseClientState, SseClientEffect> {
-  const { url, jitterFn = () => Math.random() * 1000 } = options
+  const { url, randomFn = Math.random } = options
   const reconnect: ReconnectOptions = {
     ...DEFAULT_RECONNECT,
     ...options.reconnect,
@@ -67,44 +67,31 @@ export function createSseClientProgram(
   /**
    * Attempt to transition into reconnecting, or give up and disconnect.
    *
-   * Pure — computes the next state and effects from the current attempt
-   * count and reconnect configuration. Returns a tuple suitable for
-   * spreading into an `update` return.
+   * Wraps the pure `shouldReconnect` decision and builds the SSE-specific
+   * state/effect tuple. Returns a tuple suitable for spreading into an
+   * `update` return.
    */
   function tryReconnect(
     currentAttempt: number,
     reason: DisconnectReason,
     ...extraEffects: SseClientEffect[]
   ): [SseClientState, ...SseClientEffect[]] {
-    if (!reconnect.enabled) {
-      return [{ status: "disconnected", reason }, ...extraEffects]
+    const d = shouldReconnect(reconnect, currentAttempt, randomFn)
+    if (!d.reconnect) {
+      const finalReason: DisconnectReason =
+        d.cause === "max-attempts-exceeded"
+          ? { type: "max-retries-exceeded", attempts: d.attempts }
+          : reason
+      return [{ status: "disconnected", reason: finalReason }, ...extraEffects]
     }
-
-    if (currentAttempt >= reconnect.maxAttempts) {
-      return [
-        {
-          status: "disconnected",
-          reason: { type: "max-retries-exceeded", attempts: currentAttempt },
-        },
-        ...extraEffects,
-      ]
-    }
-
-    const delay = computeBackoffDelay(
-      currentAttempt + 1,
-      reconnect.baseDelay,
-      reconnect.maxDelay,
-      jitterFn(),
-    )
-
     return [
       {
         status: "reconnecting",
-        attempt: currentAttempt + 1,
-        nextAttemptMs: delay,
+        attempt: d.attempt,
+        nextAttemptMs: d.delayMs,
       },
       ...extraEffects,
-      { type: "start-reconnect-timer", delayMs: delay },
+      { type: "start-reconnect-timer", delayMs: d.delayMs },
     ]
   }
 

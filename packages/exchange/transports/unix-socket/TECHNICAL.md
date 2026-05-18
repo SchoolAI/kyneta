@@ -159,7 +159,7 @@ Effects (`UnixSocketClientEffect`): `connect`, `close-connection`, `add-channel-
 
 Four states, not five — there is no server `"ready"` gate because Unix-socket connections are bidirectionally established the moment `accept()` returns (no out-of-band handler wiring is possible under stream semantics).
 
-Backoff uses `computeBackoffDelay` from `@kyneta/transport` with injected jitter (`jitterFn`, default `() => Math.random() * 1000`) for deterministic testing.
+Backoff uses `shouldReconnect` from `@kyneta/transport` (which internally calls `computeBackoffDelay`). Jitter is proportional (0–20% of the raw delay); the random source is `randomFn` on `UnixSocketClientProgramOptions` (default `Math.random`, pinned to `() => 0` in tests).
 
 ### What `createUnixSocketClientProgram` is NOT
 

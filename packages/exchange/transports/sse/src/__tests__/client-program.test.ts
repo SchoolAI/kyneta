@@ -17,7 +17,7 @@ const URL = "http://localhost:3000/events"
 function setup(opts: { maxAttempts?: number; enabled?: boolean } = {}) {
   const program = createSseClientProgram({
     url: URL,
-    jitterFn: () => 0,
+    randomFn: () => 0,
     reconnect: {
       enabled: opts.enabled ?? true,
       maxAttempts: opts.maxAttempts ?? 10,

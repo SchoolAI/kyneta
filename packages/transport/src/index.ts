@@ -87,7 +87,10 @@ export { randomPeerId } from "@kyneta/random"
 export {
   computeBackoffDelay,
   DEFAULT_RECONNECT,
+  JITTER_FRACTION,
+  type ReconnectDecision,
   type ReconnectOptions,
+  shouldReconnect,
 } from "./reconnect.js"
 
 // ---------------------------------------------------------------------------

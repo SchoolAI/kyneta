@@ -14,7 +14,7 @@ import type { WebsocketClientState } from "../types.js"
 
 function setup(opts: { maxAttempts?: number; enabled?: boolean } = {}) {
   const program = createWsClientProgram({
-    jitterFn: () => 0,
+    randomFn: () => 0,
     reconnect: {
       enabled: opts.enabled ?? true,
       maxAttempts: opts.maxAttempts ?? 10,

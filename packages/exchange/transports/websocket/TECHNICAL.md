@@ -129,7 +129,7 @@ Effects (`WsClientEffect`): `create-websocket`, `close-websocket`, `add-channel-
 
 ### Backoff
 
-Backoff uses `computeBackoffDelay(attempt, baseDelay, maxDelay, jitter)` from `@kyneta/transport`. Jitter is injected into `createWsClientProgram` as `jitterFn` (default `() => Math.random() * 1000`) so tests can pin it to a constant and assert on exact delays.
+Backoff uses `shouldReconnect` from `@kyneta/transport` (which internally calls `computeBackoffDelay`). The decision function returns either `{ reconnect: true, attempt, delayMs }` or `{ reconnect: false, cause }`; the program builds the websocket-specific state/effect tuple from the decision. Jitter is proportional (0–20% of the raw delay); the random source is `randomFn` on `WsClientProgramOptions` (default `Math.random`, pinned to `() => 0` in tests so delays are deterministic).
 
 ---
 

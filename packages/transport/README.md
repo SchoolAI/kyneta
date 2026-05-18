@@ -11,8 +11,8 @@ Transport infrastructure for `@kyneta/exchange` — base class, channel types, m
 | **Channel types** | `Channel`, `ConnectedChannel`, `EstablishedChannel`, `GeneratedChannel`, `ChannelDirectory` |
 | **Transport base class** | `Transport<G>`, `TransportFactory`, `TransportContext` |
 | **Wire pipeline** | `Pipeline<S, R>`, `FrameStreamParser`, `Encoding`, `PayloadOf`, `WireOpts` |
-| **Client state machine** | `ClientStateMachine<S>`, `StateTransition<S>`, `TransitionListener<S>` |
-| **Reconnection** | `computeBackoffDelay`, `createReconnectScheduler`, `ReconnectOptions`, `DEFAULT_RECONNECT` |
+| **Client state machine** | `StateTransition<S>`, `TransitionListener<S>` (re-exported from `@kyneta/machine`) |
+| **Reconnection** | `computeBackoffDelay`, `shouldReconnect`, `ReconnectDecision`, `ReconnectOptions`, `DEFAULT_RECONNECT`, `JITTER_FRACTION` |
 | **Re-exports from wire** | `Result`, `Ok`, `Err`, `ok`, `err`, `WireError` |
 | **Bridge transport** | Moved to `@kyneta/bridge-transport` — codec-faithful + alias-aware in-process testing |
 

@@ -159,7 +159,7 @@ Messages (`SseClientMsg`): `start`, `event-source-opened`, `event-source-error`,
 
 Effects (`SseClientEffect`): `create-event-source`, `close-event-source`, `add-channel-and-establish`, `remove-channel`, `start-reconnect-timer`, `cancel-reconnect-timer`, `abort-pending-posts`.
 
-Backoff uses `computeBackoffDelay(attempt, baseDelay, maxDelay, jitter)` from `@kyneta/transport`. Jitter is injected via `jitterFn` (default `() => Math.random() * 1000`) so tests can pin it.
+Backoff uses `shouldReconnect` from `@kyneta/transport` (which internally calls `computeBackoffDelay`). The decision function returns either `{ reconnect: true, attempt, delayMs }` or `{ reconnect: false, cause }`; the program builds the SSE-specific state/effect tuple from the decision. Jitter is proportional (0–20% of the raw delay); the random source is `randomFn` on `SseClientProgramOptions` (default `Math.random`, pinned to `() => 0` in tests).
 
 ### POST lifecycle and abortion
 

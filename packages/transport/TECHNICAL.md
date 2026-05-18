@@ -254,14 +254,18 @@ Internally, `feedBytesStep(state, chunk)` is the pure step function (FC/IS patte
 
 ## Reconnection utilities
 
-`packages/transport/src/reconnect.ts` exports two items and no state.
+`packages/transport/src/reconnect.ts` exports pure backoff math, a decision function, and no state.
 
 | Export | Type | Purpose |
 |--------|------|---------|
 | `DEFAULT_RECONNECT` | `ReconnectOptions` | `{ enabled: true, maxAttempts: 10, baseDelay: 1000, maxDelay: 30000 }` |
-| `computeBackoffDelay(attempt, baseDelay, maxDelay, jitter)` | `(n, n, n, n) => number` | Pure: `min(baseDelay × 2^(attempt−1) + jitter, maxDelay)`. Jitter is injected, not generated internally — for testability. |
+| `JITTER_FRACTION` | `number` | `0.2` — fraction of raw delay added as jitter (one-sided, never subtractive). |
+| `computeBackoffDelay(attempt, baseDelay, maxDelay, random)` | `(n, n, n, n) => number` | Pure: `min(rawDelay × (1 + random × JITTER_FRACTION), maxDelay)` where `rawDelay = baseDelay × 2^(attempt−1)`. `random ∈ [0, 1)`; jitter adds 0–20% of the raw delay. |
+| `shouldReconnect(opts, currentAttempt, randomFn)` | `(opts, n, () => n) => ReconnectDecision` | Pure decision function. Returns `{ reconnect: true, attempt, delayMs }` or `{ reconnect: false, cause }` where `cause` is `"disabled"` or `"max-attempts-exceeded"` (the latter carries `attempts`). Replaces the `tryReconnect` closures that used to be copy-pasted across each client transport. |
 
-Scheduling (`setTimeout`, retry on failure) happens inside each concrete transport's client program. `@kyneta/transport` only owns the pure backoff math.
+`ReconnectDecision` is a discriminated union with three variants — see the type definition for the full shape. The `cause` discriminant matters because callers build different `DisconnectReason` values in the two non-reconnect cases: when disabled, the caller passes through its original reason; when max-attempts is hit, the caller constructs `{ type: "max-retries-exceeded", attempts }`.
+
+Scheduling (`setTimeout`, retry on failure) happens inside each concrete transport's client program. `@kyneta/transport` owns the pure decision; the transports own per-effect-type tuple construction.
 
 ---
 
@@ -288,7 +292,7 @@ Scheduling (`setTimeout`, retry on failure) happens inside each concrete transpo
 | `Encoding` / `PayloadOf<E>` | `src/pipeline-core.ts` | Encoding discriminant and payload type mapping. |
 | `FrameStreamParser` | `src/frame-stream-parser.ts` | Byte-stream → binary-frame extractor. |
 | `AliasState` / `applyOutboundAliasing` / `applyInboundAliasing` / `emptyAliasState` | `src/alias-table.ts` | Alias transformer (internal to pipeline). |
-| `ReconnectOptions` / `DEFAULT_RECONNECT` / `computeBackoffDelay` | `src/reconnect.ts` | Pure backoff math. |
+| `ReconnectOptions` / `DEFAULT_RECONNECT` / `JITTER_FRACTION` / `computeBackoffDelay` / `shouldReconnect` / `ReconnectDecision` | `src/reconnect.ts` | Pure backoff math + reconnect decision. |
 | `StateTransition` / `TransitionListener` | re-exported from `@kyneta/machine` | Surfaced for consumers observing client-program state. |
 
 ## File Map
@@ -306,7 +310,7 @@ Scheduling (`setTimeout`, retry on failure) happens inside each concrete transpo
 | `src/alias-table.ts` | ~510 | `AliasState`, `applyOutboundAliasing`, `applyInboundAliasing` — ChannelMsg ↔ WireMessage. |
 | `src/frame-stream-parser.ts` | ~30 | `FrameStreamParser` — imperative shell for stream parsing. |
 | `src/frame-stream-parser-core.ts` | ~155 | `feedBytesStep` — pure stream frame extraction. |
-| `src/reconnect.ts` | ~53 | `computeBackoffDelay`, `DEFAULT_RECONNECT`. |
+| `src/reconnect.ts` | ~122 | `computeBackoffDelay`, `shouldReconnect`, `DEFAULT_RECONNECT`, `JITTER_FRACTION`, `ReconnectDecision`. |
 
 ## Testing
 

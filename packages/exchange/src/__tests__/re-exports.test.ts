@@ -34,9 +34,14 @@ describe("@kyneta/exchange re-exports from @kyneta/transport", () => {
   }
 
   it("every consumer-facing value export from @kyneta/transport is available in @kyneta/exchange", () => {
-    // Pipeline and FrameStreamParser are transport-authoring internals
-    // for concrete transport implementations, not exchange consumers.
-    const authoringOnly = new Set(["Pipeline", "FrameStreamParser"])
+    // Transport-authoring internals — used by concrete transport packages
+    // to build their client/server programs, not by exchange consumers.
+    const authoringOnly = new Set([
+      "Pipeline",
+      "FrameStreamParser",
+      "shouldReconnect",
+      "JITTER_FRACTION",
+    ])
     const transportKeys = Object.keys(transport).filter(
       k => !authoringOnly.has(k),
     )
