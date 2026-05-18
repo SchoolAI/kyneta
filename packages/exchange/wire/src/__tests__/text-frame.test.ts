@@ -14,6 +14,7 @@ import { decodeTextWireMessage, encodeTextWireMessage } from "../index.js"
 import {
   decodeTextFrame,
   encodeTextFrame,
+  TEXT_CODEC,
   TEXT_WIRE_VERSION,
   TextFrameDecodeError,
 } from "../text-frame.js"
@@ -333,5 +334,20 @@ describe("Text frame — error handling", () => {
     expect(() =>
       decodeTextFrame('["1F", "deadbeef", 1, 0, 3, 100, "chunk"]'),
     ).toThrow(TextFrameDecodeError)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TEXT_CODEC
+// ---------------------------------------------------------------------------
+
+describe("TEXT_CODEC", () => {
+  it("counts and slices by Unicode codepoints, not UTF-16 code units", () => {
+    // "😀" is \ud83d\ude00 — 2 UTF-16 code units, 1 Unicode codepoint
+    const text = "hello😀world" // 11 codepoints, 12 code units
+    expect(TEXT_CODEC.sizeOf(text)).toBe(11)
+    expect(TEXT_CODEC.slice(text, 5, 6)).toBe("😀")
+    expect(TEXT_CODEC.slice(text, 0, 6)).toBe("hello😀")
+    expect(TEXT_CODEC.slice(text, 6, 11)).toBe("world")
   })
 })

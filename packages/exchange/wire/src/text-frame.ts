@@ -234,9 +234,10 @@ export class TextFrameDecodeError extends Error {
 export const TEXT_CODEC: WireCodec<string> = {
   wireVersion: TEXT_WIRE_VERSION,
   maxPayload: 0x7fffffff,
-  sizeOf: (s: string) => s.length,
+  sizeOf: (s: string) => Array.from(s).length,
   concatenate: (chunks: readonly string[]) => chunks.join(""),
-  slice: (s: string, start: number, end: number) => s.slice(start, end),
+  slice: (s: string, start: number, end: number) =>
+    Array.from(s).slice(start, end).join(""),
   encodeFrame: encodeTextFrame,
   decodeFrame: decodeTextFrame,
   encodeWire: encodeTextWireMessage,
