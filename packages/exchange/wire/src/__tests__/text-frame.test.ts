@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest"
 import { complete, fragment, isComplete, isFragment } from "../frame-types.js"
 import { decodeTextWireMessage, encodeTextWireMessage } from "../index.js"
 import {
+  buildPrefix,
   decodeTextFrame,
   encodeTextFrame,
   TEXT_CODEC,
@@ -349,5 +350,15 @@ describe("TEXT_CODEC", () => {
     expect(TEXT_CODEC.slice(text, 5, 6)).toBe("😀")
     expect(TEXT_CODEC.slice(text, 0, 6)).toBe("hello😀")
     expect(TEXT_CODEC.slice(text, 6, 11)).toBe("world")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildPrefix
+// ---------------------------------------------------------------------------
+
+describe("buildPrefix", () => {
+  it("throws RangeError when version exceeds single-digit encoding", () => {
+    expect(() => buildPrefix(10, false)).toThrow(RangeError)
   })
 })

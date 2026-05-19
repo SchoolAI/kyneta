@@ -32,7 +32,12 @@ export const TEXT_WIRE_VERSION = 1
 // Prefix encoding
 // ---------------------------------------------------------------------------
 
-function buildPrefix(version: number, isFragment: boolean): string {
+export function buildPrefix(version: number, isFragment: boolean): string {
+  if (!Number.isInteger(version) || version < 0 || version > 9) {
+    throw new RangeError(
+      `text wire version ${version} exceeds single-digit prefix encoding (max 9)`,
+    )
+  }
   const versionChar = String(version)
   return versionChar + (isFragment ? "f" : "c")
 }
