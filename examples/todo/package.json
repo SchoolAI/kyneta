@@ -20,7 +20,7 @@
   "devDependencies": {
     "@types/ws": "^8",
     "bun-types": "latest",
-    "typescript": "^5.9",
+    "typescript": "catalog:",
     "ws": "^8"
   }
 }

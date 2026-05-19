@@ -934,6 +934,40 @@ Selection of the most-used types. Full list in [Canonical symbols](#canonical-sy
 | `Reader`, `PlainState` | `src/reader.ts` | Plain-state reader primitive. |
 | `Path`, `Segment`, `Address`, `AddressTableRegistry` | `src/path.ts` | Path and address types. |
 
+## Build & Exports
+
+### Subpath exports
+
+The package exposes three subpath exports via `package.json` `"exports"`:
+
+| Subpath | Import path | Entry | Role |
+|---------|-------------|-------|------|
+| `"."` | `@kyneta/schema` | `src/index.ts` | Public barrel — every public symbol. |
+| `"./basic"` | `@kyneta/schema/basic` | `src/basic/index.ts` | Test-only helpers (re-exports of internal utilities for backend test suites). |
+| `"./testing"` | `@kyneta/schema/testing` | `src/testing/index.ts` | Backend conformance testing: `positionConformance` and `PositionTestEnv`. |
+
+The `"./testing"` subpath exists so that backend packages (`@kyneta/loro-schema`, `@kyneta/yjs-schema`) can import the position conformance harness without depending on vitest at runtime. The tsdown config externalises vitest via `neverBundle: ["vitest"]`, so vitest internals are never bundled into the published `dist/`.
+
+### Code splitting and stable chunk names
+
+Rolldown (via tsdown) requires code splitting when multiple entry points share code — all three entries above share the core schema types. The default `[name]-[hash].js` chunk pattern produces filenames with content hashes that change on every build, breaking lockfile stability and making `dist/` diffs noisy.
+
+The tsdown config overrides this with `chunkFileNames: "_shared/[name].js"`, producing deterministic chunk names under `dist/_shared/`. The build output looks like:
+
+```
+dist/
+  index.js          # main entry
+  index.d.ts
+  basic/
+    index.js        # ./basic entry
+    index.d.ts
+  testing/
+    index.js        # ./testing entry
+    index.d.ts
+  _shared/
+    *.js             # shared chunks, stable names, no hashes
+```
+
 ## File Map
 
 | File | Lines | Role |
@@ -987,6 +1021,14 @@ Selection of the most-used types. Full list in [Canonical symbols](#canonical-sy
 
 Every test in this package is pure. Substrates-under-test are the plain substrate (for everything) and structured mocks. Interpreters are tested by constructing minimal refs and asserting on method results. Migrations are tested by deriving manifests for known schemas and asserting on the hash values. Validation is tested by running `validate` over synthetic inputs and asserting on the error tree.
 
-The full suite serves as the specification of the `Substrate<V>` contract: `@kyneta/loro-schema` and `@kyneta/yjs-schema` run this same suite (adapted) against their substrates via the shared conformance harness in `src/basic/index.ts`.
+The full suite serves as the specification of the `Substrate<V>` contract: `@kyneta/loro-schema` and `@kyneta/yjs-schema` run this same suite (adapted) against their substrates. Position conformance tests import `positionConformance` and `PositionTestEnv` from `@kyneta/schema/testing`; general substrate conformance helpers live in `@kyneta/schema/basic`.
 
-**Tests**: 1,901 passed, 8 skipped across 59 files. Run with `cd packages/schema && pnpm exec vitest run`.
+**Tests**:
+
+| Package | Passed | Skipped |
+|---------|--------|---------|
+| `@kyneta/schema` | 1,949 | 8 |
+| `@kyneta/loro-schema` | 208 | 4 |
+| `@kyneta/yjs-schema` | 218 | 4 |
+
+Run with `cd packages/schema && pnpm exec vitest run`.

@@ -29,8 +29,7 @@
     "./bun": {
       "types": "./dist/bun.d.ts",
       "import": "./dist/bun.js"
-    },
-    "./src/*": "./src/*"
+    }
   },
   "scripts": {
     "build": "tsdown",
@@ -49,8 +48,8 @@
     "@kyneta/wire": "workspace:^",
     "@types/node": "^22",
     "bun-types": "latest",
-    "tsdown": "^0.22.0",
-    "typescript": "^5.9.2",
-    "vitest": "^4.0.17"
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

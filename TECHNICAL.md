@@ -189,6 +189,8 @@ cd packages/schema && pnpm exec vitest run
 
 **pnpm is required.** Workspace references (`workspace:^`), peer-dep hoisting, and the `pnpm-workspace.yaml` glob configuration all assume pnpm. Bun and npm do not work for the monorepo build — use Bun to *run* published packages, but use pnpm for development here.
 
+Shared devDependency versions (vitest, tsdown, typescript) are centralized in the `catalog:` section of `pnpm-workspace.yaml`. Individual `package.json` files reference these as `"catalog:"` instead of literal version ranges, so a single edit in the workspace file updates the tooling version across all ~30 packages.
+
 ### Runtime
 
 TypeScript 5.9 or newer (the `tsgo` preview compiler is used for dev-mode type checking where supported; `tsc` is the production check). Bun 1.3+ covers most runtime needs in examples and tests; Node 22+ is supported for consumers who prefer it. Node < 22 is unsupported.

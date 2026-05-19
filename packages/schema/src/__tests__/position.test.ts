@@ -28,7 +28,7 @@ import { plainSubstrateFactory } from "../substrates/plain.js"
 import {
   type PositionTestEnv,
   positionConformance,
-} from "./position-conformance.js"
+} from "../testing/position-conformance.js"
 
 // ===========================================================================
 // transformIndex unit tests

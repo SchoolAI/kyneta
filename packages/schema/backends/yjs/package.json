@@ -25,9 +25,7 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./src": "./src/index.ts",
-    "./src/*": "./src/*"
+    }
   },
   "scripts": {
     "build": "tsdown",
@@ -42,9 +40,9 @@
   "devDependencies": {
     "@kyneta/changefeed": "workspace:^",
     "@kyneta/schema": "workspace:^",
-    "tsdown": "^0.22.0",
-    "typescript": "^5.9.2",
-    "vitest": "^4.0.17",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
     "yjs": "^13.6.30"
   }
 }

@@ -20,7 +20,7 @@ import {
 import {
   type PositionTestEnv,
   positionConformance,
-} from "@kyneta/schema/src/__tests__/position-conformance.js"
+} from "@kyneta/schema/testing"
 import { describe, expect, it } from "vitest"
 import * as Y from "yjs"
 import { ensureContainers } from "../populate.js"

@@ -27,8 +27,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./src": "./src/index.ts",
-    "./src/*": "./src/*",
     "./schema.prisma.example": "./schema.prisma.example"
   },
   "scripts": {
@@ -47,8 +45,8 @@
     "@kyneta/schema": "workspace:^",
     "@kyneta/sql-store-core": "workspace:^",
     "@types/node": "^22",
-    "tsdown": "^0.22.0",
-    "typescript": "^5.9.2",
-    "vitest": "^4.0.17"
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

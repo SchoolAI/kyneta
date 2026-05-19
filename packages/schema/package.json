@@ -31,10 +31,11 @@
       "import": "./dist/basic/index.js",
       "default": "./dist/basic/index.js"
     },
-    "./src": "./src/index.ts",
-    "./src/*": "./src/*",
-    "./basic/src": "./src/basic/index.ts",
-    "./basic/src/*": "./src/basic/*"
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js",
+      "default": "./dist/testing/index.js"
+    }
   },
   "scripts": {
     "build": "tsdown",
@@ -49,8 +50,8 @@
   },
   "devDependencies": {
     "@kyneta/changefeed": "workspace:^",
-    "tsdown": "^0.22.0",
-    "typescript": "^5.9.2",
-    "vitest": "^4.0.17"
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

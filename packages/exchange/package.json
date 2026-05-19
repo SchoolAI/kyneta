@@ -54,9 +54,9 @@
     "@kyneta/wire": "workspace:^",
     "@kyneta/yjs-schema": "workspace:^",
     "loro-crdt": "^1.10.0",
-    "tsdown": "^0.22.0",
-    "typescript": "^5.9.2",
-    "vitest": "^4.0.17",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
     "yjs": "^13.6.30"
   }
 }

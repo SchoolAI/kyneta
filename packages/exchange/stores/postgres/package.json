@@ -27,8 +27,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./src": "./src/index.ts",
-    "./src/*": "./src/*",
     "./schema.sql": "./schema.sql"
   },
   "scripts": {
@@ -49,8 +47,8 @@
     "@types/node": "^22",
     "@types/pg": "^8.11.0",
     "pg": "^8.13.0",
-    "tsdown": "^0.22.0",
-    "typescript": "^5.9.2",
-    "vitest": "^4.0.17"
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

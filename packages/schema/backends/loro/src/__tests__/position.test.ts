@@ -19,7 +19,7 @@ import {
 import {
   type PositionTestEnv,
   positionConformance,
-} from "@kyneta/schema/src/__tests__/position-conformance.js"
+} from "@kyneta/schema/testing"
 import { LoroDoc } from "loro-crdt"
 import { describe, expect, it } from "vitest"
 import { createLoroSubstrate } from "../index.js"

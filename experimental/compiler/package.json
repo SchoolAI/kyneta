@@ -28,9 +28,7 @@
     "./transforms": {
       "import": "./dist/transforms.js",
       "types": "./dist/transforms.d.ts"
-    },
-    "./src": "./src/index.ts",
-    "./src/*": "./src/*"
+    }
   },
   "scripts": {
     "build": "tsdown",
@@ -43,8 +41,8 @@
     "ts-morph": "^25.0.0"
   },
   "devDependencies": {
-    "tsdown": "^0.22.0",
-    "typescript": "^5.9.2",
-    "vitest": "^4.0.17"
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

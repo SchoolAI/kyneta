@@ -81,9 +81,7 @@
     },
     "./types/reactive-view": {
       "types": "./src/types/reactive-view.d.ts"
-    },
-    "./src": "./src/index.ts",
-    "./src/*": "./src/*"
+    }
   },
   "scripts": {
     "build": "tsdown",
@@ -106,9 +104,9 @@
     "@types/jsdom": "^21.1.7",
     "@typescript/native-preview": "7.0.0-dev.20260103.1",
     "jsdom": "^26.1.0",
-    "tsdown": "^0.22.0",
-    "typescript": "^5.9.2",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
     "vite": "^6.1.1",
-    "vitest": "^4.0.17"
+    "vitest": "catalog:"
   }
 }
