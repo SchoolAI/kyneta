@@ -6,7 +6,8 @@
 //   2. When `headers` are provided, they're passed as `{ headers }` in the
 //      second argument. When absent, the constructor is called with just the URL.
 
-import type { PeerIdentityDetails, TransportContext } from "@kyneta/transport"
+import type { PeerIdentityDetails } from "@kyneta/transport"
+import { createTestTransportContext } from "@kyneta/transport/testing"
 import { describe, expect, it, vi } from "vitest"
 import { WebsocketClientTransport } from "../client-transport.js"
 import type { WebSocketConstructor, WebSocketLike } from "../types.js"
@@ -54,18 +55,8 @@ const testIdentity: PeerIdentityDetails = {
   type: "user",
 }
 
-function createTransportContext(
-  overrides: Partial<TransportContext> = {},
-): TransportContext {
-  return {
-    identity: testIdentity,
-    onChannelReceive: vi.fn(),
-    onChannelAdded: vi.fn(),
-    onChannelRemoved: vi.fn(),
-    onChannelEstablish: vi.fn(),
-    ...overrides,
-  }
-}
+const createTransportContext = (overrides = {}) =>
+  createTestTransportContext({ identity: testIdentity, ...overrides })
 
 /**
  * Initialize and start a WebsocketClientTransport through the full

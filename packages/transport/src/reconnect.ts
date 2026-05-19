@@ -69,9 +69,17 @@ export function computeBackoffDelay(
  * themselves, defeating the consolidation.
  */
 export type ReconnectDecision =
-  | { readonly reconnect: true; readonly attempt: number; readonly delayMs: number }
+  | {
+      readonly reconnect: true
+      readonly attempt: number
+      readonly delayMs: number
+    }
   | { readonly reconnect: false; readonly cause: "disabled" }
-  | { readonly reconnect: false; readonly cause: "max-attempts-exceeded"; readonly attempts: number }
+  | {
+      readonly reconnect: false
+      readonly cause: "max-attempts-exceeded"
+      readonly attempts: number
+    }
 
 /**
  * `currentAttempt` is the attempt count *before* this decision (0 if the

@@ -40,7 +40,7 @@ describe("FrameStreamParser", () => {
     const second = parser.feed(frame.slice(mid))
     expect(second).toHaveLength(1)
     const r = second[0]
-    if (!r || !r.ok) throw new Error("expected ok result")
+    if (!r?.ok) throw new Error("expected ok result")
     expect(new Uint8Array(r.value)).toEqual(frame)
   })
 
@@ -118,7 +118,7 @@ describe("FrameStreamParser", () => {
     const results = parser.feed(frame)
     expect(results).toHaveLength(1)
     const r = results[0]
-    if (!r || !r.ok) throw new Error("expected ok result")
+    if (!r?.ok) throw new Error("expected ok result")
     expect(new Uint8Array(r.value)).toEqual(frame)
   })
 

@@ -33,7 +33,7 @@ Imported by `@kyneta/exchange` (which owns the sync runtime) and by every concre
 | `GeneratedChannel` | A channel that has actions (`send`, `stop`) but has not yet been registered with the synchronizer. | `ConnectedChannel` |
 | `ConnectedChannel` | A generated channel that now has a `channelId` and an `onReceive` handler but has not completed `establish`. May only send `LifecycleMsg`. | `EstablishedChannel` |
 | `EstablishedChannel` | A connected channel that has completed the `establish` handshake and knows its remote `peerId`. May only send `SyncMsg`. | `ConnectedChannel` |
-| `ChannelDirectory<G>` | The per-transport map from `channelId` to `Channel`, owner of the monotonic channel-ID counter. | A service discovery, a routing table — it is local to one transport instance |
+| `ChannelDirectory<G>` | The per-transport map from `channelId` to `Channel`. IDs are minted by the consumer (typically a `Synchronizer`) and supplied via `TransportContext.mintChannelId`; the directory only tracks them. | A service discovery, a routing table — it is local to one transport instance |
 | `ChannelMsg` | `LifecycleMsg \| SyncMsg` — every message that ever crosses the wire. | A wire frame (wrapped separately by the Pipeline) |
 | `Pipeline<S, R>` | The single wire pipeline: `ChannelMsg → alias → encode → fragment → wire pieces` (send) and the reverse (receive). | A UNIX pipe, a CI/CD pipeline |
 | `Encoding` | `"binary" \| "text"` — determines the wire substrate type. | Character encoding (UTF-8, etc.) |
@@ -41,7 +41,7 @@ Imported by `@kyneta/exchange` (which owns the sync runtime) and by every concre
 | `FrameStreamParser` | Stateful byte-stream → binary-frame extractor for stream-oriented transports. | `Reassembler`, which handles fragmentation (orthogonal concern) |
 | `AddressedEnvelope` | `{ toChannelIds: number[], message: ChannelMsg }` — an outbound message plus routing. | `ReturnEnvelope`, which is the inbound counterpart |
 | `TransportFactory` | `() => AnyTransport` — a zero-arg function returning a fresh transport instance. | A `Transport` instance itself |
-| `TransportContext` | The callback bundle the exchange injects via `_initialize` (identity + four callbacks). | A Node.js context, a React context |
+| `TransportContext` | The callback bundle the exchange injects via `_initialize` (identity + four channel callbacks + `mintChannelId`). | A Node.js context, a React context |
 
 ---
 
@@ -73,7 +73,8 @@ The generic parameter `G` is the transport's own per-channel context (e.g. the b
 ### What a `ChannelDirectory` is NOT
 
 - **Not service discovery.** It never learns about remote peers; it only tracks the local transport's own channels.
-- **Not a routing table.** Routing (which peers receive which message) is done in the exchange. The directory is a plain `Map<ChannelId, Channel>` with id issuance.
+- **Not a routing table.** Routing (which peers receive which message) is done in the exchange. The directory is a plain `Map<ChannelId, Channel>` — the caller supplies the id.
+- **Not the owner of the channel-id namespace.** Per-directory id allocation collides when one synchronizer owns multiple transports (a relay hub, a multi-bridge client). The `Synchronizer` mints ids via `TransportContext.mintChannelId` so the namespace is unique across all of its transports.
 
 ---
 
@@ -114,7 +115,7 @@ Generated  ──generate()──►  Connected  ──establish handshake──
 | State | How it got here | What it can do |
 |-------|-----------------|----------------|
 | `GeneratedChannel` | Concrete transport's `generate(context)` returned it | Has `send` and `stop` actions; not yet registered |
-| `ConnectedChannel` | `ChannelDirectory.create` assigned it a `channelId` and wired `onReceive` | Can send `LifecycleMsg` only |
+| `ConnectedChannel` | `ChannelDirectory.create` stored it under the caller-supplied `channelId` and wired `onReceive` | Can send `LifecycleMsg` only |
 | `EstablishedChannel` | `establish` handshake completed; remote `peerId` is known | Can send `SyncMsg` only |
 
 `isEstablished(channel)` is the type guard for the post-handshake state.
@@ -134,7 +135,15 @@ The `Transport<G>` base class enforces a four-state lifecycle (source: `packages
 
 ### `generate` vs `addChannel`
 
-`generate(context: G)` (protected, abstract) produces a `GeneratedChannel` — the raw send/stop actions for one peer. `addChannel(context)` wraps it: assigns a `channelId`, wires `onReceive` to the injected `onChannelReceive` callback, fires `onChannelAdded`, and returns the `ConnectedChannel`. A concrete transport implements `generate` and calls `addChannel` from `onStart`.
+`generate(context: G)` (protected, abstract) produces a `GeneratedChannel` — the raw send/stop actions for one peer. `addChannel(context)` wraps it: requests a fresh `channelId` from `TransportContext.mintChannelId`, wires `onReceive` to the injected `onChannelReceive` callback, fires `onChannelAdded`, and returns the `ConnectedChannel`. A concrete transport implements `generate` and calls `addChannel` from `onStart`.
+
+### Channel-ID issuance
+
+`TransportContext.mintChannelId: () => ChannelId` is supplied by the consumer of the transport — typically the `Synchronizer`, which holds a per-instance counter. The transport never invents ids itself, and `ChannelDirectory.create` requires the caller to supply one.
+
+Why this matters: per-transport id counters collide when a single synchronizer owns multiple transports (a relay hub, a multi-bridge client). The synchronizer's `SessionModel.channels` is keyed by raw `ChannelId`; two transports both issuing `channelId=1` would overwrite each other's entries and corrupt peer-discovery state. Pushing id issuance up to the synchronizer keeps the namespace honest — uniqueness holds wherever uniqueness is required, regardless of how many transports share the synchronizer.
+
+Tests that need a `TransportContext` should use `createTestTransportContext` from `@kyneta/transport/testing`, which builds one with a fresh closure-scoped counter per call.
 
 ---
 
@@ -156,7 +165,7 @@ Every transport package exports `createXxxTransport(params): TransportFactory` r
 
 ### What the base class gives you for free
 
-- Channel-ID issuance (monotonic counter in `ChannelDirectory`).
+- Channel-ID minting via the consumer-supplied `TransportContext.mintChannelId`. The transport never invents ids itself — `addChannel` calls the mint function injected at `_initialize` time. See [Channel-ID issuance](#channel-id-issuance) below.
 - Lifecycle-state guards on `addChannel` / `removeChannel` / `establishChannel`.
 - Send fan-out: `_send(envelope)` iterates `envelope.toChannelIds` and calls each channel's `send`.
 - Re-initialization for HMR: a second `_initialize` call resets the directory and re-enters `initialized`.
@@ -281,7 +290,7 @@ Scheduling (`setTimeout`, retry on failure) happens inside each concrete transpo
 | `GeneratedChannel` | `src/channel.ts` | Pre-registration; has `send` + `stop` + `transportType`. |
 | `ConnectedChannel` | `src/channel.ts` | Post-registration, pre-handshake; `send: (LifecycleMsg) => void`. |
 | `EstablishedChannel` | `src/channel.ts` | Post-handshake; `send: (SyncMsg) => void`; `peerId` is known. |
-| `ChannelDirectory<G>` | `src/channel-directory.ts` | Per-transport channel store, owns ID issuance. |
+| `ChannelDirectory<G>` | `src/channel-directory.ts` | Per-transport channel store. IDs are supplied by the caller (`Transport.addChannel` via `TransportContext.mintChannelId`); the directory only tracks them. |
 | `ChannelMsg` / `LifecycleMsg` / `SyncMsg` | `src/messages.ts` | Message unions. |
 | `EstablishMsg`, `DepartMsg`, `PresentMsg`, `InterestMsg`, `OfferMsg`, `DismissMsg` | `src/messages.ts` | Individual message types. |
 | `AddressedEnvelope` / `ReturnEnvelope` | `src/messages.ts` | Outbound / inbound routing wrappers. |
@@ -303,7 +312,7 @@ Scheduling (`setTimeout`, retry on failure) happens inside each concrete transpo
 | `src/types.ts` | ~32 | Identity type aliases and `PeerIdentityDetails`. |
 | `src/messages.ts` | ~165 | The six-message vocabulary, unions, type guards, envelopes. |
 | `src/channel.ts` | ~115 | Channel lifecycle types and `isEstablished` guard. |
-| `src/channel-directory.ts` | ~79 | `ChannelDirectory<G>` — channel store with monotonic ID issuance. |
+| `src/channel-directory.ts` | ~75 | `ChannelDirectory<G>` — channel store; caller supplies the id. |
 | `src/transport.ts` | ~266 | `Transport<G>` abstract class, lifecycle, internal `_initialize` / `_start` / `_stop` / `_send`. |
 | `src/pipeline.ts` | ~115 | `Pipeline<S, R>` — imperative shell wrapping step functions. |
 | `src/pipeline-core.ts` | ~130 | `sendStep` / `receiveStep` — pure step functions (functional core). |

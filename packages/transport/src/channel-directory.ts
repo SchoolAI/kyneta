@@ -1,7 +1,11 @@
-// channel-directory — channel ID generation and lifecycle management.
+// channel-directory — channel tracking by id.
 //
-// Ported from @loro-extended/repo's ChannelDirectory with Loro-specific
-// types replaced by the substrate-agnostic channel types.
+// The directory does not mint channelIds. Callers supply them (see
+// `TransportContext.mintChannelId`) so that one `Synchronizer` owning
+// multiple transports shares a single id namespace — without this,
+// independent per-directory counters would collide and the session
+// model's `Map<ChannelId, ChannelEntry>` would silently overwrite
+// entries.
 
 import type {
   Channel,
@@ -13,7 +17,6 @@ import type { ChannelId } from "./types.js"
 
 export class ChannelDirectory<G> {
   private readonly channels: Map<ChannelId, Channel> = new Map()
-  #nextChannelId = 1
 
   constructor(readonly generate: GenerateFn<G>) {}
 
@@ -36,13 +39,16 @@ export class ChannelDirectory<G> {
   /**
    * Create a ConnectedChannel from the adapter's generate function.
    *
-   * Assigns a unique channelId and wires up the onReceive handler.
+   * The channelId is supplied by the caller (typically `Transport.addChannel`
+   * via `TransportContext.mintChannelId`); the directory does not invent it.
    * The channel starts in "connected" state — it must complete the
    * establish handshake to become "established".
    */
-  create(context: G, onReceive: ReceiveFn): ConnectedChannel {
-    const channelId = this.#nextChannelId++
-
+  create(
+    channelId: ChannelId,
+    context: G,
+    onReceive: ReceiveFn,
+  ): ConnectedChannel {
     const generatedChannel = this.generate(context)
 
     const channel: ConnectedChannel = {

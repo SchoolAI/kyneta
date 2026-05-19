@@ -262,6 +262,14 @@ export class Synchronizer {
   readonly #departureTimeout: number
   readonly #selfFeatures: WireFeatures | undefined
 
+  /**
+   * Per-synchronizer channelId counter. Injected into every transport via
+   * `TransportContext.mintChannelId` so a single namespace covers all of
+   * this synchronizer's transports. Reset on `reset()` so HMR cycles
+   * restart from 1.
+   */
+  #nextChannelId = 1
+
   #sessionHandle: ObservableHandle<SessionInput, SessionModel>
   #syncHandle: ObservableHandle<SyncInput, SyncModel>
   #outerHandle: DispatcherHandle<OuterMsg>
@@ -352,6 +360,7 @@ export class Synchronizer {
       onChannelRemoved: this.channelRemoved.bind(this),
       onChannelReceive: this.channelReceive.bind(this),
       onChannelEstablish: this.channelEstablish.bind(this),
+      mintChannelId: (): ChannelId => this.#nextChannelId++,
     }
 
     // Create TransportManager
@@ -821,6 +830,7 @@ export class Synchronizer {
     this.#syncHandle.dispose()
     ;[this.#sessionHandle, this.#syncHandle, this.#outerHandle] =
       this.#buildHandles()
+    this.#nextChannelId = 1
     this.transports.reset()
   }
 

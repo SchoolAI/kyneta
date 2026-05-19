@@ -1,13 +1,9 @@
 // TransportManager — unit tests for transport lifecycle and message routing.
 
 import { SYNC_AUTHORITATIVE } from "@kyneta/schema"
-import type {
-  ChannelMsg,
-  GeneratedChannel,
-  PeerIdentityDetails,
-  TransportContext,
-} from "@kyneta/transport"
+import type { ChannelMsg, GeneratedChannel } from "@kyneta/transport"
 import { Transport } from "@kyneta/transport"
+import { createTestTransportContext } from "@kyneta/transport/testing"
 import { describe, expect, it, vi } from "vitest"
 import { TransportManager } from "../transport/transport-manager.js"
 
@@ -15,24 +11,7 @@ import { TransportManager } from "../transport/transport-manager.js"
 // Test helpers
 // ---------------------------------------------------------------------------
 
-const testIdentity: PeerIdentityDetails = {
-  peerId: "test-peer",
-  name: "Test Peer",
-  type: "user",
-}
-
-function createTransportContext(
-  overrides: Partial<TransportContext> = {},
-): TransportContext {
-  return {
-    identity: testIdentity,
-    onChannelReceive: vi.fn(),
-    onChannelAdded: vi.fn(),
-    onChannelRemoved: vi.fn(),
-    onChannelEstablish: vi.fn(),
-    ...overrides,
-  }
-}
+const createTransportContext = createTestTransportContext
 
 /**
  * Minimal concrete adapter for testing.

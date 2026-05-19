@@ -14,12 +14,9 @@
 //      POSTs, so any thrown error escapes the promise chain.
 
 import { SYNC_AUTHORITATIVE } from "@kyneta/schema"
-import type {
-  ChannelMsg,
-  PeerIdentityDetails,
-  TransportContext,
-} from "@kyneta/transport"
+import type { ChannelMsg, PeerIdentityDetails } from "@kyneta/transport"
 import { Pipeline } from "@kyneta/transport"
+import { createTestTransportContext } from "@kyneta/transport/testing"
 import { describe, expect, it, vi } from "vitest"
 import type { SseClientOptions } from "../client-transport.js"
 import { SseClientTransport } from "../client-transport.js"
@@ -34,18 +31,8 @@ const testIdentity: PeerIdentityDetails = {
   type: "user",
 }
 
-function createContext(
-  overrides?: Partial<TransportContext>,
-): TransportContext {
-  return {
-    identity: testIdentity,
-    onChannelReceive: vi.fn(),
-    onChannelAdded: vi.fn(),
-    onChannelRemoved: vi.fn(),
-    onChannelEstablish: vi.fn(),
-    ...overrides,
-  }
-}
+const createContext = (overrides = {}) =>
+  createTestTransportContext({ identity: testIdentity, ...overrides })
 
 /**
  * A minimal EventSource mock that stays in CONNECTING state and never fires

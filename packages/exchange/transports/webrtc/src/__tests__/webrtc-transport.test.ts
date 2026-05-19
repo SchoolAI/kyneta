@@ -6,6 +6,7 @@
 
 import type { ChannelMsg } from "@kyneta/transport"
 import { Pipeline } from "@kyneta/transport"
+import { createTestTransportContext } from "@kyneta/transport/testing"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { WebrtcTransport } from "../webrtc-transport.js"
 import { MockDataChannel } from "./mock-data-channel.js"
@@ -22,13 +23,9 @@ import { MockDataChannel } from "./mock-data-channel.js"
  * channel lifecycle events and message delivery.
  */
 function createContext() {
-  return {
-    identity: { peerId: "local-peer", name: "Local", type: "user" as const },
-    onChannelReceive: vi.fn(),
-    onChannelAdded: vi.fn(),
-    onChannelRemoved: vi.fn(),
-    onChannelEstablish: vi.fn(),
-  }
+  return createTestTransportContext({
+    identity: { peerId: "local-peer", name: "Local", type: "user" },
+  })
 }
 
 async function initializeTransport(

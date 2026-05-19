@@ -1,22 +1,12 @@
 // BridgeTransport integration tests — lifecycle, channel handshake,
 // and fragmentation through the wire pipeline.
 
-import type { ChannelMsg, OfferMsg, TransportContext } from "@kyneta/transport"
-import { describe, expect, it, vi } from "vitest"
+import type { ChannelMsg, OfferMsg } from "@kyneta/transport"
+import { createTestTransportContext } from "@kyneta/transport/testing"
+import { describe, expect, it } from "vitest"
 import { Bridge, BridgeTransport } from "../bridge.js"
 
-function createTransportContext(
-  overrides: Partial<TransportContext> = {},
-): TransportContext {
-  return {
-    identity: { peerId: "test-peer", type: "user" },
-    onChannelReceive: vi.fn(),
-    onChannelAdded: vi.fn(),
-    onChannelRemoved: vi.fn(),
-    onChannelEstablish: vi.fn(),
-    ...overrides,
-  }
-}
+const createTransportContext = createTestTransportContext
 
 describe("BridgeTransport", () => {
   it("two adapters register in a shared Bridge", async () => {

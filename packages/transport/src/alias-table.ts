@@ -45,7 +45,6 @@ import {
 } from "@kyneta/wire"
 import type {
   ChannelMsg,
-  DismissMsg,
   EstablishMsg,
   InterestMsg,
   OfferMsg,

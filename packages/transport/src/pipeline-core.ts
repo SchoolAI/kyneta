@@ -132,7 +132,7 @@ export function sendStep<S>(
 export function receiveStep<R>(
   state: PipelineState<R>,
   recvCodec: WireCodec<R>,
-  opts: ResolvedOpts,
+  _opts: ResolvedOpts,
   piece: R,
 ): {
   state: PipelineState<R>

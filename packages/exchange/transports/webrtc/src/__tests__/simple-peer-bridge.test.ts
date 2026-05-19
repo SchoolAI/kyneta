@@ -6,6 +6,7 @@
 // DataChannelLike contract (addEventListener/removeEventListener,
 // "open"/"message"/"close"/"error").
 
+import { createTestTransportContext } from "@kyneta/transport/testing"
 import { describe, expect, it, vi } from "vitest"
 import type { DataChannelLike } from "../data-channel-like.js"
 import { WebrtcTransport } from "../webrtc-transport.js"
@@ -93,13 +94,11 @@ function fromSimplePeer(peer: MockSimplePeer): DataChannelLike {
 // ---------------------------------------------------------------------------
 
 async function initializeTransport(transport: WebrtcTransport) {
-  await transport._initialize({
-    identity: { peerId: "local", name: "Local", type: "user" as const },
-    onChannelReceive: vi.fn(),
-    onChannelAdded: vi.fn(),
-    onChannelRemoved: vi.fn(),
-    onChannelEstablish: vi.fn(),
-  })
+  await transport._initialize(
+    createTestTransportContext({
+      identity: { peerId: "local", name: "Local", type: "user" },
+    }),
+  )
   await transport._start()
 }
 

@@ -61,6 +61,13 @@ export type TransportContext = {
   onChannelAdded: (channel: ConnectedChannel) => void
   onChannelRemoved: (channel: Channel) => void
   onChannelEstablish: (channel: ConnectedChannel) => void
+  /**
+   * Mint a fresh channelId for `addChannel`. Owned by the consumer
+   * (typically a `Synchronizer`) so the id namespace is unique across
+   * all transports that share this context — a per-transport counter
+   * would collide when one synchronizer owns multiple transports.
+   */
+  mintChannelId: () => ChannelId
 }
 
 // Callbacks only (without identity) for lifecycle state
@@ -106,7 +113,8 @@ export abstract class Transport<G> {
       )
     }
 
-    const channel = this.channels.create(context, message =>
+    const channelId = lifecycle.mintChannelId()
+    const channel = this.channels.create(channelId, context, message =>
       lifecycle.onChannelReceive(channel.channelId, message),
     )
 
@@ -220,6 +228,7 @@ export abstract class Transport<G> {
       onChannelAdded: context.onChannelAdded,
       onChannelRemoved: context.onChannelRemoved,
       onChannelEstablish: context.onChannelEstablish,
+      mintChannelId: context.mintChannelId,
     }
   }
 

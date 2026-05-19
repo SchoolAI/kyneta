@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { GeneratedChannel } from "../channel.js"
 import { ChannelDirectory } from "../channel-directory.js"
 import type { ChannelMsg } from "../messages.js"
-import type { TransportContext } from "../transport.js"
+import { createTestTransportContext } from "../testing/transport-context.js"
 import { Transport } from "../transport.js"
 import type { PeerIdentityDetails } from "../types.js"
 
@@ -20,18 +20,7 @@ const testIdentity: PeerIdentityDetails = {
   type: "user",
 }
 
-function createTransportContext(
-  overrides: Partial<TransportContext> = {},
-): TransportContext {
-  return {
-    identity: testIdentity,
-    onChannelReceive: vi.fn(),
-    onChannelAdded: vi.fn(),
-    onChannelRemoved: vi.fn(),
-    onChannelEstablish: vi.fn(),
-    ...overrides,
-  }
-}
+const createTransportContext = createTestTransportContext
 
 /**
  * Minimal concrete adapter for testing the abstract Transport base class.
@@ -235,26 +224,23 @@ describe("Transport lifecycle", () => {
     expect(adapter.stopped).toBe(true)
   })
 
-  it("each ChannelDirectory instance owns its own counter", () => {
+  it("ChannelDirectory stores channels under the caller-supplied id", () => {
     const generate = vi.fn(() => ({
       transportType: "test" as const,
       send: vi.fn(),
       stop: vi.fn(),
     }))
 
-    const dir1 = new ChannelDirectory(generate)
-    const dir2 = new ChannelDirectory(generate)
+    const dir = new ChannelDirectory(generate)
 
-    const ch1 = dir1.create({ label: "a" }, vi.fn())
-    const ch2 = dir2.create({ label: "b" }, vi.fn())
+    const ch1 = dir.create(7, { label: "a" }, vi.fn())
+    expect(ch1.channelId).toBe(7)
+    expect(dir.get(7)).toBe(ch1)
 
-    // Each directory should start its counter at 1
-    expect(ch1.channelId).toBe(1)
-    expect(ch2.channelId).toBe(1)
-
-    // And continue independently
-    const ch3 = dir1.create({ label: "c" }, vi.fn())
-    expect(ch3.channelId).toBe(2)
+    // The directory never invents ids; uniqueness is the caller's job.
+    const ch2 = dir.create(42, { label: "b" }, vi.fn())
+    expect(ch2.channelId).toBe(42)
+    expect(dir.size).toBe(2)
   })
 
   it("establishChannel throws if channel is not in connected state", async () => {
