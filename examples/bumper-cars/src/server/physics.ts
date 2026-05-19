@@ -3,6 +3,8 @@
 //   Bumper Cars — Physics
 //
 //   Pure functions operating on plain types. No framework imports.
+//   Every function returns a new CarState; none mutate input.
+//
 //   Ported from vendor/loro-extended/examples/bumper-cars/src/server/physics.ts
 //   with import paths adapted to kyneta's structure.
 //
@@ -24,17 +26,18 @@ import type { CarState, Collision, InputState } from "../types.js"
 // Input → Velocity
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Apply joystick/keyboard input to a car's velocity. Mutates in place. */
-export function applyInput(car: CarState, input: InputState): void {
-  if (input.force > 0) {
-    const ax = Math.cos(input.angle) * input.force * 0.5
-    const ay = Math.sin(input.angle) * input.force * 0.5
+/** Apply joystick/keyboard input to a car's velocity. Pure — returns new CarState. */
+export function applyInput(car: CarState, input: InputState): CarState {
+  if (input.force <= 0) return car
 
-    car.vx += ax
-    car.vy += ay
+  const ax = Math.cos(input.angle) * input.force * 0.5
+  const ay = Math.sin(input.angle) * input.force * 0.5
 
-    // Update rotation to face movement direction
-    car.rotation = input.angle
+  return {
+    ...car,
+    vx: car.vx + ax,
+    vy: car.vy + ay,
+    rotation: input.angle,
   }
 }
 
@@ -42,55 +45,72 @@ export function applyInput(car: CarState, input: InputState): void {
 // Friction + Speed Clamp
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Apply friction and clamp velocity. Mutates in place. */
-export function applyFriction(car: CarState): void {
-  car.vx *= FRICTION
-  car.vy *= FRICTION
+/** Apply friction and clamp velocity. Pure — returns new CarState. */
+export function applyFriction(car: CarState): CarState {
+  let vx = car.vx * FRICTION
+  let vy = car.vy * FRICTION
 
   // Clamp to max speed
-  const speed = Math.sqrt(car.vx * car.vx + car.vy * car.vy)
+  const speed = Math.sqrt(vx * vx + vy * vy)
   if (speed > MAX_SPEED) {
-    car.vx = (car.vx / speed) * MAX_SPEED
-    car.vy = (car.vy / speed) * MAX_SPEED
+    vx = (vx / speed) * MAX_SPEED
+    vy = (vy / speed) * MAX_SPEED
   }
 
   // Stop very slow movement
-  if (Math.abs(car.vx) < 0.01) car.vx = 0
-  if (Math.abs(car.vy) < 0.01) car.vy = 0
+  if (Math.abs(vx) < 0.01) vx = 0
+  if (Math.abs(vy) < 0.01) vy = 0
+
+  return { ...car, vx, vy }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // Position Update
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Advance position by velocity. Mutates in place. */
-export function updatePosition(car: CarState): void {
-  car.x += car.vx
-  car.y += car.vy
+/** Advance position by velocity. Pure — returns new CarState. */
+export function updatePosition(car: CarState): CarState {
+  return {
+    ...car,
+    x: car.x + car.vx,
+    y: car.y + car.vy,
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // Wall Bounce
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Bounce off arena walls. Mutates in place. */
-export function handleWallCollisions(car: CarState): void {
-  if (car.x - CAR_RADIUS < 0) {
-    car.x = CAR_RADIUS
-    car.vx = -car.vx * WALL_BOUNCE
+/** Bounce off arena walls. Pure — returns new CarState only if a wall was hit. */
+export function handleWallCollisions(car: CarState): CarState {
+  let x = car.x
+  let y = car.y
+  let vx = car.vx
+  let vy = car.vy
+  let hit = false
+
+  if (x - CAR_RADIUS < 0) {
+    x = CAR_RADIUS
+    vx = -vx * WALL_BOUNCE
+    hit = true
   }
-  if (car.x + CAR_RADIUS > ARENA_WIDTH) {
-    car.x = ARENA_WIDTH - CAR_RADIUS
-    car.vx = -car.vx * WALL_BOUNCE
+  if (x + CAR_RADIUS > ARENA_WIDTH) {
+    x = ARENA_WIDTH - CAR_RADIUS
+    vx = -vx * WALL_BOUNCE
+    hit = true
   }
-  if (car.y - CAR_RADIUS < 0) {
-    car.y = CAR_RADIUS
-    car.vy = -car.vy * WALL_BOUNCE
+  if (y - CAR_RADIUS < 0) {
+    y = CAR_RADIUS
+    vy = -vy * WALL_BOUNCE
+    hit = true
   }
-  if (car.y + CAR_RADIUS > ARENA_HEIGHT) {
-    car.y = ARENA_HEIGHT - CAR_RADIUS
-    car.vy = -car.vy * WALL_BOUNCE
+  if (y + CAR_RADIUS > ARENA_HEIGHT) {
+    y = ARENA_HEIGHT - CAR_RADIUS
+    vy = -vy * WALL_BOUNCE
+    hit = true
   }
+
+  return hit ? { ...car, x, y, vx, vy } : car
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -140,23 +160,36 @@ function normalizeAngle(angle: number): number {
 // Car–Car Collision
 // ─────────────────────────────────────────────────────────────────────────
 
+/** Result of checking a car-car collision. */
+export type CarCollisionResult = {
+  /** Collision info if they collided, null otherwise. */
+  collision: Collision | null
+  /** Updated car1 state (may be unchanged if no collision). */
+  car1: CarState
+  /** Updated car2 state (may be unchanged if no collision). */
+  car2: CarState
+}
+
 /**
  * Check and resolve collision between two cars.
- * Mutates car velocities and positions to separate overlapping cars.
- * Returns collision info if they collided, or null.
+ * Pure — returns new CarState objects and collision info.
+ * Does not mutate inputs.
  */
 export function checkCarCollision(
   peer1: string,
   car1: CarState,
   peer2: string,
   car2: CarState,
-): Collision | null {
+  now: number,
+): CarCollisionResult {
   const dx = car2.x - car1.x
   const dy = car2.y - car1.y
   const distance = Math.sqrt(dx * dx + dy * dy)
   const minDistance = CAR_RADIUS * 2
 
-  if (distance >= minDistance || distance === 0) return null
+  if (distance >= minDistance || distance === 0) {
+    return { collision: null, car1, car2 }
+  }
 
   // Normalize collision vector
   const nx = dx / distance
@@ -166,31 +199,53 @@ export function checkCarCollision(
   const dvn = (car1.vx - car2.vx) * nx + (car1.vy - car2.vy) * ny
 
   // Only resolve if cars are moving towards each other
-  if (dvn <= 0) return null
+  if (dvn <= 0) {
+    return { collision: null, car1, car2 }
+  }
 
   // Impulse (assuming equal mass)
   const impulse = dvn * CAR_BOUNCE
 
-  car1.vx -= impulse * nx
-  car1.vy -= impulse * ny
-  car2.vx += impulse * nx
-  car2.vy += impulse * ny
+  const nextCar1: CarState = {
+    ...car1,
+    vx: car1.vx - impulse * nx,
+    vy: car1.vy - impulse * ny,
+  }
+  const nextCar2: CarState = {
+    ...car2,
+    vx: car2.vx + impulse * nx,
+    vy: car2.vy + impulse * ny,
+  }
 
   // Separate cars to prevent overlap
   const overlap = minDistance - distance
   const sx = (overlap / 2 + 1) * nx
   const sy = (overlap / 2 + 1) * ny
-  car1.x -= sx
-  car1.y -= sy
-  car2.x += sx
-  car2.y += sy
+
+  const separatedCar1: CarState = {
+    ...nextCar1,
+    x: nextCar1.x - sx,
+    y: nextCar1.y - sy,
+  }
+  const separatedCar2: CarState = {
+    ...nextCar2,
+    x: nextCar2.x + sx,
+    y: nextCar2.y + sy,
+  }
 
   // Determine who scored — only cars that hit with their front
   const scorers: string[] = []
-  if (isHitWithFront(car1, car2)) scorers.push(peer1)
-  if (isHitWithFront(car2, car1)) scorers.push(peer2)
+  if (isHitWithFront(separatedCar1, separatedCar2)) scorers.push(peer1)
+  if (isHitWithFront(separatedCar2, separatedCar1)) scorers.push(peer2)
 
-  return { peer1, peer2, timestamp: Date.now(), scorers }
+  const collision: Collision = {
+    peer1,
+    peer2,
+    timestamp: now,
+    scorers,
+  }
+
+  return { collision, car1: separatedCar1, car2: separatedCar2 }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

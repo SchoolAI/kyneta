@@ -47,6 +47,9 @@ export const HIT_EFFECT_DURATION = 300
 /** Cooldown between scoring the same collision pair (ms). */
 export const COLLISION_COOLDOWN = 500
 
+/** Entries older than this are garbage-collected from the cooldown map. */
+export const COOLDOWN_RETENTION_MS = COLLISION_COOLDOWN * 2
+
 // ─────────────────────────────────────────────────────────────────────────
 // Color palette — 10 distinct car colors
 // ─────────────────────────────────────────────────────────────────────────

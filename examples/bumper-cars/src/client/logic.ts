@@ -80,12 +80,13 @@ export function sortScores(
 
 /**
  * Combines joystick and keyboard inputs.
- * Joystick takes priority if it has any force applied.
+ * Joystick takes priority when engaged; keyboard falls back.
  */
 export function combineInputs(
   joystickInput: InputState,
   keyboardInput: InputState,
 ): InputState {
+  // Joystick takes priority when engaged; keyboard falls back
   if (joystickInput.force > 0) {
     return joystickInput
   }

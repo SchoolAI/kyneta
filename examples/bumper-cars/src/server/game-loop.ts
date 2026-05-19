@@ -9,16 +9,17 @@
 //     2. Plan:   call tick() — pure function, no side effects
 //     3. Execute: write results via change(gameStateDoc, ...)
 //
-//   Player lifecycle is managed externally via addPlayer / removePlayer,
-//   called from exchange.documents.subscribe() and exchange.peers.subscribe()
-//   in server.ts.
+//   Owns its Exchange subscriptions (doc-created, doc-removed,
+//   peer-departed) so that server.ts is fully formed at construction
+//   time — no temporal coupling via let-binding.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { Exchange } from "@kyneta/exchange"
 import { change } from "@kyneta/schema"
 import type { Plain, Ref } from "@kyneta/schema"
 import { TICK_INTERVAL } from "../constants.js"
-import { GameStateSchema, type PlayerInputSchema } from "../schema.js"
+import { GameStateSchema, PlayerInputDoc, type PlayerInputSchema } from "../schema.js"
 import type { CarState, InputState } from "../types.js"
 import { getSpawnPosition } from "./physics.js"
 import { tick, type TickOutput } from "./tick.js"
@@ -36,21 +37,32 @@ type PlayerEntry = {
   car: CarState
 }
 
+type DepartedScore = {
+  name: string
+  color: string
+  bumps: number
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // GameLoop
 // ─────────────────────────────────────────────────────────────────────────
 
 export class GameLoop {
+  readonly #exchange: Exchange
   readonly #gameStateDoc: GameStateRef
   readonly #players = new Map<string, PlayerEntry>()
   readonly #scores = new Map<string, number>()
+  readonly #departedScores = new Map<string, DepartedScore>()
 
   #tickCount = 0
   #intervalId: ReturnType<typeof setInterval> | null = null
   #recentCollisions = new Map<string, number>()
 
-  constructor(gameStateDoc: GameStateRef) {
+  constructor(exchange: Exchange, gameStateDoc: GameStateRef) {
+    this.#exchange = exchange
     this.#gameStateDoc = gameStateDoc
+    this.#subscribeDocs()
+    this.#subscribePeers()
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -72,40 +84,94 @@ export class GameLoop {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Player management — called from server.ts callbacks
+  // Exchange subscriptions — private, set up once in constructor
+  // ═══════════════════════════════════════════════════════════════════════
+
+  #subscribeDocs(): void {
+    this.#exchange.documents.subscribe(changeset => {
+      for (const change of changeset.changes) {
+        const docId = change.docId
+        if (!docId.startsWith("input:")) continue
+
+        const peerId = docId.slice("input:".length)
+
+        if (change.type === "doc-created") {
+          queueMicrotask(() => {
+            if (this.#exchange.has(docId)) {
+              const inputDoc = this.#exchange.get(docId, PlayerInputDoc)
+              this.addPlayer(peerId, inputDoc)
+            }
+          })
+        }
+
+        if (change.type === "doc-removed") {
+          this.removePlayer(peerId)
+        }
+      }
+    })
+  }
+
+  #subscribePeers(): void {
+    this.#exchange.peers.subscribe(changeset => {
+      for (const change of changeset.changes) {
+        if (change.type !== "peer-departed") continue
+        const peerId = change.peer.peerId
+        this.removePlayer(peerId)
+        const inputDocId = `input:${peerId}`
+        if (this.#exchange.has(inputDocId)) {
+          this.#exchange.destroy(inputDocId)
+        }
+      }
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Player management — called from subscription callbacks
   // ═══════════════════════════════════════════════════════════════════════
 
   addPlayer(peerId: string, inputDoc: PlayerInputRef): void {
     if (this.#players.has(peerId)) return
 
-    const existingCars = Array.from(this.#players.values()).map(e => e.car)
-    const spawn = getSpawnPosition(existingCars)
+    // Intentionally reads #players before adding the new player,
+    // so spawn position avoids all existing cars.
+    const spawn = getSpawnPosition(
+      Array.from(this.#players.values()).map(e => e.car),
+    )
 
-    // Read initial identity from the input doc
-    const input = inputDoc()
-
+    // Initialize with safe defaults. The first #update gather pass
+    // will populate real name and color from the input doc.
     const car: CarState = {
       x: spawn.x,
       y: spawn.y,
       vx: 0,
       vy: 0,
       rotation: Math.random() * Math.PI * 2,
-      color: input.color || "#4ECDC4",
-      name: input.name || `Player-${peerId.slice(-4)}`,
+      color: "#4ECDC4",
+      name: "",
       hitUntil: 0,
     }
 
     this.#players.set(peerId, { inputDoc, car })
     this.#scores.set(peerId, 0)
 
-    console.log(`  🚗 ${car.name} joined at (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)})`)
+    console.log(`  🚗 Player joined at (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)})`)
   }
 
   removePlayer(peerId: string): void {
     const entry = this.#players.get(peerId)
     if (!entry) return
 
-    console.log(`  🚗 ${entry.car.name} left`)
+    console.log(`  🚗 ${entry.car.name || "Player"} left`)
+
+    // Snapshot the departed player's score so the scoreboard
+    // retains their name and color after they leave.
+    const bumps = this.#scores.get(peerId) ?? 0
+    this.#departedScores.set(peerId, {
+      name: entry.car.name,
+      color: entry.car.color,
+      bumps,
+    })
+
     this.#players.delete(peerId)
     // Keep scores so they persist in the scoreboard after disconnect
   }
@@ -128,7 +194,10 @@ export class GameLoop {
       // Read the input doc — same callable ref API as the client
       const raw = entry.inputDoc()
 
-      // Update car metadata if player changed name/color
+      // Update car metadata if player changed name/color.
+      // We mutate entry.car here because tick() receives this exact
+      // object and spreads it into new CarState objects — the mutation
+      // is harmless and simpler than rebuilding the car before tick().
       if (raw.name && raw.name !== entry.car.name) entry.car.name = raw.name
       if (raw.color && raw.color !== entry.car.color) entry.car.color = raw.color
 
@@ -137,7 +206,7 @@ export class GameLoop {
     }
 
     // ── Plan ──────────────────────────────────────────────────────────
-    // Pure function — no side effects
+    // Pure function — no side effects, no mutation
 
     const result: TickOutput = tick({
       cars,
@@ -145,6 +214,12 @@ export class GameLoop {
       recentCollisions: this.#recentCollisions,
       now,
     })
+
+    // Replace cars in #players with the new pure state
+    for (const [peerId, car] of result.cars) {
+      const entry = this.#players.get(peerId)
+      if (entry) entry.car = car
+    }
 
     this.#recentCollisions = result.recentCollisions
 
@@ -165,7 +240,7 @@ export class GameLoop {
     // changefeed fires on the receiving side. A single ReplaceChange at
     // the root replaces the entire store cleanly.
     const carsObject: GameState["cars"] = {}
-    for (const [peerId, car] of cars) {
+    for (const [peerId, car] of result.cars) {
       carsObject[peerId] = {
         x: car.x,
         y: car.y,
@@ -181,9 +256,10 @@ export class GameLoop {
     const scoresObject: GameState["scores"] = {}
     for (const [peerId, bumps] of this.#scores) {
       const entry = this.#players.get(peerId)
+      const departed = this.#departedScores.get(peerId)
       scoresObject[peerId] = {
-        name: entry?.car.name ?? peerId,
-        color: entry?.car.color ?? "#4ECDC4",
+        name: entry?.car.name ?? departed?.name ?? peerId,
+        color: entry?.car.color ?? departed?.color ?? "#4ECDC4",
         bumps,
       }
     }

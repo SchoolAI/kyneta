@@ -53,14 +53,31 @@ Two document types, two binding targets, one Exchange:
 
 ### Exchange Wiring (server.ts)
 
-The server's Exchange uses four callbacks — this is the concrete demonstration of [route/authorize](../../packages/exchange/TECHNICAL.md#16-route-and-authorize--information-flow-control) and [onDocDiscovered](../../packages/exchange/TECHNICAL.md#15-lazy-document-creation-ondocdiscovered):
+The server's Exchange uses two callbacks — this is the concrete demonstration of [information flow control](../../packages/exchange/TECHNICAL.md#16-route-and-authorize--information-flow-control):
 
 ```ts
-route(docId, peer)          // input docs only visible to the owning peer
-authorize(docId, peer)      // only the server writes game-state; clients write their own input
-onDocDiscovered(docId, peer) // materializes input:${peerId} when a player connects
-onDocDismissed(docId, peer)  // removes the player's car when they disconnect
+canShare(docId, peer)   // input docs only visible to the owning peer
+canAccept(docId, peer)  // only the server writes game-state; clients write their own input
 ```
+
+Player lifecycle is handled by **reactive feeds**, not policy hooks:
+
+```ts
+exchange.documents.subscribe(...) // doc-created → addPlayer, doc-removed → removePlayer
+exchange.peers.subscribe(...)       // peer-departed → removePlayer + destroy input doc
+```
+
+The `peers.subscribe` feed replaces the old `onDocDismissed` proxy, which failed on ungraceful disconnect (no dismiss wire message when a browser tab closes). The reactive peer feed fires immediately when the transport detects a dropped connection, so cleanup is reliable.
+
+### When to use `useDocument` vs imperative `exchange.get/destroy`
+
+`useDocument(docId, bound)` is designed for **persistent documents** whose lifetime matches the component mount or the application session. It memoizes the ref and returns a stable reference.
+
+For **ephemeral documents** with explicit user-initiated create/destroy semantics (join/leave, presence, temporary sessions), the correct primitives are **imperative**:
+- `exchange.get(docId, bound)` to create and obtain a typed `Ref`.
+- `exchange.destroy(docId)` to signal departure, which emits `doc-removed` on the local documents feed and sends a dismiss wire message to peers.
+
+Using data writes (`d.name.set("")`) to encode "left" intent is an anti-pattern. It couples meaning to values, creates guard bugs (falsy checks rejecting empty strings), and leaves the doc in the sync graph as a ghost. The server should not need to interpret `""` as a lifecycle signal; it should react to `doc-removed` or `peer-departed`.
 
 ## The Core Pattern
 
@@ -96,30 +113,31 @@ bumper-cars/
 │   └── index.html              13  lines — HTML shell
 ├── src/
 │   ├── schema.ts               71  lines — Two BoundSchema declarations
-│   ├── constants.ts            66  lines — Arena, physics, colors
+│   ├── constants.ts            69  lines — Arena, physics, colors, cooldown retention
 │   ├── types.ts                42  lines — Plain TS types
-│   ├── server.ts              170  lines — Bun entry point + Exchange wiring
-│   ├── build.ts               104  lines — Bun.build() client bundler
-│   ├── main.tsx                55  lines — Client entry (ExchangeProvider)
+│   ├── server.ts              121  lines — Bun entry point + Exchange wiring
+│   ├── build.ts                 3  lines — Standalone client build (calls buildClient)
+│   ├── main.tsx                58  lines — Client entry (ExchangeProvider)
 │   ├── server/
-│   │   ├── tick.ts            121  lines — Pure tick function (functional core)
-│   │   ├── game-loop.ts       201  lines — Imperative shell (Gather → Plan → Execute)
-│   │   ├── physics.ts         225  lines — Pure physics functions
-│   │   ├── tick.test.ts       261  lines — 10 tick tests
-│   │   └── physics.test.ts    263  lines — 17 physics tests
+│   │   ├── tick.ts            134  lines — Pure tick function (functional core)
+│   │   ├── game-loop.ts       275  lines — Imperative shell (Gather → Plan → Execute)
+│   │   ├── physics.ts         281  lines — Pure physics functions
+│   │   ├── tick.test.ts       234  lines — 10 tick tests
+│   │   ├── physics.test.ts    244  lines — 17 physics tests
+│   │   └── test-helpers.ts    47  lines — Shared test fixtures
 │   ├── client/
-│   │   ├── bumper-cars-app.tsx 196  lines — Main React component
-│   │   ├── logic.ts           125  lines — Pure client logic
+│   │   ├── bumper-cars-app.tsx 203  lines — Main React component
+│   │   ├── logic.ts           126  lines — Pure client logic
 │   │   ├── logic.test.ts      264  lines — 24 logic tests
 │   │   ├── components/
-│   │   │   ├── arena-canvas.tsx  211 lines — Canvas renderer
+│   │   │   ├── arena-canvas.tsx  239 lines — Canvas renderer with true linear interpolation
 │   │   │   ├── join-screen.tsx   108 lines — Name/color picker
 │   │   │   ├── player-list.tsx    44 lines — Active players
 │   │   │   └── scoreboard.tsx     48 lines — Top scores
 │   │   └── hooks/
-│   │       ├── use-keyboard-input.ts  124 lines — WASD/Arrow keys
-│   │       ├── use-joystick.ts         91 lines — Touch joystick (nipplejs)
-│   │       └── use-input-sender.ts     85 lines — Throttled input writer
+│   │       ├── use-keyboard-input.ts  133 lines — WASD/Arrow keys
+│   │       ├── use-joystick.ts         89  lines — Touch joystick (nipplejs)
+│   │       └── use-input-sender.ts     90  lines — Throttled input writer
 │   └── index.css              310  lines — Styling
 ├── package.json
 ├── tsconfig.json
@@ -173,7 +191,8 @@ The pure `tick()` function is tested with 10 tests that exercise the full physic
 
 ## What's NOT Here (Intentionally)
 
-- ❌ Persistence — in-memory only; restart clears all state
+- ❌ Server persistence — game state and scores are **in-memory only**; restarting the server clears everything.
+- ❌ Client persistence — **not** in-memory only. Client identity (name, color, peerId) is **persisted in `localStorage`** so reconnecting browsers retain the same appearance. Scores of departed players survive in the server's memory until restart; this is not persisted to disk and will be lost on server restart.
 - ❌ Authentication — no auth; any client can claim any peerId
 - ❌ SSE transport — WebSocket only (see the chat example for SSE)
 - ❌ Loro / Yjs / any CRDT — plain substrate only; this is the point

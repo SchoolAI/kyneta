@@ -12,9 +12,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type { InputState } from "../../types.js"
-
-// Stable reference for zero input
-const ZERO_INPUT: InputState = { force: 0, angle: 0 }
+import { ZERO_INPUT } from "../logic.js"
 
 // Initial keys state
 const INITIAL_KEYS = {

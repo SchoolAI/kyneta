@@ -3,11 +3,13 @@
 //   Bumper Cars — Arena Canvas
 //
 //   Renders the game arena and all cars on a <canvas> element.
-//   Uses requestAnimationFrame for smooth rendering with simple
-//   linear interpolation between server ticks.
+//   Uses requestAnimationFrame for smooth rendering with true
+//   linear interpolation between server-authoritative ticks.
 //
-//   Ported from vendor/loro-extended/examples/bumper-cars/src/client/components/arena-canvas.tsx
-//   with vendor types replaced by kyneta types.
+//   The rAF loop is set up once on mount (no deps) to avoid resize
+//   listener churn.  Authoritative car state is read from refs;
+//   when a new snapshot arrives, interpolation shifts from the
+//   previous snapshot toward the new one over TICK_INTERVAL ms.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -18,6 +20,7 @@ import {
   CAR_HEIGHT,
   CAR_RADIUS,
   CAR_WIDTH,
+  TICK_INTERVAL,
 } from "../../constants.js"
 import type { CarState } from "../../types.js"
 
@@ -28,7 +31,15 @@ type ArenaCanvasProps = {
 
 export function ArenaCanvas({ cars, myPeerId }: ArenaCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const carsRef = useRef(cars)
   const prevCarsRef = useRef<Record<string, CarState>>({})
+  const nextCarsRef = useRef<Record<string, CarState>>(cars)
+  const lastTickTimeRef = useRef(0)
+
+  // Keep ref in sync with the latest authoritative snapshot.
+  // This assignment is cheap and runs every render; the rAF loop
+  // detects changes by reference comparison.
+  carsRef.current = cars
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -48,11 +59,21 @@ export function ArenaCanvas({ cars, myPeerId }: ArenaCanvasProps) {
     updateSize()
     window.addEventListener("resize", updateSize)
 
-    // Animation loop
+    // Animation loop — set up once, never torn down for prop changes.
     let animationId: number
 
     const render = () => {
       const { width, height } = canvas
+
+      // Detect authoritative state change.
+      // When the server pushes a new snapshot, shift the interpolation
+      // target so we smoothly transition from the old authoritative
+      // state to the new one.
+      if (carsRef.current !== nextCarsRef.current) {
+        prevCarsRef.current = nextCarsRef.current
+        nextCarsRef.current = carsRef.current
+        lastTickTimeRef.current = performance.now()
+      }
 
       // Calculate scale to fit arena in canvas
       const scaleX = width / ARENA_WIDTH
@@ -98,20 +119,25 @@ export function ArenaCanvas({ cars, myPeerId }: ArenaCanvasProps) {
         ctx.stroke()
       }
 
-      // Draw cars — interpolate positions for smoothness
-      const interpolatedCars = { ...cars }
-      for (const [peerId, car] of Object.entries(cars)) {
+      // Interpolate positions for smooth rendering.
+      // t = 0 → prev snapshot, t = 1 → next snapshot.
+      const elapsed = performance.now() - lastTickTimeRef.current
+      const t = Math.min(elapsed / TICK_INTERVAL, 1)
+
+      const interpolatedCars: Record<string, CarState> = {}
+      for (const [peerId, nextCar] of Object.entries(nextCarsRef.current)) {
         const prevCar = prevCarsRef.current[peerId]
         if (prevCar) {
-          const t = 0.3
           interpolatedCars[peerId] = {
-            ...car,
-            x: prevCar.x + (car.x - prevCar.x) * t,
-            y: prevCar.y + (car.y - prevCar.y) * t,
+            ...nextCar,
+            x: prevCar.x + (nextCar.x - prevCar.x) * t,
+            y: prevCar.y + (nextCar.y - prevCar.y) * t,
           }
+        } else {
+          // New car — no previous snapshot, render at target position
+          interpolatedCars[peerId] = nextCar
         }
       }
-      prevCarsRef.current = interpolatedCars
 
       const now = Date.now()
       for (const [peerId, car] of Object.entries(interpolatedCars)) {
@@ -120,7 +146,8 @@ export function ArenaCanvas({ cars, myPeerId }: ArenaCanvasProps) {
 
         ctx.save()
 
-        // Apply shake effect if car is hit
+        // Apply shake effect if car is hit.
+        // Determinism is not required here — in tests, use a seeded PRNG.
         let shakeX = 0
         let shakeY = 0
         if (isHit) {
@@ -206,7 +233,7 @@ export function ArenaCanvas({ cars, myPeerId }: ArenaCanvasProps) {
       window.removeEventListener("resize", updateSize)
       cancelAnimationFrame(animationId)
     }
-  }, [cars, myPeerId])
+  }, []) // empty deps — set up once, no listener churn
 
   return <canvas ref={canvasRef} />
 }

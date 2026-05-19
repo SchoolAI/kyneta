@@ -17,35 +17,7 @@ import {
   COLLISION_COOLDOWN,
   HIT_EFFECT_DURATION,
 } from "../constants.js"
-import type { CarState, InputState } from "../types.js"
-
-// ─────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────
-
-function makeCar(overrides: Partial<CarState> = {}): CarState {
-  return {
-    x: ARENA_WIDTH / 2,
-    y: ARENA_HEIGHT / 2,
-    vx: 0,
-    vy: 0,
-    rotation: 0,
-    color: "#FF6B6B",
-    name: "Test",
-    hitUntil: 0,
-    ...overrides,
-  }
-}
-
-function makeTickInput(overrides: Partial<TickInput> = {}): TickInput {
-  return {
-    cars: new Map(),
-    inputs: new Map(),
-    recentCollisions: new Map(),
-    now: 1000,
-    ...overrides,
-  }
-}
+import { makeCar, makeTickInput } from "./test-helpers.js"
 
 // ─────────────────────────────────────────────────────────────────────────
 // Basic tick behavior
@@ -73,30 +45,60 @@ describe("tick", () => {
       ["alice", alice],
       ["bob", bob],
     ])
-    const inputs = new Map<string, InputState>([
+    const inputs = new Map([
       ["alice", { force: 1, angle: 0 }], // push right
     ])
 
-    tick(makeTickInput({ cars, inputs }))
+    const result = tick(makeTickInput({ cars, inputs }))
 
     // Alice should have moved right; Bob should be ~unchanged
-    expect(alice.x).toBeGreaterThan(200)
-    expect(bob.x).toBeCloseTo(600, 0)
+    expect(result.cars.get("alice")!.x).toBeGreaterThan(200)
+    expect(result.cars.get("bob")!.x).toBeCloseTo(600, 0)
   })
 
   it("moves a car with existing velocity (no input)", () => {
     const car = makeCar({ x: 200, y: 200, vx: 4, vy: 0 })
     const cars = new Map([["alice", car]])
 
-    tick(makeTickInput({ cars }))
+    const result = tick(makeTickInput({ cars }))
 
     // Should have moved right (vx applied, then friction reduces it slightly)
-    expect(car.x).toBeGreaterThan(200)
+    expect(result.cars.get("alice")!.x).toBeGreaterThan(200)
   })
 
   // ─────────────────────────────────────────────────────────────────────
   // Collision detection + scoring
   // ─────────────────────────────────────────────────────────────────────
+
+  it("resolves a non-scoring collision — cars bounce even when no front-hit", () => {
+    // Two cars overlapping, moving toward each other, but neither hits
+    // with their front (both approach from the side). The collision
+    // should still resolve — they must bounce apart.
+    const car1 = makeCar({ x: 200, y: 300, vx: 5, vy: 0 })
+    const car2 = makeCar({
+      x: 200 + CAR_RADIUS * 1.5,
+      y: 300,
+      vx: -5,
+      vy: 0,
+    })
+    const cars = new Map([
+      ["a", car1],
+      ["b", car2],
+    ])
+
+    const result = tick(makeTickInput({ cars }))
+
+    // No front-hit scorers
+    expect(result.scoredCollisions).toHaveLength(0)
+
+    // But the cars were still resolved — they should be separated
+    const next1 = result.cars.get("a")!
+    const next2 = result.cars.get("b")!
+    const dx = next2.x - next1.x
+    const dy = next2.y - next1.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    expect(distance).toBeGreaterThanOrEqual(CAR_RADIUS * 2 - 1)
+  })
 
   it("detects a collision and returns scorers", () => {
     // Alice moving fast right into stationary Bob, overlapping
@@ -253,10 +255,10 @@ describe("tick", () => {
     })
     const cars = new Map([["alice", car]])
 
-    tick(makeTickInput({ cars }))
+    const result = tick(makeTickInput({ cars }))
 
     // After tick, car should be within bounds and velocity reversed
-    expect(car.x).toBeLessThanOrEqual(ARENA_WIDTH - CAR_RADIUS)
-    expect(car.vx).toBeLessThan(0) // bounced
+    expect(result.cars.get("alice")!.x).toBeLessThanOrEqual(ARENA_WIDTH - CAR_RADIUS)
+    expect(result.cars.get("alice")!.vx).toBeLessThan(0) // bounced
   })
 })

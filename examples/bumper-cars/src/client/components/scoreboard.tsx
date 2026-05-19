@@ -37,7 +37,7 @@ export function Scoreboard({ scores }: ScoreboardProps) {
     <div className="scoreboard">
       {scores.map((score, index) => (
         <div key={score.peerId} className="scoreboard-item">
-          <span className="scoreboard-medal">{MEDALS[index] || "🏎️"}</span>
+          <span className="scoreboard-medal">{MEDALS[index]}</span>
           <span className="scoreboard-name" style={{ color: score.color }}>
             {score.name}
           </span>

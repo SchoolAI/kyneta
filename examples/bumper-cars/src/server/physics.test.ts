@@ -26,24 +26,7 @@ import {
   WALL_BOUNCE,
 } from "../constants.js"
 import type { CarState } from "../types.js"
-
-// ─────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────
-
-function makeCar(overrides: Partial<CarState> = {}): CarState {
-  return {
-    x: ARENA_WIDTH / 2,
-    y: ARENA_HEIGHT / 2,
-    vx: 0,
-    vy: 0,
-    rotation: 0,
-    color: "#FF6B6B",
-    name: "Test",
-    hitUntil: 0,
-    ...overrides,
-  }
-}
+import { makeCar } from "./test-helpers.js"
 
 // ─────────────────────────────────────────────────────────────────────────
 // applyInput
@@ -51,30 +34,28 @@ function makeCar(overrides: Partial<CarState> = {}): CarState {
 
 describe("applyInput", () => {
   it("applies force in the direction of the angle", () => {
-    const car = makeCar()
-    applyInput(car, { force: 1, angle: 0 }) // right
-    expect(car.vx).toBeGreaterThan(0)
-    expect(car.vy).toBeCloseTo(0, 5)
+    const next = applyInput(makeCar(), { force: 1, angle: 0 }) // right
+    expect(next.vx).toBeGreaterThan(0)
+    expect(next.vy).toBeCloseTo(0, 5)
   })
 
   it("applies force downward for angle π/2", () => {
-    const car = makeCar()
-    applyInput(car, { force: 1, angle: Math.PI / 2 }) // down
-    expect(car.vx).toBeCloseTo(0, 5)
-    expect(car.vy).toBeGreaterThan(0)
+    const next = applyInput(makeCar(), { force: 1, angle: Math.PI / 2 }) // down
+    expect(next.vx).toBeCloseTo(0, 5)
+    expect(next.vy).toBeGreaterThan(0)
   })
 
   it("does nothing when force is zero", () => {
     const car = makeCar({ vx: 3, vy: 4 })
-    applyInput(car, { force: 0, angle: 1.5 })
-    expect(car.vx).toBe(3)
-    expect(car.vy).toBe(4)
+    const next = applyInput(car, { force: 0, angle: 1.5 })
+    expect(next.vx).toBe(3)
+    expect(next.vy).toBe(4)
+    expect(next).toBe(car) // same reference — early return
   })
 
   it("updates rotation to face the input angle", () => {
-    const car = makeCar({ rotation: 0 })
-    applyInput(car, { force: 0.5, angle: 2.0 })
-    expect(car.rotation).toBe(2.0)
+    const next = applyInput(makeCar({ rotation: 0 }), { force: 0.5, angle: 2.0 })
+    expect(next.rotation).toBe(2.0)
   })
 })
 
@@ -84,22 +65,19 @@ describe("applyInput", () => {
 
 describe("applyFriction", () => {
   it("reduces velocity by friction factor", () => {
-    const car = makeCar({ vx: 5, vy: 0 })
-    applyFriction(car)
-    expect(car.vx).toBeCloseTo(5 * FRICTION)
+    const next = applyFriction(makeCar({ vx: 5, vy: 0 }))
+    expect(next.vx).toBeCloseTo(5 * FRICTION)
   })
 
   it("clamps velocity to MAX_SPEED", () => {
-    const car = makeCar({ vx: MAX_SPEED * 2, vy: 0 })
-    applyFriction(car)
-    expect(car.vx).toBeLessThanOrEqual(MAX_SPEED)
+    const next = applyFriction(makeCar({ vx: MAX_SPEED * 2, vy: 0 }))
+    expect(next.vx).toBeLessThanOrEqual(MAX_SPEED)
   })
 
   it("zeroes out very slow movement", () => {
-    const car = makeCar({ vx: 0.005, vy: -0.003 })
-    applyFriction(car)
-    expect(car.vx).toBe(0)
-    expect(car.vy).toBe(0)
+    const next = applyFriction(makeCar({ vx: 0.005, vy: -0.003 }))
+    expect(next.vx).toBe(0)
+    expect(next.vy).toBe(0)
   })
 })
 
@@ -109,10 +87,9 @@ describe("applyFriction", () => {
 
 describe("updatePosition", () => {
   it("advances position by velocity", () => {
-    const car = makeCar({ x: 100, y: 200, vx: 3, vy: -2 })
-    updatePosition(car)
-    expect(car.x).toBe(103)
-    expect(car.y).toBe(198)
+    const next = updatePosition(makeCar({ x: 100, y: 200, vx: 3, vy: -2 }))
+    expect(next.x).toBe(103)
+    expect(next.y).toBe(198)
   })
 })
 
@@ -122,40 +99,41 @@ describe("updatePosition", () => {
 
 describe("handleWallCollisions", () => {
   it("bounces off the left wall", () => {
-    const car = makeCar({ x: CAR_RADIUS - 5, vx: -3 })
-    handleWallCollisions(car)
-    expect(car.x).toBe(CAR_RADIUS)
-    expect(car.vx).toBeCloseTo(3 * WALL_BOUNCE)
+    const next = handleWallCollisions(makeCar({ x: CAR_RADIUS - 5, vx: -3 }))
+    expect(next.x).toBe(CAR_RADIUS)
+    expect(next.vx).toBeCloseTo(3 * WALL_BOUNCE)
   })
 
   it("bounces off the right wall", () => {
-    const car = makeCar({ x: ARENA_WIDTH - CAR_RADIUS + 5, vx: 3 })
-    handleWallCollisions(car)
-    expect(car.x).toBe(ARENA_WIDTH - CAR_RADIUS)
-    expect(car.vx).toBeCloseTo(-3 * WALL_BOUNCE)
+    const next = handleWallCollisions(
+      makeCar({ x: ARENA_WIDTH - CAR_RADIUS + 5, vx: 3 }),
+    )
+    expect(next.x).toBe(ARENA_WIDTH - CAR_RADIUS)
+    expect(next.vx).toBeCloseTo(-3 * WALL_BOUNCE)
   })
 
   it("bounces off the top wall", () => {
-    const car = makeCar({ y: CAR_RADIUS - 5, vy: -4 })
-    handleWallCollisions(car)
-    expect(car.y).toBe(CAR_RADIUS)
-    expect(car.vy).toBeCloseTo(4 * WALL_BOUNCE)
+    const next = handleWallCollisions(makeCar({ y: CAR_RADIUS - 5, vy: -4 }))
+    expect(next.y).toBe(CAR_RADIUS)
+    expect(next.vy).toBeCloseTo(4 * WALL_BOUNCE)
   })
 
   it("bounces off the bottom wall", () => {
-    const car = makeCar({ y: ARENA_HEIGHT - CAR_RADIUS + 5, vy: 4 })
-    handleWallCollisions(car)
-    expect(car.y).toBe(ARENA_HEIGHT - CAR_RADIUS)
-    expect(car.vy).toBeCloseTo(-4 * WALL_BOUNCE)
+    const next = handleWallCollisions(
+      makeCar({ y: ARENA_HEIGHT - CAR_RADIUS + 5, vy: 4 }),
+    )
+    expect(next.y).toBe(ARENA_HEIGHT - CAR_RADIUS)
+    expect(next.vy).toBeCloseTo(-4 * WALL_BOUNCE)
   })
 
   it("does nothing when car is inside the arena", () => {
     const car = makeCar({ x: 200, y: 200, vx: 3, vy: 4 })
-    handleWallCollisions(car)
-    expect(car.x).toBe(200)
-    expect(car.y).toBe(200)
-    expect(car.vx).toBe(3)
-    expect(car.vy).toBe(4)
+    const next = handleWallCollisions(car)
+    expect(next.x).toBe(200)
+    expect(next.y).toBe(200)
+    expect(next.vx).toBe(3)
+    expect(next.vy).toBe(4)
+    expect(next).toBe(car) // same reference — no wall hit
   })
 })
 
@@ -170,37 +148,39 @@ describe("checkCarCollision", () => {
     const car1 = makeCar({ x: 200, y: 300, vx: 5, vy: 0 })
     const car2 = makeCar({ x: 200 + CAR_RADIUS * 1.5, y: 300, vx: -5, vy: 0 })
 
-    const result = checkCarCollision("a", car1, "b", car2)
-    expect(result).not.toBeNull()
-    expect(result!.peer1).toBe("a")
-    expect(result!.peer2).toBe("b")
+    const result = checkCarCollision("a", car1, "b", car2, 1000)
+    expect(result.collision).not.toBeNull()
+    expect(result.collision!.peer1).toBe("a")
+    expect(result.collision!.peer2).toBe("b")
   })
 
   it("returns null when cars are far apart", () => {
     const car1 = makeCar({ x: 100, y: 100 })
     const car2 = makeCar({ x: 500, y: 500 })
 
-    const result = checkCarCollision("a", car1, "b", car2)
-    expect(result).toBeNull()
+    const result = checkCarCollision("a", car1, "b", car2, 1000)
+    expect(result.collision).toBeNull()
+    expect(result.car1).toBe(car1)
+    expect(result.car2).toBe(car2)
   })
 
   it("returns null when overlapping cars are moving apart", () => {
     const car1 = makeCar({ x: 200, y: 300, vx: -5, vy: 0 })
     const car2 = makeCar({ x: 200 + CAR_RADIUS * 1.5, y: 300, vx: 5, vy: 0 })
 
-    const result = checkCarCollision("a", car1, "b", car2)
-    expect(result).toBeNull()
+    const result = checkCarCollision("a", car1, "b", car2, 1000)
+    expect(result.collision).toBeNull()
   })
 
   it("separates overlapping cars after collision", () => {
     const car1 = makeCar({ x: 200, y: 300, vx: 5, vy: 0 })
     const car2 = makeCar({ x: 200 + CAR_RADIUS, y: 300, vx: -5, vy: 0 })
 
-    checkCarCollision("a", car1, "b", car2)
+    const result = checkCarCollision("a", car1, "b", car2, 1000)
 
     // Cars should be separated by at least 2*CAR_RADIUS after resolution
-    const dx = car2.x - car1.x
-    const dy = car2.y - car1.y
+    const dx = result.car2.x - result.car1.x
+    const dy = result.car2.y - result.car1.y
     const distance = Math.sqrt(dx * dx + dy * dy)
     expect(distance).toBeGreaterThanOrEqual(CAR_RADIUS * 2 - 1) // allow small float error
   })
@@ -210,17 +190,17 @@ describe("checkCarCollision", () => {
     const car1 = makeCar({ x: 200, y: 300, vx: 5, vy: 0 })
     const car2 = makeCar({ x: 200 + CAR_RADIUS * 1.5, y: 300, vx: 0, vy: 0 })
 
-    const result = checkCarCollision("a", car1, "b", car2)
-    expect(result).not.toBeNull()
-    expect(result!.scorers).toContain("a")
+    const result = checkCarCollision("a", car1, "b", car2, 1000)
+    expect(result.collision).not.toBeNull()
+    expect(result.collision!.scorers).toContain("a")
   })
 
   it("returns null for zero distance (degenerate case)", () => {
     const car1 = makeCar({ x: 200, y: 300, vx: 1, vy: 0 })
     const car2 = makeCar({ x: 200, y: 300, vx: -1, vy: 0 })
 
-    const result = checkCarCollision("a", car1, "b", car2)
-    expect(result).toBeNull()
+    const result = checkCarCollision("a", car1, "b", car2, 1000)
+    expect(result.collision).toBeNull()
   })
 })
 

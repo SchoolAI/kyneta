@@ -8,8 +8,8 @@
 //      - canShare:        input docs only visible to owner
 //      - canAccept:       clients can only write their own input doc
 //      - schemas:         declares PlayerInputDoc for auto-resolve
-//   3. Subscribes to reactive feeds:
-//      - exchange.documents.subscribe(): registers players on doc creation
+//   3. Creates a GameLoop, which subscribes internally to:
+//      - exchange.documents.subscribe(): registers/removes players
 //      - exchange.peers.subscribe():     cleans up on peer departure
 //   4. Runs the game loop at 60fps
 //   5. Serves static files from dist/ and upgrades /ws to WebSocket
@@ -26,28 +26,21 @@ import {
   createBunWebsocketHandlers,
   type BunWebsocketData,
 } from "@kyneta/websocket-transport/bun"
-import { serveDist } from "@kyneta/bun-server"
+import { buildClient, serveDist } from "@kyneta/bun-server"
 import { GameStateDoc, PlayerInputDoc } from "./schema.js"
 import { GameLoop } from "./server/game-loop.js"
-import { build } from "./build.js"
 
 // ─────────────────────────────────────────────────────────────────────────
 // 1. Build — compile the client app
 // ─────────────────────────────────────────────────────────────────────────
 
-await build()
+await buildClient()
 
 // ─────────────────────────────────────────────────────────────────────────
 // 2. Exchange — server-side sync hub with access control
 // ─────────────────────────────────────────────────────────────────────────
 
 const serverTransport = new WebsocketServerTransport()
-
-// GameLoop is declared before the Exchange so the callbacks can close
-// over it. It's assigned after exchange.get("game-state") returns.
-// No client connects before Bun.serve() starts, so the binding is
-// always set by the time any callback fires.
-let gameLoop: GameLoop
 
 const exchange = new Exchange({
   id: {
@@ -89,50 +82,16 @@ const exchange = new Exchange({
   },
 })
 
-// React to document creation via the reactive documents feed.
-// When a remote peer's input doc is created, register the player.
-exchange.documents.subscribe(changeset => {
-  for (const change of changeset.changes) {
-    if (change.type !== "doc-created") continue
-    const docId = change.docId
-    if (!docId.startsWith("input:")) continue
+// ─────────────────────────────────────────────────────────────────────────
+// 3. GameLoop — fully formed at construction, no temporal coupling
+// ─────────────────────────────────────────────────────────────────────────
 
-    const peerId = docId.slice("input:".length)
-
-    queueMicrotask(() => {
-      if (exchange.has(docId)) {
-        const inputDoc = exchange.get(docId, PlayerInputDoc)
-        gameLoop.addPlayer(peerId, inputDoc)
-      }
-    })
-  }
-})
-
-// React to peer departures — clean up players when peers disconnect.
-// This replaces the old onDocDismissed proxy, which failed on ungraceful
-// disconnect (no dismiss wire message when a browser tab closes).
-exchange.peers.subscribe(changeset => {
-  for (const change of changeset.changes) {
-    if (change.type !== "peer-departed") continue
-    const peerId = change.peer.peerId
-    gameLoop.removePlayer(peerId)
-    // Destroy the input doc if it exists
-    const inputDocId = `input:${peerId}`
-    if (exchange.has(inputDocId)) {
-      exchange.destroy(inputDocId)
-    }
-  }
-})
-
-// Register the game state document — the server holds the authoritative copy.
 const gameStateDoc = exchange.get("game-state", GameStateDoc)
-
-// Create and start the game loop.
-gameLoop = new GameLoop(gameStateDoc)
+const gameLoop = new GameLoop(exchange, gameStateDoc)
 gameLoop.start()
 
 // ─────────────────────────────────────────────────────────────────────────
-// 3. Serve — HTTP for static files, WebSocket for sync
+// 4. Serve — HTTP for static files, WebSocket for sync
 // ─────────────────────────────────────────────────────────────────────────
 
 const HOST = "0.0.0.0"

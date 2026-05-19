@@ -17,6 +17,8 @@
 
 import { useEffect, useRef } from "react"
 import { change } from "@kyneta/react"
+import type { Ref } from "@kyneta/schema"
+import type { PlayerInputSchema } from "../../schema.js"
 import type { InputState } from "../../types.js"
 import { shouldSendInputUpdate, ZERO_INPUT } from "../logic.js"
 
@@ -24,8 +26,8 @@ import { shouldSendInputUpdate, ZERO_INPUT } from "../logic.js"
 const INPUT_UPDATE_INTERVAL = 50
 
 type UseInputSenderOptions = {
-  /** The player's input document ref (from useDocument). */
-  inputDoc: any
+  /** The player's input document ref (managed imperatively via exchange.get/destroy). */
+  inputDocRef: React.RefObject<Ref<typeof PlayerInputSchema> | null>
   /** Whether the player has joined the game. */
   hasJoined: boolean
   /** Player's display name. */
@@ -44,7 +46,7 @@ type UseInputSenderOptions = {
  * automatically via the ephemeral sync protocol.
  */
 export function useInputSender({
-  inputDoc,
+  inputDocRef,
   hasJoined,
   playerName,
   playerColor,
@@ -56,6 +58,9 @@ export function useInputSender({
 
   useEffect(() => {
     if (!hasJoined) return
+
+    const doc = inputDocRef.current
+    if (!doc) return
 
     const now = Date.now()
 
@@ -76,11 +81,11 @@ export function useInputSender({
     lastUpdateTimeRef.current = now
 
     // Write to the input doc — the Exchange broadcasts via LWW
-    change(inputDoc, (d: any) => {
+    change(doc, d => {
       d.name.set(playerName)
       d.color.set(playerColor)
       d.force.set(input.force)
       d.angle.set(input.angle)
     })
-  }, [hasJoined, playerName, playerColor, input, inputDoc])
+  }, [hasJoined, playerName, playerColor, input, inputDocRef])
 }

@@ -42,7 +42,10 @@ const initialColor = localStorage.getItem(COLOR_KEY)
 // Mount
 // ─────────────────────────────────────────────────────────────────────────
 
-createRoot(document.getElementById("root")!).render(
+const rootEl = document.getElementById("root")
+if (!rootEl) throw new Error("#root not found")
+
+createRoot(rootEl).render(
   <ExchangeProvider
     config={{
       id: { peerId, name: initialName, type: "user" },

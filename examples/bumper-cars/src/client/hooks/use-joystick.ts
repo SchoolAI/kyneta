@@ -13,9 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { InputState } from "../../types.js"
-
-// Stable reference for zero input
-const ZERO_INPUT: InputState = { force: 0, angle: 0 }
+import { ZERO_INPUT } from "../logic.js"
 
 export function useJoystick() {
   const [input, setInput] = useState<InputState>(ZERO_INPUT)

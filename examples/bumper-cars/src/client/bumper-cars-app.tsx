@@ -13,7 +13,7 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   useDocument,
   useExchange,
@@ -21,8 +21,10 @@ import {
   useSyncStatus,
   change,
 } from "@kyneta/react"
+import type { Ref } from "@kyneta/schema"
 import { CAR_COLORS, type CarColor } from "../constants.js"
 import { GameStateDoc, PlayerInputDoc } from "../schema.js"
+import type { PlayerInputSchema } from "../schema.js"
 import type { CarState, PlayerScore } from "../types.js"
 import { ArenaCanvas } from "./components/arena-canvas.js"
 import { JoinScreen } from "./components/join-screen.js"
@@ -31,7 +33,7 @@ import { Scoreboard } from "./components/scoreboard.js"
 import { useJoystick } from "./hooks/use-joystick.js"
 import { useKeyboardInput } from "./hooks/use-keyboard-input.js"
 import { useInputSender } from "./hooks/use-input-sender.js"
-import { combineInputs, getActivePlayers, sortScores, ZERO_INPUT } from "./logic.js"
+import { combineInputs, getActivePlayers, sortScores } from "./logic.js"
 
 type BumperCarsAppProps = {
   initialName: string
@@ -57,7 +59,10 @@ export default function BumperCarsApp({
   // ── Documents ────────────────────────────────────────────────────────
 
   const gameStateDoc = useDocument("game-state", GameStateDoc)
-  const inputDoc = useDocument(`input:${myPeerId}`, PlayerInputDoc)
+  // Ephemeral input doc is managed imperatively via exchange.get/destroy,
+  // not useDocument, because its lifetime is controlled by user intent
+  // (join/leave) rather than component mount. See Task 1.1 in plan.
+  const inputDocRef = useRef<Ref<typeof PlayerInputSchema> | null>(null)
 
   // ── Reactive game state ──────────────────────────────────────────────
 
@@ -87,7 +92,7 @@ export default function BumperCarsApp({
 
   // Throttled input sender — writes to the LWW input doc
   useInputSender({
-    inputDoc,
+    inputDocRef,
     hasJoined,
     playerName,
     playerColor,
@@ -105,8 +110,13 @@ export default function BumperCarsApp({
       localStorage.setItem("bumper-cars-name", name)
       localStorage.setItem("bumper-cars-color", color)
 
-      // Write initial input state so the server sees name + color
-      change(inputDoc, (d: any) => {
+      // Create the ephemeral input doc via imperative Exchange API.
+      // useDocument is for persistent docs; ephemeral lifecycle is
+      // owned by user intent (join/leave), not component mount.
+      const doc = exchange.get(`input:${myPeerId}`, PlayerInputDoc)
+      inputDocRef.current = doc
+
+      change(doc, d => {
         d.name.set(name)
         d.color.set(color)
         d.force.set(0)
@@ -115,19 +125,16 @@ export default function BumperCarsApp({
 
       setHasJoined(true)
     },
-    [inputDoc],
+    [exchange, myPeerId],
   )
 
   const handleLeave = useCallback(() => {
-    // Write zero input so the server knows we stopped
-    change(inputDoc, (d: any) => {
-      d.name.set("")
-      d.color.set(playerColor)
-      d.force.set(0)
-      d.angle.set(0)
-    })
+    // Destroy the ephemeral input doc to signal departure.
+    // The server reacts to doc-removed, not empty-string name.
+    exchange.destroy(`input:${myPeerId}`)
+    inputDocRef.current = null
     setHasJoined(false)
-  }, [inputDoc, playerColor])
+  }, [exchange, myPeerId])
 
   // Escape key to leave the game
   useEffect(() => {
