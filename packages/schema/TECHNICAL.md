@@ -426,15 +426,25 @@ const ref = interpret(schema, ctx)
 
 Or equivalently, `createRef(schema, ctx)` which produces this stack.
 
-### Interpreter composition combinators
+### Materialization
 
-Source: `packages/schema/src/combinators.ts`.
+Source: `packages/schema/src/interpreters/materialize.ts`.
 
-- `product(a, b)` — run two interpreters side-by-side, combine results pairwise.
-- `overlay(base, fallback)` — run `base`; where it returns `undefined`, use `fallback`.
-- `firstDefined(...interpreters)` — first interpreter to return a non-`undefined` wins.
+`createMaterializeInterpreter(resolver)` produces a generic `Interpreter<void, unknown>` that builds plain values from any CRDT backend. The `MaterializeResolver` interface abstracts the 6 backend-specific operations into two families:
 
-Used internally to combine capability-specific interpreters into composed layers.
+**Leaf resolvers** (return typed value or `undefined` = not present):
+- `resolveValue(path)` — scalar and sum values
+- `resolveText(path)` — text content as string
+- `resolveCounter(path)` — counter value as number
+- `resolveRichText(path)` — rich text delta
+
+**Container shape resolvers** (return structure metadata):
+- `resolveLength(path)` — item count for sequences and movable lists
+- `resolveKeys(path)` — key enumeration for maps and sets
+
+The 11 interpreter cases partition into **container cases** (product, tree — structurally identical for all backends, no resolver calls) and **resolution cases** (the remaining 9, each calling one of the 6 resolver methods). Zero fallback is delegated to `zeroInterpreter` (scalars) and `Zero.structural` (sums), making the materializer the canonical consumer of zero defaults for CRDT substrates.
+
+Each backend provides a thin resolver factory (~50 lines): `createLoroResolver(doc, schema, binding)` and `createYjsResolver(rootMap, schema, binding)`. The closure-based design parallels `plainReader(state) → Reader` — the resolver closes over backend state, eliminating Ctx threading.
 
 ### What an `Interpreter` is NOT
 
@@ -456,6 +466,8 @@ The 11 interpreter cases fall into four structural categories. The first three a
 **`text` and `richtext` straddle two families.** They are indexed for writable (share `at()` and the retain/insert/delete instruction stream with sequence/movable) but leaf for readable, navigation, and changefeed (return `string` / delta directly, not a fold over children). Characters are not independently addressable refs.
 
 The `Interpreter` interface retains separate cases per kind — the sharing is internal to the built-in transformers. Substrate authors implement one case per kind; they never see the shared helpers.
+
+The materialize interpreter is another duplication family — all CRDT backends share the same 11-case structure, varying only in resolution. The `MaterializeResolver` abstraction captures this by decomposing resolution into leaf resolvers (value, text, counter, richtext) and container shape resolvers (length, keys) that mirror the indexed/keyed duplication families.
 
 **`attachNative` is intentionally skipped for sums in `interpretImpl`.** Sums are structurally transparent — the result carrier is the dispatched variant's carrier, which already has the correct `[NATIVE]` from its own interpreter case (product, scalar, etc.). Calling `attachNative` on the sum would double-define the property, crashing in substrates where the product resolves to a real container but the sum resolves to `undefined` (`configurable: false` + different value → `TypeError`).
 
@@ -877,7 +889,9 @@ CRDT substrates (Loro, Yjs) maintain a **shadow**: a `PlainState` object that se
 
 **On replay (merge)**, the CRDT doc absorbs the remote state first (via `doc.import` or `Y.applyUpdate`). `onFlush` then re-materializes the shadow from the CRDT doc, ensuring `ctx.reader` reflects the merged state for subscriber callbacks.
 
-**Initialization.** The shadow is created at substrate construction time via `materializeLoroShadow` (Loro) or `materializeYjsShadow` (Yjs). These functions walk the CRDT doc and produce a plain JS object matching the schema's shape. The shadow is also re-materialized on upgrade and after any replay flush.
+**Initialization.** The shadow is created at substrate construction time via `materializeLoroShadow` (Loro) or `materializeYjsShadow` (Yjs). These functions now delegate to `createMaterializeInterpreter` with a backend-specific `MaterializeResolver`, rather than defining bespoke 370-line interpreters. The resolver closes over the CRDT doc and binding; the generic materializer walks the schema and calls resolver methods to produce a plain JS object matching the schema's shape. The shadow is also re-materialized on upgrade and after any replay flush.
+
+**`Reader` vs `MaterializeResolver`.** `Reader` (4 methods) is the runtime read interface backed by the `PlainState` shadow — schema-blind, live. `MaterializeResolver` (6 methods) is the materialization interface backed by the CRDT — schema-aware via catamorphism dispatch, one-shot. They share a conceptual lineage — the resolver is what a CRDT Reader would look like if it were schema-aware and didn't need liveness.
 
 This design makes the read-your-writes invariant true by construction for all substrates: reads always go through `plainReader(shadow)`, and local writes always land in the shadow eagerly. No coordination, no flags, no special-casing per substrate.
 
@@ -911,6 +925,8 @@ Source: `packages/schema/src/zero.ts`.
 - Movable → empty.
 
 `scalarDefault(kind)` is the scalar-only version. Used by `createDoc` when no initial state is supplied, by migrations' `setDefault` primitive, and by tests.
+
+The materializer is the canonical consumer of zeros for CRDT substrates — the `zeroInterpreter` is the single source of truth, and zeros are no longer eagerly written during CRDT initialization. CRDT initialization routines (`ensureRootContainer`, `ensureContainers`) now only create structural containers.
 
 ---
 
@@ -1031,7 +1047,7 @@ dist/
 | `src/create-doc.ts` | ~100 | `createDoc`, `createRef` — convenience factories. |
 | `src/describe.ts` | ~150 | ASCII schema tree printer. |
 | `src/zero.ts` | ~150 | `Zero`, `scalarDefault`. |
-| `src/combinators.ts` | ~100 | Interpreter composition: `product`, `overlay`, `firstDefined`. |
+| `src/interpreters/materialize.ts` | ~70 | Generic CRDT→PlainState materialization: `MaterializeResolver` interface, `createMaterializeInterpreter`. |
 | `src/guards.ts` | ~30 | `isNonNullObject`, `isPropertyHost`. |
 | `src/base64.ts` | ~30 | Platform-agnostic base64. |
 | `src/substrates/plain.ts` | ~400 | Plain substrate + factories. |

@@ -18,7 +18,7 @@ import {
   SUBSTRATE,
 } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
-import * as Y from "yjs"
+import type * as Y from "yjs"
 import { yjs } from "../bind-yjs.js"
 import { materializeYjsShadow } from "../materialize.js"
 
@@ -210,5 +210,18 @@ describe("materializeYjsShadow", () => {
     // should still be correct and the result should be an object.
     expect(result).toBeDefined()
     expect(typeof result).toBe("object")
+  })
+
+  it("nested nullable materializes to null on fresh doc", () => {
+    const schema = Schema.struct({
+      settings: Schema.struct({
+        theme: Schema.string().nullable(),
+      }),
+    })
+    const doc = createDoc(yjs.bind(schema))
+    const yDoc = getYDoc(doc)
+    const binding = trivialBinding(schema)
+    const result = materializeYjsShadow(yDoc, schema, binding)
+    expect(result).toEqual({ settings: { theme: null } })
   })
 })

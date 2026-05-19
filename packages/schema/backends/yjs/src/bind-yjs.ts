@@ -105,17 +105,15 @@ function createYjsFactory(
       // Set stable identity AFTER hydration — avoids Yjs clientID
       // conflict detection that would reassign to a random value.
       doc.clientID = numericClientId
-      // Conditional ensureContainers: skip fields that already exist
-      // from hydrated state (each set() is a CRDT write).
-      ensureContainers(doc, schema, true, binding)
+      ensureContainers(doc, schema, binding)
       return createYjsSubstrate(doc, schema, binding)
     },
 
     create(schema: SchemaNode): Substrate<YjsVersion> {
-      // Fresh doc — set identity immediately, unconditional containers.
+      // Fresh doc — set identity immediately.
       const doc = new Y.Doc()
       doc.clientID = numericClientId
-      ensureContainers(doc, schema, false, binding)
+      ensureContainers(doc, schema, binding)
       return createYjsSubstrate(doc, schema, binding)
     },
 

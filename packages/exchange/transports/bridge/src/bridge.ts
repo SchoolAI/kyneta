@@ -105,6 +105,10 @@ export class BridgeTransport extends Transport<BridgeTransportContext> {
   private channelToAdapter = new Map<ChannelId, string>()
   private adapterToChannel = new Map<string, ChannelId>()
 
+  // True after onStart() completes. Used by createChannelTo to know
+  // whether to establish newly created channels immediately.
+  #hasStarted = false
+
   // Per-channel pipeline. Created with the channel; lives until removal.
   // Keyed by channelId.
   private pipelineByChannel = new Map<ChannelId, Pipeline<"binary">>()
@@ -140,22 +144,20 @@ export class BridgeTransport extends Transport<BridgeTransportContext> {
 
   async onStart(): Promise<void> {
     this.bridge.addTransport(this)
+    this.#hasStarted = true
 
-    // Phase 1: Create all channels (no establishment yet).
+    // Discover all existing transports on the bridge. For each:
+    //  1. Tell the remote to create a channel back to us
+    //  2. Create our own channel to the remote
+    //  3. Establish our channel (triggers the handshake)
     for (const [transportId, adapter] of this.bridge.transports) {
-      if (transportId !== this.transportId) {
-        adapter.createChannelTo(this.transportId)
+      if (transportId === this.transportId) continue
+      adapter.createChannelTo(this.transportId)
+      this.createChannelTo(transportId)
+      const channelId = this.adapterToChannel.get(transportId)
+      if (channelId !== undefined) {
+        this.establishChannel(channelId)
       }
-    }
-    for (const transportId of this.bridge.transports.keys()) {
-      if (transportId !== this.transportId) {
-        this.createChannelTo(transportId)
-      }
-    }
-
-    // Phase 2: Only the joining transport initiates establishment.
-    for (const channelId of this.adapterToChannel.values()) {
-      this.establishChannel(channelId)
     }
   }
 
@@ -194,6 +196,13 @@ export class BridgeTransport extends Transport<BridgeTransportContext> {
         },
       }),
     )
+    // If a later transport joins the bridge after our onStart() has
+    // completed, it calls createChannelTo on us. We must establish
+    // the newly created channel immediately — our Phase 2 loop already
+    // ran and won't revisit this channel.
+    if (this.#hasStarted) {
+      this.establishChannel(channel.channelId)
+    }
   }
 
   removeChannelTo(targetTransportId: string): void {

@@ -930,33 +930,33 @@ function counterDiffToChange(diff: CounterDiff): IncrementChange {
 /**
  * TreeDiff → TreeChange (stub — tree support is future work)
  */
-function treeDiffToChange(
-  diff: TreeDiff,
-): TreeChange {
-  const instructions: TreeInstruction[] = diff.diff.map((item): TreeInstruction => {
-    switch (item.action) {
-      case "create":
-        return {
-          action: "create" as const,
-          target: item.target,
-          parent: item.parent ?? null,
-          index: item.index,
-        }
-      case "delete":
-        return {
-          action: "delete" as const,
-          target: item.target,
-        }
-      case "move":
-        return {
-          action: "move" as const,
-          target: item.target,
-          parent: item.parent ?? null,
-          index: item.index,
-        }
-      default:
-        throw new Error(`Unknown tree action: ${(item as any).action}`)
-    }
-  })
+function treeDiffToChange(diff: TreeDiff): TreeChange {
+  const instructions: TreeInstruction[] = diff.diff.map(
+    (item): TreeInstruction => {
+      switch (item.action) {
+        case "create":
+          return {
+            action: "create" as const,
+            target: item.target,
+            parent: item.parent ?? null,
+            index: item.index,
+          }
+        case "delete":
+          return {
+            action: "delete" as const,
+            target: item.target,
+          }
+        case "move":
+          return {
+            action: "move" as const,
+            target: item.target,
+            parent: item.parent ?? null,
+            index: item.index,
+          }
+        default:
+          throw new Error(`Unknown tree action: ${(item as any).action}`)
+      }
+    },
+  )
   return { type: "tree", instructions }
 }

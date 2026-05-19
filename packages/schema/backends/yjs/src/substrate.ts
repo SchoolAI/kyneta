@@ -52,9 +52,9 @@ import {
 } from "@kyneta/schema"
 import * as Y from "yjs"
 import { applyChangeToYjs, eventsToOps } from "./change-mapping.js"
+import { materializeYjsShadow } from "./materialize.js"
 import { ensureContainers } from "./populate.js"
 import { toYjsAssoc, YjsPosition } from "./position.js"
-import { materializeYjsShadow } from "./materialize.js"
 import { YjsVersion } from "./version.js"
 import { resolveYjsType } from "./yjs-resolve.js"
 
@@ -490,17 +490,14 @@ export const yjsSubstrateFactory: SubstrateFactory<YjsVersion> = {
     const doc = (replica as any)[BACKING_DOC] as Y.Doc
     const binding = trivialBinding(schema)
     // No identity injection for the standalone factory (no peerId).
-    // Conditional ensureContainers: skip fields that already exist
-    // from hydrated state.
-    ensureContainers(doc, schema, true, binding)
+    ensureContainers(doc, schema, binding)
     return createYjsSubstrate(doc, schema, binding)
   },
 
   create(schema: SchemaNode): Substrate<YjsVersion> {
-    // Fresh doc — unconditional ensureContainers (nothing to conflict with).
     const doc = new Y.Doc()
     const binding = trivialBinding(schema)
-    ensureContainers(doc, schema, false, binding)
+    ensureContainers(doc, schema, binding)
     return createYjsSubstrate(doc, schema, binding)
   },
 

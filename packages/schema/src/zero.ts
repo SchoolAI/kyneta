@@ -13,19 +13,12 @@
 import type { Interpreter, Path, SumVariants } from "./interpret.js"
 import { interpret } from "./interpret.js"
 import type {
-  CounterSchema,
   DiscriminatedSumSchema,
-  MapSchema,
-  MovableSequenceSchema,
   ProductSchema,
-  RichTextSchema,
   ScalarKind,
   ScalarSchema,
   Schema,
-  SequenceSchema,
-  SetSchema,
   SumSchema,
-  TextSchema,
   TreeSchema,
 } from "./schema.js"
 
@@ -68,14 +61,14 @@ export function scalarDefault(kind: ScalarKind): unknown {
 // ---------------------------------------------------------------------------
 
 export const zeroInterpreter: Interpreter<void, unknown> = {
-  scalar(_ctx: void, _path: Path, schema: ScalarSchema): unknown {
+  scalar(_ctx: undefined, _path: Path, schema: ScalarSchema): unknown {
     if (schema.constraint !== undefined && schema.constraint.length > 0) {
       return schema.constraint[0]
     }
     return scalarDefault(schema.scalarKind)
   },
   product(
-    _ctx: void,
+    _ctx: undefined,
     _path: Path,
     _schema: ProductSchema,
     fields: Readonly<Record<string, () => unknown>>,
@@ -93,7 +86,7 @@ export const zeroInterpreter: Interpreter<void, unknown> = {
     return {}
   },
   sum(
-    _ctx: void,
+    _ctx: undefined,
     _path: Path,
     schema: SumSchema,
     variants: SumVariants<unknown>,
@@ -122,7 +115,7 @@ export const zeroInterpreter: Interpreter<void, unknown> = {
     return []
   },
   tree(
-    _ctx: void,
+    _ctx: undefined,
     _path: Path,
     _schema: TreeSchema,
     nodeData: () => unknown,

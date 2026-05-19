@@ -143,6 +143,8 @@ doc.getMap(PROPS_KEY).get(identityHash("userName"))   // scalar field → _props
 
 `PROPS_KEY` is a reserved identifier. Applications cannot use `"_props"` as a schema field name — the identity hash for any user-facing field will never collide (hashes are 128-bit FNV-1a, `"_props"` is a literal string).
 
+**Note:** Root-level scalar and sum fields in `_props` are no longer eagerly initialized with structural zeros. The materializer's zero fallback produces the correct default on read. `_props` itself is still lazily created by `doc.getMap(PROPS_KEY)` in `resolveContainer`, but scalar values are only written when explicitly set by user code.
+
 ### What `_props` is NOT
 
 - **Not a global kitchen sink.** It only holds *root-level* scalar/sum fields. Nested scalars live inside their parent's own `LoroMap` or struct container.
@@ -174,6 +176,8 @@ On substrate construction (`loroSubstrateFactory.upgrade(replica, schema)`), the
 - If the map already has entries (hydrated from storage or a merge), leave it alone — structure is preserved.
 
 This is why hydration from stored state and fresh document creation both land in the same code path, and why adding a new field to an existing schema doesn't clobber the data on peers that already have a container for the old fields.
+
+**Note:** Only Loro containers (Map, Text, List, Counter, Tree, MovableList) are created during the walk — scalar and sum fields are no longer written during container creation. The `case "scalar"` / `case "sum"` branches in `ensureLoroContainers` are explicit no-ops to preserve switch exhaustiveness.
 
 ### What identity-keying is NOT
 
@@ -283,6 +287,8 @@ The handler:
 The earlier `inEventHandler` flag (which protected substrate-write skipping during event-bridge replay) was retired in favor of `BatchOptions.replay`: the event bridge passes `{ replay: true }` to `executeBatch`, and the substrate's `prepare`/`onFlush` discriminate on that typed parameter rather than on an ambient global. This closes a previously latent invariant hole — a re-entrant `change(doc, ...)` from inside a subscriber on a replay batch now correctly lands in the substrate (replay=false on the inner batch), where pre-fix the global flag swallowed the write. Context: jj:qpultxsw.
 
 During replay, `onFlush` re-materializes the `PlainState` shadow from the `LoroDoc` via `materializeLoroShadow`, ensuring that `ctx.reader` — which reads through `plainReader(shadow)` — is consistent with the merged CRDT state for any subscriber callbacks that fire during notification delivery.
+
+**Note:** `materializeLoroShadow` now uses the generic `createMaterializeInterpreter` from `@kyneta/schema` core with a Loro-specific `MaterializeResolver` (created by `createLoroResolver`), rather than defining a bespoke 370-line `loroMaterializeInterpreter`. The resolver (~50 lines) handles only CRDT-specific value extraction; all structural recursion and zero fallback is handled by the generic interpreter.
 
 ### What the event bridge is NOT
 

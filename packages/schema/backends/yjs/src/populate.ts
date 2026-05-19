@@ -1,14 +1,11 @@
 // populate — Yjs container creation from schema structure.
 //
 // Ensures that the correct Yjs shared types (Y.Text, Y.Array, Y.Map)
-// exist in a Y.Doc's root map to match the schema structure, and that
-// scalar/sum fields are initialized with Zero.structural defaults.
+// exist in a Y.Doc's root map to match the schema structure.
 //
-// This is NOT seed data — it's structural completeness, matching what
-// PlainSubstrate does when it initializes its store with Zero.structural.
-// The Yjs store reader expects to find values at every schema path;
-// without this, unset scalars would return undefined instead of their
-// type-correct zero ("", 0, false).
+// Only container types (text, product, sequence, map) require CRDT
+// writes here. Scalar and sum fields are handled by the materializer's
+// zero fallback — no Yjs writes are needed for non-container types.
 //
 // Root container strategy: All schema fields are children of a single
 // root `Y.Map` obtained via `doc.getMap("root")`. This root map holds
@@ -20,7 +17,7 @@
 // functions: ensureContainers, ensureRootField, ensureMapContainers.
 
 import type { SchemaBinding, Schema as SchemaNode } from "@kyneta/schema"
-import { KIND, STRUCTURAL_YJS_CLIENT_ID, Zero } from "@kyneta/schema"
+import { KIND, STRUCTURAL_YJS_CLIENT_ID } from "@kyneta/schema"
 import * as Y from "yjs"
 
 // ---------------------------------------------------------------------------
@@ -35,14 +32,10 @@ import * as Y from "yjs"
  * schema's fields, and creates empty containers for each field within a
  * single `doc.transact()` call for atomicity.
  *
- * When `conditional` is true, fields that already exist in the root map
- * are skipped. This is the correct mode after hydration — containers
- * present from stored state must not be overwritten (each `rootMap.set()`
- * is a CRDT write that advances the version vector and may conflict
- * with stored operations).
- *
- * When `conditional` is false (default), all fields are created
- * unconditionally. This is the correct mode for fresh documents.
+ * Container fields (text, product, sequence, map) are created if absent;
+ * existing containers are preserved (calling `rootMap.set()` on a field
+ * that already exists would be a destructive CRDT write). Scalar and sum
+ * fields are no-ops — the materializer handles zeros.
  *
  * **Structural identity:** This function temporarily sets `doc.clientID`
  * to `STRUCTURAL_YJS_CLIENT_ID` (0) for the duration of container creation,
@@ -56,14 +49,11 @@ import * as Y from "yjs"
  *
  * @param doc - The Y.Doc to prepare
  * @param schema - The root document schema (a ProductSchema)
- * @param conditional - If true, skip fields that already exist in the root map.
- *   Context: jj:smmulzkm (two-phase substrate construction)
  * @param binding - Optional SchemaBinding for identity-keyed containers.
  */
 export function ensureContainers(
   doc: Y.Doc,
   schema: SchemaNode,
-  conditional = false,
   binding?: SchemaBinding,
 ): void {
   const rootMap = doc.getMap("root")
@@ -84,7 +74,6 @@ export function ensureContainers(
       )) {
         const identity = binding?.forward.get(key) as string | undefined
         const mapKey = identity ?? key
-        if (conditional && rootMap.has(mapKey)) continue
         ensureRootField(
           rootMap,
           mapKey,
@@ -112,7 +101,7 @@ export function ensureContainers(
  * - `"product"` → empty Y.Map (recursive for nested products)
  * - `"sequence"` → empty Y.Array
  * - `"map"` → empty Y.Map
- * - `"scalar"` / `"sum"` → Zero.structural default
+ * - `"scalar"` / `"sum"` → no-op (materializer zero fallback)
  * - `"counter"` / `"set"` / `"tree"` / `"movable"` → throw (not supported by Yjs)
  *
  * @param rootMap - The root Y.Map to set the field on.
@@ -128,6 +117,12 @@ function ensureRootField(
   binding?: SchemaBinding,
   prefix?: string,
 ): void {
+  // Skip fields that already exist — calling rootMap.set() on an existing
+  // shared type would replace it (a destructive CRDT write), and scalars
+  // are no-ops regardless. This is safe on fresh docs (nothing to skip)
+  // and necessary on hydrated docs (preserves existing data).
+  if (rootMap.has(key)) return
+
   switch (fieldSchema[KIND]) {
     case "text":
     case "richtext":
@@ -147,16 +142,10 @@ function ensureRootField(
       return
 
     case "scalar":
-    case "sum": {
-      // Plain values don't need shared type containers, but they DO
-      // need structural zero defaults so the store reader returns
-      // type-correct values (e.g. "" not undefined for strings).
-      const zero = Zero.structural(fieldSchema)
-      if (zero !== undefined) {
-        rootMap.set(key, zero)
-      }
+    case "sum":
+      // Value concerns are handled by the materializer's zero fallback.
+      // No CRDT writes needed for non-container types.
       return
-    }
 
     case "counter":
     case "set":
@@ -180,7 +169,7 @@ function ensureRootField(
  *
  * Only creates containers for fields that require Yjs shared types
  * (text → Y.Text, product → Y.Map, sequence → Y.Array, map → Y.Map).
- * Scalar and sum fields are set to their structural zero defaults.
+ * Scalar and sum fields are skipped (materializer zero fallback).
  *
  * **Identity-keying:** When a `binding` is provided, computes the
  * absolute schema path for each nested field (`prefix.fieldName`) and
@@ -226,13 +215,10 @@ function ensureMapContainers(
         break
 
       case "scalar":
-      case "sum": {
-        const zero = Zero.structural(fieldSchema)
-        if (zero !== undefined) {
-          map.set(mapKey, zero)
-        }
+      case "sum":
+        // Value concerns are handled by the materializer's zero fallback.
+        // No CRDT writes needed for non-container types.
         break
-      }
 
       case "counter":
       case "set":

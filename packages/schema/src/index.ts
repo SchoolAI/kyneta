@@ -85,9 +85,7 @@ export {
   getOrCreateChangefeed,
   hasTreeChangefeed,
 } from "./changefeed.js"
-export type { MergeFn } from "./combinators.js"
-// Interpreter composition combinators
-export { firstDefined, overlay, product } from "./combinators.js"
+
 // Create-doc — generic document construction for any substrate
 export { createDoc, createRef } from "./create-doc.js"
 export { describe } from "./describe.js"
@@ -132,12 +130,15 @@ export {
   CALL,
   makeCarrier,
 } from "./interpreters/bottom.js"
+// Built-in interpreters
+// Materialize interpreter — generic CRDT→PlainState materialization
+export type { MaterializeResolver } from "./interpreters/materialize.js"
+export { createMaterializeInterpreter } from "./interpreters/materialize.js"
 // Navigable type interfaces — navigation-only collection refs
 export type {
   NavigableMapRef,
   NavigableSequenceRef,
 } from "./interpreters/navigable.js"
-// Built-in interpreters
 export { plainInterpreter } from "./interpreters/plain.js"
 // Readable types — type-level interpretation for readable refs
 // (The monolithic readableInterpreter is removed; use

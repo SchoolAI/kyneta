@@ -102,19 +102,15 @@ function createLoroFactory(
       // Set stable identity AFTER hydration — avoids any PeerID
       // conflict with operations in hydrated state.
       doc.setPeerId(numericPeerId)
-      // Conditional ensureRootContainer: container-type getXxx() calls
-      // are idempotent in Loro, but scalar propsMap.set() produces ops.
-      // Skip scalar defaults for keys already present from hydration.
-      ensureLoroContainers(doc, schema, true, binding)
+      ensureLoroContainers(doc, schema, binding)
       doc.commit()
       return createLoroSubstrate(doc, schema, binding)
     },
 
     create(schema: SchemaNode): Substrate<LoroVersion> {
-      // Fresh doc — set identity immediately, unconditional containers.
       const doc = new LoroDoc()
       doc.setPeerId(numericPeerId)
-      ensureLoroContainers(doc, schema, false, binding)
+      ensureLoroContainers(doc, schema, binding)
       doc.commit()
       return createLoroSubstrate(doc, schema, binding)
     },

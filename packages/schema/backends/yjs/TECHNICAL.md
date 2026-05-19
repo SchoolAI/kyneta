@@ -208,6 +208,8 @@ ensureContainers(doc, schema, binding) {
 
 This happens inside `yjsSubstrateFactory.upgrade(replica, schema)` after hydration. The walk is **conditional** — if a shared type already exists for a field's identity hash, it is left alone; only missing ones are created. This preserves hydrated state and makes the operation idempotent.
 
+**Scope of the `clientID = 0` transaction**: only shared type containers (`Y.Text`, `Y.Map`, `Y.Array`) are created during this pass. Scalar and sum fields are *not* written with zero defaults — their default values are produced by the materializer's zero fallback on read. This keeps the structural pass minimal: it creates the CRDT containers that Yjs needs to exist, and nothing else.
+
 ### What `STRUCTURAL_YJS_CLIENT_ID` is NOT
 
 - **Not a real peer.** No Yjs document has `clientID = 0` for its actual operations. The constant exists precisely so that structural ops cannot be confused with any peer's work.
@@ -256,7 +258,7 @@ Inserting a whole struct into a list or map is the one case that needs care. The
 **The populate-then-attach pattern**:
 
 1. Create a fresh `new Y.Map()` (not yet attached to any parent).
-2. Populate it: iterate the struct's fields (alphabetical over identity hashes), set entries — scalars as plain values, nested shared types as newly-created-and-populated sub-types.
+2. Populate it: iterate the struct's fields (alphabetical over identity hashes), set entries — nested shared types as newly-created-and-populated sub-types. Scalar and sum fields are **not** written here; their `case "scalar"` / `case "sum"` branches in `ensureRootField` and `ensureMapContainers` are explicit no-ops (retained for switch exhaustiveness). Only shared type containers are created.
 3. Attach the fully-populated map to the parent in one `set`/`insert` call.
 
 One `observeDeep` event fires (the attach). `eventsToOps` expands it into the correct kyneta change at the structural boundary. Subscribers see one coherent `Op`, not two half-constructed states.
@@ -298,6 +300,8 @@ The handler:
 The event handler's discriminant is `transaction.origin === OURS`, not a boolean flag set just-before / just-after `transact`. This means the bridge correctly handles nested or concurrent transactions from other sources — each event's `transaction.origin` is inspected independently.
 
 During replay, `onFlush` re-materializes the `PlainState` shadow from the `Y.Doc` via `materializeYjsShadow`, ensuring that `ctx.reader` — which reads through `plainReader(shadow)` — is consistent with the merged Yjs state for any subscriber callbacks that fire during notification delivery. See [§The functional shadow](../../TECHNICAL.md#the-functional-shadow).
+
+`materializeYjsShadow` itself uses the generic `createMaterializeInterpreter` from `@kyneta/schema` core with a Yjs-specific `MaterializeResolver` (created by `createYjsResolver`), rather than defining a bespoke interpreter. The resolver (~50 lines) handles only CRDT-specific value extraction (reading from `Y.Text`, `Y.Map`, `Y.Array`); the structural traversal, zero-default production for missing scalars/sums, and recursive descent are all handled by the shared core interpreter.
 
 ### What the event bridge is NOT
 

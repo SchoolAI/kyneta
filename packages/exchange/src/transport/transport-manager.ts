@@ -31,20 +31,19 @@ export class TransportManager {
     this.#context = context
     this.#onReset = onReset
 
-    // Initialize provided adapters — for fresh transports this resolves
-    // immediately; re-initialized transports await onStop() cleanup.
+    // Initialize provided transports synchronously. `_initialize` is
+    // async in signature but synchronous in body for fresh transports
+    // (state "created" → "initialized" with no awaits in that path).
+    // We call it and immediately register — no microtask deferral.
     for (const transport of transports) {
-      void this.#initializeTransport(transport)
+      transport._initialize(this.#context)
+      this.#transports.set(transport.transportId, transport)
     }
-
-    // Note: Adapters are NOT started here. Call startAll() after construction
-    // to start all transports. This allows the Synchronizer to finish initialization
-    // before adapters start triggering callbacks.
   }
 
   /**
-   * Start all transports that were provided in the constructor.
-   * Should be called after the Synchronizer is fully initialized.
+   * Start all transports. Must be called after the Synchronizer is fully
+   * initialized so that transport callbacks have a receiver.
    */
   startAll(): void {
     for (const transport of this.#transports.values()) {

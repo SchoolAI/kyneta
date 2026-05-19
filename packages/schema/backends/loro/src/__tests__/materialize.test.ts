@@ -4,8 +4,14 @@
 // plain JS objects for all schema types: text, counter, scalar,
 // sequence, nested struct, and empty documents.
 
-import type { ProductSchema, Ref, SchemaBinding, Substrate } from "@kyneta/schema"
+import type {
+  ProductSchema,
+  Ref,
+  SchemaBinding,
+  Substrate,
+} from "@kyneta/schema"
 import {
+  BACKING_DOC,
   change,
   deriveSchemaBinding,
   interpret,
@@ -16,11 +22,10 @@ import {
   type SchemaNode,
   writable,
 } from "@kyneta/schema"
-import { LoroDoc } from "loro-crdt"
+import type { LoroDoc } from "loro-crdt"
 import { describe, expect, it } from "vitest"
-import { loroSubstrateFactory, LoroVersion } from "../index.js"
+import { type LoroVersion, loroSubstrateFactory } from "../index.js"
 import { materializeLoroShadow } from "../materialize.js"
-import { BACKING_DOC } from "@kyneta/schema"
 
 // ===========================================================================
 // Helpers
@@ -265,5 +270,18 @@ describe("materializeLoroShadow", () => {
     // should still be correct and the result should be an object.
     expect(result).toBeDefined()
     expect(typeof result).toBe("object")
+  })
+
+  it("nested nullable materializes to null on fresh doc", () => {
+    const schema = Schema.struct({
+      settings: Schema.struct({
+        theme: Schema.string().nullable(),
+      }),
+    })
+    const substrate = loroSubstrateFactory.create(schema)
+    const loroDoc = getLoroDoc(substrate)
+    const binding = trivialBinding(schema)
+    const result = materializeLoroShadow(loroDoc, schema, binding)
+    expect(result).toEqual({ settings: { theme: null } })
   })
 })

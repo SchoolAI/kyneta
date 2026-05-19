@@ -20,6 +20,7 @@
 // ambient state for the substrate-write decision. Context: jj:qpultxsw.
 
 import {
+  applyChange,
   BACKING_DOC,
   type BatchOptions,
   buildWritableContext,
@@ -32,6 +33,7 @@ import {
   type PlainState,
   type PositionCapable,
   type ProductSchema,
+  plainReader,
   type Replica,
   type ReplicaFactory,
   type RichTextSchema,
@@ -43,9 +45,6 @@ import {
   type SubstratePayload,
   type Version,
   type WritableContext,
-  Zero,
-  applyChange,
-  plainReader,
 } from "@kyneta/schema"
 import type {
   ContainerID,
@@ -55,9 +54,9 @@ import type {
 } from "loro-crdt"
 import { Cursor, LoroDoc } from "loro-crdt"
 import { batchToOps, changeToDiff } from "./change-mapping.js"
-import { PROPS_KEY, resolveContainer } from "./loro-resolve.js"
-import { LoroPosition, toLoroSide } from "./position.js"
+import { resolveContainer } from "./loro-resolve.js"
 import { materializeLoroShadow } from "./materialize.js"
+import { LoroPosition, toLoroSide } from "./position.js"
 import { LoroVersion } from "./version.js"
 
 // ---------------------------------------------------------------------------
@@ -574,18 +573,14 @@ export const loroSubstrateFactory: SubstrateFactory<LoroVersion> = {
   ): Substrate<LoroVersion> {
     const doc = (replica as any)[BACKING_DOC] as LoroDocType
     const binding = trivialBinding(schema)
-    // No identity injection for the standalone factory (no peerId).
-    // Conditional ensureRootContainer: skip scalar defaults that
-    // already exist from hydrated state.
-    ensureLoroContainers(doc, schema, true, binding)
+    ensureLoroContainers(doc, schema, binding)
     return createLoroSubstrate(doc, schema, binding)
   },
 
   create(schema: SchemaNode): Substrate<LoroVersion> {
     const doc = new LoroDoc()
     const binding = trivialBinding(schema)
-    // Fresh doc — unconditional container creation.
-    ensureLoroContainers(doc, schema, false, binding)
+    ensureLoroContainers(doc, schema, binding)
     doc.commit()
     return createLoroSubstrate(doc, schema, binding)
   },
@@ -612,17 +607,10 @@ export const loroSubstrateFactory: SubstrateFactory<LoroVersion> = {
 /**
  * Walk a schema and ensure all root-level Loro containers exist.
  *
- * Unwraps the root product schema and calls `ensureRootContainer` for
- * each field. When `conditional` is true, scalar/sum defaults are
- * skipped for keys that already exist in the props map (preserving
- * hydrated state). Container-type fields (text, counter, list, map,
- * tree) are always idempotent in Loro — `doc.getText(key)` etc.
- * returns the existing container without generating ops.
- *
- * @param doc - The LoroDoc to prepare
- * @param schema - The root document schema
- * @param conditional - If true, skip scalar defaults for existing keys.
- *   Context: jj:smmulzkm (two-phase substrate construction)
+ * Loro containers are lazily created — `doc.getText(key)`, `doc.getMap(key)`,
+ * etc. are idempotent (return the existing container without generating ops).
+ * Scalar and sum fields are no-ops — the materializer's zero fallback handles
+ * default values on read.
  */
 /**
  * Recursively walk a schema tree collecting all RichTextSchema nodes'
@@ -664,7 +652,6 @@ function collectMarkConfigs(schema: SchemaNode): MarkConfig {
 export function ensureLoroContainers(
   doc: LoroDocType,
   schema: SchemaNode,
-  conditional: boolean,
   binding?: SchemaBinding,
 ): void {
   // Loro requires configTextStyle() to be called before mark/unmark ops.
@@ -679,12 +666,7 @@ export function ensureLoroContainers(
       ([a], [b]) => a.localeCompare(b),
     )) {
       const identity = binding?.forward.get(key) as string | undefined
-      ensureRootContainer(
-        doc,
-        identity ?? key,
-        fieldSchema as SchemaNode,
-        conditional,
-      )
+      ensureRootContainer(doc, identity ?? key, fieldSchema as SchemaNode)
     }
   }
 }
@@ -692,21 +674,14 @@ export function ensureLoroContainers(
 /**
  * Ensure a root-level Loro container exists for a schema field.
  *
- * Loro containers are lazily created — calling `doc.getText(key)` etc.
- * ensures the container is registered. This function walks the schema
- * to create the right container type for each root field, but does NOT
- * populate any values. Initial content should be applied via `change()`
- * after construction.
- *
- * When `conditional` is true, scalar/sum defaults are skipped for keys
- * that already have a value in the props map (preserving hydrated state).
- * Container-type fields are always safe — Loro's `getXxx()` is idempotent.
+ * Dispatches on [KIND] to call the appropriate Loro container getter.
+ * All getters are idempotent — safe to call on fresh or hydrated docs.
+ * Scalar and sum fields are no-ops (materializer handles zeros).
  */
 export function ensureRootContainer(
   doc: LoroDocType,
   key: string,
   fieldSchema: SchemaNode,
-  conditional = false,
 ): void {
   // Dispatch on the schema's [KIND] directly — no annotation unwrapping
   switch (fieldSchema[KIND]) {
@@ -734,21 +709,9 @@ export function ensureRootContainer(
       doc.getMap(key)
       return
     case "scalar":
-    case "sum": {
-      // Non-container types live in the shared _props LoroMap.
-      // Set the structural zero so the store reader returns type-correct
-      // values (e.g. "" not undefined for strings). This is NOT seed
-      // data — it's structural completeness, matching what PlainSubstrate
-      // does with Zero.structural.
-      const propsMap = doc.getMap(PROPS_KEY)
-      // When conditional, skip if key already exists from hydrated state
-      // (propsMap.set is a real CRDT write that produces ops).
-      if (conditional && propsMap.get(key) !== undefined) return
-      const zero = Zero.structural(fieldSchema)
-      if (zero !== undefined) {
-        propsMap.set(key, zero as any)
-      }
+    case "sum":
+      // Value concerns are handled by the materializer's zero fallback.
+      // No CRDT writes needed for non-container types.
       return
-    }
   }
 }

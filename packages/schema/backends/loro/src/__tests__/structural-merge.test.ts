@@ -1,8 +1,9 @@
 // structural-merge — Loro structural merge protocol tests.
 //
 // Loro container creation (doc.getText(), doc.getList(), etc.) is
-// idempotent — no CRDT ops. The structural merge tests for Loro
-// focus on scalar defaults (propsMap.set) and deterministic ordering.
+// idempotent — no CRDT ops. Scalar/sum fields are NOT eagerly
+// written to the CRDT; the materializer's zero fallback handles
+// default values on read.
 //
 // Context: jj:ptyzqoul (structural merge protocol)
 
@@ -57,11 +58,11 @@ describe("structural merge protocol (Loro)", () => {
     const binding = trivialBinding(TestSchema)
 
     const docA = new LoroDoc()
-    ensureLoroContainers(docA, TestSchema, false, binding)
+    ensureLoroContainers(docA, TestSchema, binding)
     docA.commit()
 
     const docB = new LoroDoc()
-    ensureLoroContainers(docB, TestSchema, false, binding)
+    ensureLoroContainers(docB, TestSchema, binding)
     docB.commit()
 
     // Both should produce the same containers — text, list (identity-keyed)
@@ -70,22 +71,23 @@ describe("structural merge protocol (Loro)", () => {
     expect(docA.getList(id("items"))).toBeDefined()
     expect(docB.getList(id("items"))).toBeDefined()
 
-    // Scalar defaults via _props (identity-keyed entries)
+    // Scalar fields are NOT pre-populated in _props — the materializer's
+    // zero fallback produces correct defaults on read.
     const propsA = docA.getMap(PROPS_KEY)
     const propsB = docB.getMap(PROPS_KEY)
-    expect(propsA.get(id("count"))).toBe(0) // Zero.structural for number
-    expect(propsB.get(id("count"))).toBe(0)
+    expect(propsA.get(id("count"))).toBeUndefined()
+    expect(propsB.get(id("count"))).toBeUndefined()
   })
 
   it("container creation is idempotent — calling twice doesn't conflict", () => {
     const binding = trivialBinding(TestSchema)
 
     const doc = new LoroDoc()
-    ensureLoroContainers(doc, TestSchema, false, binding)
+    ensureLoroContainers(doc, TestSchema, binding)
     doc.commit()
 
     // Second call — should be a no-op for containers
-    ensureLoroContainers(doc, TestSchema, false, binding)
+    ensureLoroContainers(doc, TestSchema, binding)
     doc.commit()
 
     // Still works correctly (identity-keyed)
@@ -93,9 +95,9 @@ describe("structural merge protocol (Loro)", () => {
     expect(doc.getList(id("items"))).toBeDefined()
   })
 
-  // ── Conditional mode preserves hydrated state ──
+  // ── Idempotent container creation preserves existing data ──
 
-  it("conditional mode skips scalar defaults for existing keys", () => {
+  it("calling ensureLoroContainers after manual writes preserves existing data", () => {
     const binding = trivialBinding(TestSchema)
 
     const doc = new LoroDoc()
@@ -104,8 +106,9 @@ describe("structural merge protocol (Loro)", () => {
     propsMap.set(id("count"), 42)
     doc.commit()
 
-    // Conditional ensureLoroContainers should NOT overwrite count
-    ensureLoroContainers(doc, TestSchema, true, binding)
+    // Calling ensureLoroContainers after writes — scalar/sum are no-ops,
+    // container getters are idempotent. Existing data is preserved.
+    ensureLoroContainers(doc, TestSchema, binding)
     doc.commit()
 
     expect(propsMap.get(id("count"))).toBe(42)
@@ -132,22 +135,23 @@ describe("structural merge protocol (Loro)", () => {
     const bindingB = trivialBinding(schemaB)
 
     const docA = new LoroDoc()
-    ensureLoroContainers(docA, schemaA, false, bindingA)
+    ensureLoroContainers(docA, schemaA, bindingA)
     docA.commit()
 
     const docB = new LoroDoc()
-    ensureLoroContainers(docB, schemaB, false, bindingB)
+    ensureLoroContainers(docB, schemaB, bindingB)
     docB.commit()
 
-    // Both have the same containers and defaults (identity-keyed)
+    // Both have the same containers (identity-keyed)
     expect(docA.getText(id("gamma"))).toBeDefined()
     expect(docB.getText(id("gamma"))).toBeDefined()
+    // Scalar fields are NOT pre-populated — the materializer handles zeros.
     const propsA = docA.getMap(PROPS_KEY)
     const propsB = docB.getMap(PROPS_KEY)
-    expect(propsA.get(id("alpha"))).toBe("") // Zero.structural for string
-    expect(propsB.get(id("alpha"))).toBe("")
-    expect(propsA.get(id("beta"))).toBe(0) // Zero.structural for number
-    expect(propsB.get(id("beta"))).toBe(0)
+    expect(propsA.get(id("alpha"))).toBeUndefined()
+    expect(propsB.get(id("alpha"))).toBeUndefined()
+    expect(propsA.get(id("beta"))).toBeUndefined()
+    expect(propsB.get(id("beta"))).toBeUndefined()
   })
 
   // ── Persistence round-trip ──
@@ -156,7 +160,7 @@ describe("structural merge protocol (Loro)", () => {
     const binding = trivialBinding(TestSchema)
 
     const doc1 = new LoroDoc()
-    ensureLoroContainers(doc1, TestSchema, false, binding)
+    ensureLoroContainers(doc1, TestSchema, binding)
     doc1.getText(id("title")).insert(0, "Hello Loro")
     doc1.getMap(PROPS_KEY).set(id("count"), 7)
     doc1.commit()
@@ -167,7 +171,7 @@ describe("structural merge protocol (Loro)", () => {
     // Hydrate into fresh doc
     const doc2 = new LoroDoc()
     doc2.import(snapshot)
-    ensureLoroContainers(doc2, TestSchema, true, binding) // conditional
+    ensureLoroContainers(doc2, TestSchema, binding)
 
     expect(doc2.getText(id("title")).toString()).toBe("Hello Loro")
     expect(doc2.getMap(PROPS_KEY).get(id("count"))).toBe(7)

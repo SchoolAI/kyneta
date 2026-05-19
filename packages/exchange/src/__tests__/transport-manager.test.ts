@@ -78,7 +78,7 @@ describe("TransportManager", () => {
     })
 
     manager.startAll()
-    // Give microtask a chance to run
+    // _start is async; one microtick resolves it.
     await new Promise<void>(r => queueMicrotask(r))
 
     expect(adapter.started).toBe(true)

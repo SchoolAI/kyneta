@@ -118,7 +118,7 @@ describe("YjsPosition: concurrent edits", () => {
     // --- Doc 2: fork from doc1's state ---
     const doc2 = new Y.Doc()
     Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1))
-    ensureContainers(doc2, TextSchema, true)
+    ensureContainers(doc2, TextSchema)
     const substrate2 = createYjsSubstrate(doc2, TextSchema)
     const ref2 = createRef(TextSchema, substrate2) as any
 
@@ -175,7 +175,7 @@ describe("YjsPosition: concurrent edits", () => {
     // --- Doc 2: fork ---
     const doc2 = new Y.Doc()
     Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1))
-    ensureContainers(doc2, TextSchema, true)
+    ensureContainers(doc2, TextSchema)
     const substrate2 = createYjsSubstrate(doc2, TextSchema)
     const ref2 = createRef(TextSchema, substrate2) as any
 
@@ -229,7 +229,7 @@ describe("YjsPosition: concurrent edits", () => {
     // --- Doc 2: fork ---
     const doc2 = new Y.Doc()
     Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1))
-    ensureContainers(doc2, TextSchema, true)
+    ensureContainers(doc2, TextSchema)
     const substrate2 = createYjsSubstrate(doc2, TextSchema)
     const ref2 = createRef(TextSchema, substrate2) as any
 
@@ -285,7 +285,7 @@ describe("YjsPosition: concurrent edits", () => {
     // Decode on a different doc that has the same state
     const doc2 = new Y.Doc()
     Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1))
-    ensureContainers(doc2, TextSchema, true)
+    ensureContainers(doc2, TextSchema)
     const substrate2 = createYjsSubstrate(doc2, TextSchema)
     const ref2 = createRef(TextSchema, substrate2) as any
 
@@ -310,13 +310,13 @@ describe("YjsPosition: concurrent edits", () => {
 
     const doc2 = new Y.Doc()
     Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc1))
-    ensureContainers(doc2, TextSchema, true)
+    ensureContainers(doc2, TextSchema)
     const substrate2 = createYjsSubstrate(doc2, TextSchema)
     const ref2 = createRef(TextSchema, substrate2) as any
 
     const doc3 = new Y.Doc()
     Y.applyUpdate(doc3, Y.encodeStateAsUpdate(doc1))
-    ensureContainers(doc3, TextSchema, true)
+    ensureContainers(doc3, TextSchema)
     const substrate3 = createYjsSubstrate(doc3, TextSchema)
     const ref3 = createRef(TextSchema, substrate3) as any
 
