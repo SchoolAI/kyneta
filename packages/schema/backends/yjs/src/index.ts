@@ -50,8 +50,7 @@ export type { YjsNativeMap } from "./native-map.js"
 export { ensureContainers } from "./populate.js"
 // Position conformance
 export { fromYjsAssoc, toYjsAssoc, YjsPosition } from "./position.js"
-// Reader
-export { yjsReader } from "./reader.js"
+
 // Substrate
 export {
   createYjsSubstrate,

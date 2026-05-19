@@ -618,7 +618,7 @@ describe("YjsSubstrate", () => {
   // Context: jj:qpultxsw.
 
   describe("re-entrant write during merge replay", () => {
-    it("subscriber's local change() inside a merge-replay batch lands in Yjs", async () => {
+    it("subscriber's local change() inside a merge-replay batch lands in Yjs", () => {
       const docA = createDoc(yjs.bind(SimpleSchema))
       const docB = createDoc(yjs.bind(SimpleSchema))
 
@@ -646,8 +646,6 @@ describe("YjsSubstrate", () => {
       })
       const delta = exportSince(docA, v0)!
       merge(docB, delta, { origin: "sync" })
-
-      await new Promise<void>(r => queueMicrotask(r))
 
       expect(docB.title()).toBe("seedmore")
       expect(docB.count()).toBe(42)

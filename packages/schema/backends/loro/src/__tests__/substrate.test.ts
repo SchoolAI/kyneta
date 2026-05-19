@@ -780,7 +780,7 @@ describe("nested structure", () => {
 // Context: jj:qpultxsw.
 
 describe("re-entrant write during merge replay", () => {
-  it("subscriber's local change() inside a merge-replay batch lands in Loro", async () => {
+  it("subscriber's local change() inside a merge-replay batch lands in Loro", () => {
     const substrateA = loroSubstrateFactory.create(TestSchema)
     const docA = interpretSubstrate(TestSchema, substrateA)
 
@@ -812,9 +812,6 @@ describe("re-entrant write during merge replay", () => {
     })
     const delta = substrateA.exportSince(v0 as LoroVersion)!
     substrateB.merge(delta, { origin: "sync" })
-
-    // Drain microtasks so the inner change()'s sub-tick lands.
-    await new Promise<void>(r => queueMicrotask(r))
 
     expect(docB.title()).toBe("seedmore")
     expect(docB.theme()).toBe("echoed")

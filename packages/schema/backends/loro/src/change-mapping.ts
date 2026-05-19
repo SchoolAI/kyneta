@@ -27,6 +27,8 @@ import type {
   SequenceInstruction,
   TextChange,
   TextInstruction,
+  TreeChange,
+  TreeInstruction,
 } from "@kyneta/schema"
 import {
   advanceSchema,
@@ -930,28 +932,26 @@ function counterDiffToChange(diff: CounterDiff): IncrementChange {
  */
 function treeDiffToChange(
   diff: TreeDiff,
-): ChangeBase & { instructions: unknown[] } {
-  // Map TreeDiffItems to kyneta TreeInstructions
-  // This is a simplified mapping — full tree support is future work
-  const instructions = diff.diff.map(item => {
+): TreeChange {
+  const instructions: TreeInstruction[] = diff.diff.map((item): TreeInstruction => {
     switch (item.action) {
       case "create":
         return {
-          type: "create" as const,
+          action: "create" as const,
           target: item.target,
-          parent: item.parent,
+          parent: item.parent ?? null,
           index: item.index,
         }
       case "delete":
         return {
-          type: "delete" as const,
+          action: "delete" as const,
           target: item.target,
         }
       case "move":
         return {
-          type: "move" as const,
+          action: "move" as const,
           target: item.target,
-          parent: item.parent,
+          parent: item.parent ?? null,
           index: item.index,
         }
       default:

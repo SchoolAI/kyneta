@@ -10,14 +10,24 @@
 // and produces state invisible to the sync protocol. Initial content
 // should be applied via change() after substrate construction.
 
+import type { Interpreter, Path, SumVariants } from "./interpret.js"
+import { interpret } from "./interpret.js"
 import type {
+  CounterSchema,
   DiscriminatedSumSchema,
-  PositionalSumSchema,
+  MapSchema,
+  MovableSequenceSchema,
+  ProductSchema,
+  RichTextSchema,
   ScalarKind,
   ScalarSchema,
   Schema,
+  SequenceSchema,
+  SetSchema,
+  SumSchema,
+  TextSchema,
+  TreeSchema,
 } from "./schema.js"
-import { KIND } from "./schema.js"
 
 // ---------------------------------------------------------------------------
 // Scalar defaults
@@ -54,84 +64,89 @@ export function scalarDefault(kind: ScalarKind): unknown {
 }
 
 // ---------------------------------------------------------------------------
+// zeroInterpreter — interpreter that derives structural defaults
+// ---------------------------------------------------------------------------
+
+export const zeroInterpreter: Interpreter<void, unknown> = {
+  scalar(_ctx: void, _path: Path, schema: ScalarSchema): unknown {
+    if (schema.constraint !== undefined && schema.constraint.length > 0) {
+      return schema.constraint[0]
+    }
+    return scalarDefault(schema.scalarKind)
+  },
+  product(
+    _ctx: void,
+    _path: Path,
+    _schema: ProductSchema,
+    fields: Readonly<Record<string, () => unknown>>,
+  ): unknown {
+    const result: Record<string, unknown> = {}
+    for (const [key, thunk] of Object.entries(fields)) {
+      result[key] = thunk()
+    }
+    return result
+  },
+  sequence(): unknown {
+    return []
+  },
+  map(): unknown {
+    return {}
+  },
+  sum(
+    _ctx: void,
+    _path: Path,
+    schema: SumSchema,
+    variants: SumVariants<unknown>,
+  ): unknown {
+    if (schema.discriminant !== undefined) {
+      const disc = schema as DiscriminatedSumSchema
+      const firstKey = Object.keys(disc.variantMap)[0]
+      if (firstKey !== undefined && variants.byKey) {
+        return variants.byKey(firstKey)
+      }
+      return undefined
+    }
+    const positional = schema as { variants: readonly unknown[] }
+    if (positional.variants.length > 0 && variants.byIndex) {
+      return variants.byIndex(0)
+    }
+    return undefined
+  },
+  text(): unknown {
+    return ""
+  },
+  counter(): unknown {
+    return 0
+  },
+  set(): unknown {
+    return []
+  },
+  tree(
+    _ctx: void,
+    _path: Path,
+    _schema: TreeSchema,
+    nodeData: () => unknown,
+  ): unknown {
+    return nodeData()
+  },
+  movable(): unknown {
+    return []
+  },
+  richtext(): unknown {
+    return []
+  },
+}
+
+// ---------------------------------------------------------------------------
 // Zero.structural — derive defaults from the schema grammar
 // ---------------------------------------------------------------------------
 
 /**
  * Derives the mechanical structural zero for a schema by walking the
  * unified grammar. Requires no user configuration.
- *
- * - `scalar(kind)` → `scalarDefault(kind)`
- * - `product(fields)` → `{ k: structural(fields[k]) }` for each key
- * - `sequence(item)` → `[]`
- * - `map(item)` → `{}`
- * - `sum(variants)` → structural zero of the first variant
- * - `sum(discriminated)` → structural zero of the first variant in the map
- * - `annotated(tag, inner?)` → annotation-specific default if known,
- *   otherwise delegate to inner schema, otherwise `undefined`
  */
 function structural(schema: Schema): unknown {
-  switch (schema[KIND]) {
-    case "scalar": {
-      const s = schema as ScalarSchema
-      if (s.constraint !== undefined && s.constraint.length > 0) {
-        return s.constraint[0]
-      }
-      return scalarDefault(schema.scalarKind)
-    }
-
-    case "product": {
-      const result: Record<string, unknown> = {}
-      for (const [key, fieldSchema] of Object.entries(schema.fields)) {
-        result[key] = structural(fieldSchema)
-      }
-      return result
-    }
-
-    case "sequence":
-      return []
-
-    case "map":
-      return {}
-
-    case "sum": {
-      if (schema.discriminant !== undefined) {
-        // Discriminated sum — use the first variant.
-        // Each variant is a ProductSchema that declares the discriminant
-        // as a constrained string scalar field, so walking its fields
-        // naturally produces the discriminant value (from the constraint).
-        const disc = schema as DiscriminatedSumSchema
-        if (disc.variants.length === 0) {
-          return undefined
-        }
-        return structural(disc.variants[0]!)
-      }
-      // Positional sum — use the first variant
-      const variants = (schema as PositionalSumSchema).variants
-      if (variants.length === 0) {
-        return undefined
-      }
-      return structural(variants[0]!)
-    }
-
-    case "text":
-      return ""
-
-    case "richtext":
-      return []
-
-    case "counter":
-      return 0
-
-    case "set":
-      return []
-
-    case "tree":
-      return structural(schema.nodeData)
-
-    case "movable":
-      return []
-  }
+  return interpret(schema, zeroInterpreter, undefined)
 }
 
 // ---------------------------------------------------------------------------

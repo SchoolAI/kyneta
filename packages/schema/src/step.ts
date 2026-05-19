@@ -17,6 +17,7 @@ import type {
   RichTextSpan,
   SequenceChange,
   TextChange,
+  TreeChange,
 } from "./change.js"
 
 // ---------------------------------------------------------------------------
@@ -35,12 +36,13 @@ import type {
  * retains and deletes. Inserts add characters at the cursor position.
  */
 export function stepText(state: string, action: TextChange): string {
+  const s = state ?? ""
   let cursor = 0
   let result = ""
 
   for (const op of action.instructions) {
     if ("retain" in op) {
-      result += state.slice(cursor, cursor + op.retain)
+      result += s.slice(cursor, cursor + op.retain)
       cursor += op.retain
     } else if ("insert" in op) {
       result += op.insert
@@ -50,8 +52,8 @@ export function stepText(state: string, action: TextChange): string {
   }
 
   // Append any remaining characters after the last op
-  if (cursor < state.length) {
-    result += state.slice(cursor)
+  if (cursor < s.length) {
+    result += s.slice(cursor)
   }
 
   return result
@@ -77,14 +79,16 @@ export function stepSequence<T>(
   state: readonly T[],
   action: SequenceChange<T>,
 ): T[] {
+  const s = state ?? []
   let cursor = 0
   const result: T[] = []
 
   for (const op of action.instructions) {
     if ("retain" in op) {
       for (let i = 0; i < (op as { retain: number }).retain; i++) {
-        if (cursor < state.length) {
-          result.push(state[cursor]!)
+        if (cursor < s.length) {
+          const item = s[cursor]
+          if (item !== undefined) result.push(item)
           cursor++
         }
       }
@@ -98,8 +102,9 @@ export function stepSequence<T>(
   }
 
   // Append any remaining items after the last op
-  while (cursor < state.length) {
-    result.push(state[cursor]!)
+  while (cursor < s.length) {
+    const item = s[cursor]
+    if (item !== undefined) result.push(item)
     cursor++
   }
 
@@ -125,7 +130,7 @@ export function stepMap<T extends Record<string, unknown>>(
   state: T,
   action: MapChange,
 ): T {
-  const result = { ...state }
+  const result = { ...(state ?? ({} as T)) }
 
   if (action.delete) {
     for (const key of action.delete) {
@@ -171,7 +176,7 @@ export function stepReplace<T>(_state: T, action: ReplaceChange<T>): T {
  * ```
  */
 export function stepIncrement(state: number, action: IncrementChange): number {
-  return state + action.amount
+  return (state ?? 0) + action.amount
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +232,7 @@ export function stepRichText(
   state: RichTextDelta,
   action: RichTextChange,
 ): RichTextDelta {
+  const s = state ?? []
   const output: RichTextSpan[] = []
 
   // Flat cursor into the input spans
@@ -240,8 +246,8 @@ export function stepRichText(
     ) => Record<string, unknown> | undefined,
   ): void {
     let remaining = count
-    while (remaining > 0 && spanIndex < state.length) {
-      const span = state[spanIndex]!
+    while (remaining > 0 && spanIndex < s.length) {
+      const span = s[spanIndex] as RichTextSpan
       const available = span.text.length - charOffset
       const take = Math.min(remaining, available)
 
@@ -262,8 +268,8 @@ export function stepRichText(
 
   function skip(count: number): void {
     let remaining = count
-    while (remaining > 0 && spanIndex < state.length) {
-      const span = state[spanIndex]!
+    while (remaining > 0 && spanIndex < s.length) {
+      const span = s[spanIndex] as RichTextSpan
       const available = span.text.length - charOffset
       const take = Math.min(remaining, available)
 
@@ -303,8 +309,8 @@ export function stepRichText(
   }
 
   // Append remaining input spans (implicit trailing retain)
-  while (spanIndex < state.length) {
-    const span = state[spanIndex]!
+  while (spanIndex < s.length) {
+    const span = s[spanIndex] as RichTextSpan
     if (charOffset > 0) {
       const text = span.text.slice(charOffset)
       if (text) {
@@ -318,6 +324,48 @@ export function stepRichText(
   }
 
   return normalizeSpans(output)
+}
+
+// ---------------------------------------------------------------------------
+// stepTree — apply tree instructions to a flat node array
+// ---------------------------------------------------------------------------
+
+interface TreeNode {
+  readonly id: string
+  readonly parent: string | null
+  readonly index: number
+  readonly data: unknown
+}
+
+export function stepTree(state: unknown[], action: TreeChange): unknown[] {
+  let result = [...state]
+  for (const inst of action.instructions) {
+    switch (inst.action) {
+      case "create": {
+        const node: TreeNode = {
+          id: inst.target,
+          parent: inst.parent,
+          index: inst.index,
+          data: {},
+        }
+        result = [...result, node]
+        break
+      }
+      case "delete": {
+        result = result.filter(n => (n as TreeNode).id !== inst.target)
+        break
+      }
+      case "move": {
+        result = result.map(n =>
+          (n as TreeNode).id === inst.target
+            ? { ...(n as TreeNode), parent: inst.parent, index: inst.index }
+            : n,
+        )
+        break
+      }
+    }
+  }
+  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -368,6 +416,9 @@ export function step<S>(state: S, action: ChangeBase): S {
 
     case "richtext":
       return stepRichText(state as RichTextDelta, action as RichTextChange) as S
+
+    case "tree":
+      return stepTree(state as unknown[], action as TreeChange) as S
 
     default:
       throw new Error(

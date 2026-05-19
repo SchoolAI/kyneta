@@ -1,1 +1,4 @@
-export { positionConformance, type PositionTestEnv } from "./position-conformance.js"
+export {
+  type PositionTestEnv,
+  positionConformance,
+} from "./position-conformance.js"

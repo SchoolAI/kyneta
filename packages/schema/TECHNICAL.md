@@ -306,7 +306,7 @@ A `Substrate` adds interpretation:
 
 Mutations don't `merge` immediately. They accumulate in a prepare pipeline that:
 
-1. Applies each instruction to the backing doc via substrate-native writes.
+1. Applies each instruction to the substrate's read surface. For the plain substrate this is the backing state directly; for CRDT substrates this means eager `applyChange` writes to the `PlainState` shadow — CRDT-native writes (Loro diffs, Yjs mutations) are deferred to `onFlush`.
 2. Records the resulting `Change` values (text, sequence, map, etc.) with their paths.
 3. On commit, folds the accumulated changes into `Op[]` for the composed changefeed.
 4. Calls `notify()` so subscribers receive a single `Changeset` per transaction, not one per primitive operation.
@@ -514,7 +514,9 @@ See `@kyneta/machine`'s TECHNICAL.md §"Drain to quiescence and shared leases" f
 
 `deliverNotifications` iterates subscribers `[S1, S2, S3]`. If S1 calls `change(doc, ...)` synchronously, S1's substrate writes land *before* S2 fires. S2 receives the `Changeset` describing the originating transaction, but reads from a substrate that already includes S1's mutations.
 
-This invariant holds uniformly across substrates — plain, Loro, Yjs — including when the outer batch is a **replay** batch from a substrate event bridge (e.g. an incoming sync merge). S1's local re-entrant write inside the replay-batch delivery is *not* a replay (the user code constructs a normal `change(doc, ...)` with no `replay` flag), so the substrate's `prepare`/`onFlush` apply it natively. Pre-fix this case was the source of a hidden invariant hole on CRDT substrates: an `inEventHandler`/`inOurTransaction` global flag wrapped the entire event-bridge call and caused the substrate to silently drop S1's write. Resolved by threading `BatchOptions.replay` as a typed parameter; see [§Origin vs replay](#origin-vs-replay).
+This invariant is true **by construction** across all substrates — plain, Loro, Yjs — because CRDT substrates maintain a `PlainState` shadow as their read surface. `prepare` writes eagerly to the shadow via `applyChange`; the CRDT doc is updated later in `onFlush`. Since every substrate's reads go through the shadow, read-your-writes consistency requires no special coordination — a local write is immediately visible to any subsequent read within the same or later subscriber callback, regardless of whether the outer batch is a local write or a replay from the event bridge.
+
+When the outer batch is a **replay** batch from a substrate event bridge (e.g. an incoming sync merge), S1's local re-entrant write inside the replay-batch delivery is *not* a replay (the user code constructs a normal `change(doc, ...)` with no `replay` flag), so the substrate's `prepare`/`onFlush` apply it natively. Pre-fix this case was the source of a hidden invariant hole on CRDT substrates: an `inEventHandler`/`inOurTransaction` global flag wrapped the entire event-bridge call and caused the substrate to silently drop S1's write. Resolved by threading `BatchOptions.replay` as a typed parameter; see [§Origin vs replay](#origin-vs-replay).
 
 Two guidances:
 
@@ -838,6 +840,8 @@ The built-in substrate. Stores state as plain JS objects, tracks a Lamport versi
 - The LWW variant (`src/substrates/lww.ts` + `src/substrates/timestamp-version.ts`) for wall-clock-ordered ephemeral broadcasts.
 - Reference implementation for testing the `Substrate<V>` contract.
 
+All substrates now share the same read semantics: reads go through `plainReader` backed by a `PlainState` object. For the plain substrate this is trivially the substrate's own state. For CRDT substrates (Loro, Yjs), the `PlainState` is a shadow that is kept in sync — eagerly on local writes, re-materialized from the CRDT doc on replay. See [§The functional shadow](#the-functional-shadow).
+
 Key functions:
 
 - `createPlainSubstrate(schema, context)` → `Substrate<PlainVersion>`.
@@ -857,6 +861,25 @@ A Lamport vector. `versionVectorMeet` and `versionVectorCompare` operate on it d
 ### `TimestampVersion`
 
 For ephemeral substrates: a single wall-clock number plus the peer ID. `merge` accepts the incoming value iff `timestamp > local.timestamp || (equal && peerId > local.peerId)`. Stale writes are rejected silently.
+
+## The functional shadow
+
+CRDT substrates (Loro, Yjs) maintain a **shadow**: a `PlainState` object that serves as the canonical read surface for all interpreter-stack reads. The architecture separates four surfaces:
+
+| Surface | Backing | Purpose |
+|---------|---------|---------|
+| **Read surface** | `PlainState` + `plainReader` | All `ref.field()` reads, subscriber reads, interpreter-stack caching |
+| **Sync surface** | CRDT doc (`LoroDoc` / `Y.Doc`) | `exportSince`, `merge`, `import` — replication and conflict resolution |
+| **Position surface** | CRDT doc | `positionResolver` — cursor / relative-position operations that require CRDT structure |
+| **Native escape hatch** | CRDT doc | `nativeResolver` — direct access to the underlying CRDT container for advanced use |
+
+**On local writes**, `prepare` calls `applyChange(shadow, path, change)` — the same pure `step` function used by the plain substrate — making the write immediately visible to reads. CRDT diffs are buffered and applied to the CRDT doc in `onFlush`. This two-phase design means the read surface is always ahead of (or equal to) the sync surface during a transaction.
+
+**On replay (merge)**, the CRDT doc absorbs the remote state first (via `doc.import` or `Y.applyUpdate`). `onFlush` then re-materializes the shadow from the CRDT doc, ensuring `ctx.reader` reflects the merged state for subscriber callbacks.
+
+**Initialization.** The shadow is created at substrate construction time via `materializeLoroShadow` (Loro) or `materializeYjsShadow` (Yjs). These functions walk the CRDT doc and produce a plain JS object matching the schema's shape. The shadow is also re-materialized on upgrade and after any replay flush.
+
+This design makes the read-your-writes invariant true by construction for all substrates: reads always go through `plainReader(shadow)`, and local writes always land in the shadow eagerly. No coordination, no flags, no special-casing per substrate.
 
 ---
 

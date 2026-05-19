@@ -361,6 +361,7 @@ export {
   stepRichText,
   stepSequence,
   stepText,
+  stepTree,
 } from "./step.js"
 // Substrate — state management, versioning, and transfer semantics
 export type {
@@ -427,4 +428,4 @@ export { unwrap } from "./unwrap.js"
 // Version vector — shared lattice utilities for version vectors
 export { versionVectorCompare, versionVectorMeet } from "./version-vector.js"
 // Zero — default values derived from the schema grammar
-export { scalarDefault, Zero } from "./zero.js"
+export { scalarDefault, Zero, zeroInterpreter } from "./zero.js"

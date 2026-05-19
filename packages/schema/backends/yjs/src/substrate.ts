@@ -26,6 +26,7 @@ import type {
   BatchOptions,
   ChangeBase,
   Path,
+  PlainState,
   PositionCapable,
   ProductSchema,
   Reader,
@@ -41,17 +42,19 @@ import type {
   WritableContext,
 } from "@kyneta/schema"
 import {
+  applyChange,
   BACKING_DOC,
   buildWritableContext,
   deriveSchemaBinding,
   executeBatch,
   KIND,
+  plainReader,
 } from "@kyneta/schema"
 import * as Y from "yjs"
 import { applyChangeToYjs, eventsToOps } from "./change-mapping.js"
 import { ensureContainers } from "./populate.js"
 import { toYjsAssoc, YjsPosition } from "./position.js"
-import { yjsReader } from "./reader.js"
+import { materializeYjsShadow } from "./materialize.js"
 import { YjsVersion } from "./version.js"
 import { resolveYjsType } from "./yjs-resolve.js"
 
@@ -111,8 +114,10 @@ export function createYjsSubstrate(
   // The root Y.Map — all schema fields are children of this single map.
   const rootMap = doc.getMap("root")
 
-  // The Reader — live view over the Yjs shared type tree.
-  const reader: Reader = yjsReader(doc, schema, binding)
+  // The shadow — a plain JS object materialized from the Y.Doc.
+  // Kept in sync by applyChange() in prepare().
+  const shadow: PlainState = materializeYjsShadow(doc, schema, binding)
+  const reader: Reader = plainReader(shadow)
 
   // --- Substrate object ---
 
@@ -122,20 +127,31 @@ export function createYjsSubstrate(
     reader: reader,
 
     prepare(path: Path, change: ChangeBase, options?: BatchOptions): void {
+      // Local writes: apply eagerly to the shadow so reads are
+      // immediately consistent. Replay writes: skip — the shadow
+      // will be re-materialized from the Y.Doc in onFlush(replay).
+      if (!options?.replay) {
+        applyChange(shadow, path, change)
+      }
+
       if (options?.replay) {
-        // Yjs already has these ops (the bridge is replaying them
-        // through kyneta solely so the changefeed layer can deliver
-        // notifications — wrappedPrepare buffered the op upstream).
         return
       }
-      // Mutations happen in onFlush inside a single Yjs transaction.
       pendingChanges.push({ path, change })
     },
 
     onFlush(options?: BatchOptions): void {
       if (options?.replay) {
-        // Yjs already committed; wrappedFlush still delivers
-        // notifications upstream.
+        // Re-materialize shadow from the Y.Doc (already committed).
+        const fresh = materializeYjsShadow(doc, schema, binding)
+        for (const key of Object.keys(fresh)) {
+          shadow[key] = fresh[key]
+        }
+        for (const key of Object.keys(shadow)) {
+          if (!(key in fresh)) {
+            delete shadow[key]
+          }
+        }
         return
       }
       if (pendingChanges.length === 0) return

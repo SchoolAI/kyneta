@@ -71,12 +71,18 @@ export interface ReplaceChange<T = unknown> extends ChangeBase {
 // ---------------------------------------------------------------------------
 
 export type TreeInstruction =
-  | { readonly action: "create"; readonly index: number }
-  | { readonly action: "delete"; readonly index: number }
+  | {
+      readonly action: "create"
+      readonly target: string
+      readonly parent: string | null
+      readonly index: number
+    }
+  | { readonly action: "delete"; readonly target: string }
   | {
       readonly action: "move"
-      readonly fromIndex: number
-      readonly toIndex: number
+      readonly target: string
+      readonly parent: string | null
+      readonly index: number
     }
 
 export interface TreeChange extends ChangeBase {

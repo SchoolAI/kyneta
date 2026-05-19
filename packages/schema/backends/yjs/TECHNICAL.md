@@ -56,7 +56,7 @@ Four responsibilities, mirroring the Loro backend:
 | Responsibility | Primary source |
 |----------------|----------------|
 | Navigation (schema → shared type) | `src/yjs-resolve.ts` — `resolveYjsType`, `stepIntoYjs` |
-| Reads (shared type → value) | `src/reader.ts` — `yjsReader` |
+| Reads (shadow → value) | `plainReader(shadow)` — reads go through the `PlainState` shadow, not live Yjs types |
 | Writes (kyneta `Change` → Yjs mutations) | `src/change-mapping.ts` — `applyChangeToYjs`, `eventsToOps` |
 | Substrate orchestration (prepare/flush, merge, events) | `src/substrate.ts` — `YjsSubstrate`, `yjsSubstrateFactory` |
 
@@ -231,19 +231,20 @@ One Yjs-specific wrinkle: because everything lives inside the single root `Y.Map
 
 Source: `packages/schema/backends/yjs/src/substrate.ts` → `onFlush`; `src/change-mapping.ts` → `applyChangeToYjs`; `src/populate.ts` → `populate`.
 
-Yjs's natural programming model is imperative: open a `Y.transact`, mutate shared types, close. Kyneta batches mutations per kyneta transaction, then runs them inside one `Y.transact` with an origin tag.
+Yjs’s natural programming model is imperative: open a `Y.transact`, mutate shared types, close. Kyneta uses a two-phase write: `prepare` applies changes eagerly to the `PlainState` shadow (read-visible immediately) and buffers `(path, change)` pairs; `onFlush` replays the buffered changes as imperative Yjs mutations inside one `Y.transact` with an origin tag (sync-visible).
 
 ```
 change(doc, d => { d.title.insert(0, "hi"); d.items.push(x) })
   │
   ├─ prepare phase (per mutation):
-  │    accumulate (path, change) pairs — no Yjs side effects
+  │    applyChange(shadow, path, change)    // eager, read-visible
+  │    accumulate (path, change) pairs       // buffered for flush
   │
   └─ flush phase (on commit):
        doc.transact(() => {
          for each (path, change) in accumulated:
            applyChangeToYjs(rootMap, path, change, schema, binding)
-       }, OURS)                              // origin tag
+       }, OURS)                              // origin tag, sync-visible
 ```
 
 `applyChangeToYjs` is straightforward imperative mutation: resolve the target via `resolveYjsType`, then call `Y.Text.insert` / `Y.Array.insert` / `Y.Map.set` / etc. depending on the change type.
@@ -295,6 +296,8 @@ The handler:
 `Y.transact` accepts an arbitrary `origin` value as its third argument. The substrate passes a unique per-substrate symbol (`OURS`) when wrapping its own writes; external `Y.transact` calls (or `Y.applyUpdate`, which does its own transact) carry whatever origin the caller supplied (often `null`).
 
 The event handler's discriminant is `transaction.origin === OURS`, not a boolean flag set just-before / just-after `transact`. This means the bridge correctly handles nested or concurrent transactions from other sources — each event's `transaction.origin` is inspected independently.
+
+During replay, `onFlush` re-materializes the `PlainState` shadow from the `Y.Doc` via `materializeYjsShadow`, ensuring that `ctx.reader` — which reads through `plainReader(shadow)` — is consistent with the merged Yjs state for any subscriber callbacks that fire during notification delivery. See [§The functional shadow](../../TECHNICAL.md#the-functional-shadow).
 
 ### What the event bridge is NOT
 

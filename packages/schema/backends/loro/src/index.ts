@@ -52,8 +52,7 @@ export { resolveContainer, stepIntoLoro } from "./loro-resolve.js"
 export type { LoroNativeMap } from "./native-map.js"
 // Position conformance
 export { fromLoroSide, LoroPosition, toLoroSide } from "./position.js"
-// Reader
-export { loroReader } from "./reader.js"
+
 // Substrate
 export {
   createLoroSubstrate,

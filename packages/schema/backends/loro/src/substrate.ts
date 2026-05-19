@@ -29,6 +29,7 @@ import {
   KIND,
   type MarkConfig,
   type Path,
+  type PlainState,
   type PositionCapable,
   type ProductSchema,
   type Replica,
@@ -43,6 +44,8 @@ import {
   type Version,
   type WritableContext,
   Zero,
+  applyChange,
+  plainReader,
 } from "@kyneta/schema"
 import type {
   ContainerID,
@@ -54,7 +57,7 @@ import { Cursor, LoroDoc } from "loro-crdt"
 import { batchToOps, changeToDiff } from "./change-mapping.js"
 import { PROPS_KEY, resolveContainer } from "./loro-resolve.js"
 import { LoroPosition, toLoroSide } from "./position.js"
-import { loroReader } from "./reader.js"
+import { materializeLoroShadow } from "./materialize.js"
 import { LoroVersion } from "./version.js"
 
 // ---------------------------------------------------------------------------
@@ -185,8 +188,11 @@ export function createLoroSubstrate(
   // Lazy-built WritableContext (same pattern as PlainSubstrate).
   let cachedCtx: WritableContext | undefined
 
-  // The Reader — live view over the Loro container tree.
-  const reader = loroReader(doc, schema, binding)
+  // The shadow — a plain JS object materialized from the LoroDoc.
+  // The plainReader is a live view over this object; applyChange keeps
+  // it in sync with every mutation (local or replayed).
+  const shadow: PlainState = materializeLoroShadow(doc, schema, binding)
+  const reader = plainReader(shadow)
 
   // --- Substrate object ---
 
@@ -207,10 +213,16 @@ export function createLoroSubstrate(
     },
 
     prepare(path: Path, change: ChangeBase, options?: BatchOptions): void {
+      // Local writes: apply eagerly to the shadow so reads are
+      // immediately consistent (the whole point of the shadow).
+      // Replay writes: skip — the shadow will be re-materialized
+      // from the CRDT doc in onFlush(replay), avoiding
+      // double-counting from overlapping structural + leaf diffs.
+      if (!options?.replay) {
+        applyChange(shadow, path, change)
+      }
+
       if (options?.replay) {
-        // Loro already has these ops (the bridge is replaying them
-        // through kyneta solely so the changefeed layer can deliver
-        // notifications — wrappedPrepare buffered the op upstream).
         return
       }
       // Local write: convert Change → Loro Diff, accumulate as a group.
@@ -225,8 +237,19 @@ export function createLoroSubstrate(
 
     onFlush(options?: BatchOptions): void {
       if (options?.replay) {
-        // Loro already committed; wrappedFlush still delivers
-        // notifications upstream.
+        // Loro already committed. Re-materialize the shadow from the
+        // CRDT doc so it reflects the merged state. We can't apply
+        // replay ops incrementally because batchToOps may emit
+        // overlapping structural + leaf diffs that double-count.
+        const fresh = materializeLoroShadow(doc, schema, binding)
+        for (const key of Object.keys(fresh)) {
+          shadow[key] = fresh[key]
+        }
+        for (const key of Object.keys(shadow)) {
+          if (!(key in fresh)) {
+            delete shadow[key]
+          }
+        }
         return
       }
       // Local write: apply accumulated diff groups, then commit.

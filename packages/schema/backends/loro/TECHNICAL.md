@@ -109,13 +109,15 @@ The root case is different because `LoroDoc` is not itself a container. `stepFro
 
 ### Why live navigation
 
+**Note:** The reader no longer navigates live Loro containers for ordinary reads. All reads go through `plainReader(shadow)`, where `shadow` is a `PlainState` object maintained by the substrate (see [§The functional shadow](../../TECHNICAL.md#the-functional-shadow)). `resolveContainer` remains essential for three purposes: `nativeResolver` (escape hatch to raw Loro containers), `positionResolver` (cursor operations that require CRDT structure), and `changeToDiff` (translating kyneta `Change` values into Loro `Diff[]` during the write path).
+
 The predecessor design held a static container map built at `bind()`. It broke three ways:
 
 - **Structural inserts move indices.** An insert at `items[0]` invalidates every cached `items[1..]` reference.
 - **External mutations don't update the cache.** `doc.import(update)` can create, delete, or re-parent containers outside kyneta's write path.
 - **Map keys are unbounded.** A precomputed map would need to be rebuilt on every key mutation.
 
-Live navigation pays a small cost per read (one container lookup per segment) but has no invalidation burden and is transparent to any source of mutation. Memoization happens at the **interpreter-stack** level (`withCaching` from `@kyneta/schema`), not the substrate level — and that cache invalidates on every kyneta-observed change via the changefeed pipeline.
+Live navigation pays a small cost per access (one container lookup per segment) but has no invalidation burden and is transparent to any source of mutation. Memoization happens at the **interpreter-stack** level (`withCaching` from `@kyneta/schema`), not the substrate level — and that cache invalidates on every kyneta-observed change via the changefeed pipeline.
 
 ### What live navigation is NOT
 
@@ -220,6 +222,8 @@ change(doc, d => { d.title.insert(0, "hi"); d.items.push(x) })
        inOurCommit = false
 ```
 
+The write path is two-phase. During `prepare`, local mutations are applied eagerly to the `PlainState` shadow via `applyChange(shadow, path, change)` — making them immediately read-visible — while CRDT diffs are buffered. During `onFlush`, the buffered diffs are applied to the `LoroDoc` via `applyDiff`, making them sync-visible.
+
 `changeToDiff` is **pure** (source: `src/change-mapping.ts`). Given a kyneta `Change` + path + schema + binding, it produces the Loro `Diff[]` that reproduces the change. It handles every built-in change type:
 
 | kyneta `Change.type` | Loro diff |
@@ -277,6 +281,8 @@ The handler:
 `inOurCommit` prevents the event bridge from double-notifying when *we* applied the diff. It's local to `onFlush` — set true around `doc.commit()`, cleared in `finally`. The flag does not escape into user-reachable code.
 
 The earlier `inEventHandler` flag (which protected substrate-write skipping during event-bridge replay) was retired in favor of `BatchOptions.replay`: the event bridge passes `{ replay: true }` to `executeBatch`, and the substrate's `prepare`/`onFlush` discriminate on that typed parameter rather than on an ambient global. This closes a previously latent invariant hole — a re-entrant `change(doc, ...)` from inside a subscriber on a replay batch now correctly lands in the substrate (replay=false on the inner batch), where pre-fix the global flag swallowed the write. Context: jj:qpultxsw.
+
+During replay, `onFlush` re-materializes the `PlainState` shadow from the `LoroDoc` via `materializeLoroShadow`, ensuring that `ctx.reader` — which reads through `plainReader(shadow)` — is consistent with the merged CRDT state for any subscriber callbacks that fire during notification delivery.
 
 ### What the event bridge is NOT
 
