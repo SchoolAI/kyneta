@@ -8,9 +8,9 @@
 // What lives here:
 // - Op<C> — addressed delta (requires Path from interpret.ts)
 // - expandMapOpsToLeaves() — map op expansion (requires Op, ReplaceChange)
-// - TreeChangefeedProtocol<S, C> — tree-level observation (requires Op)
-// - HasTreeChangefeed<S, C> — marker for tree-changefeed carriers
-// - hasTreeChangefeed() — type guard for tree-changefeed carriers
+// - RecursiveChangefeedProtocol<S, C> — tree-level observation (requires Op)
+// - HasRecursiveChangefeed<S, C> — marker for tree-changefeed carriers
+// - hasRecursiveChangefeed() — type guard for tree-changefeed carriers
 // - getOrCreateChangefeed() — WeakMap-based caching for lazy protocol creation
 
 import type { ChangeBase } from "@kyneta/changefeed"
@@ -92,12 +92,16 @@ export function expandMapOpsToLeaves(
     }
 
     // Determine whether to expand based on the schema kind at the op's path.
-    // Products → expand. Maps → preserve. Sets → preserve (defense-in-depth;
-    // sets emit SetChange, so MapChange-at-a-set-path is unreachable
-    // post-refactor). Root (length 0) → always expand.
+    // Products → expand. Maps / Sets / Trees → preserve (defense-in-depth;
+    // sets emit SetChange, trees emit TreeChange — MapChange at those
+    // paths is unreachable post-refactor). Root (length 0) → always expand.
     if (op.path.length > 0) {
       const kindAtPath = resolveSchemaKindAtPath(schema, op.path)
-      if (kindAtPath === "map" || kindAtPath === "set") {
+      if (
+        kindAtPath === "map" ||
+        kindAtPath === "set" ||
+        kindAtPath === "tree"
+      ) {
         result.push(op)
         continue
       }
@@ -135,32 +139,32 @@ export function expandMapOpsToLeaves(
  * Walk the schema tree to the given path and return the structural kind.
  *
  * Returns `"product"` for structs (expand), `"map"` for records (preserve),
- * `"set"` for sets (preserve as safety fallback — see below), or `"other"`
- * as a fallback (expand as safe default).
+ * `"set"` for sets (preserve as safety fallback), `"tree"` for `Schema.tree`
+ * (preserve), or `"other"` as a fallback (expand as safe default).
  *
- * **Set handling:** Sets emit their own `SetChange` vocabulary via the
- * writable transformer, so a `MapChange` reaching a set-keyed path is
- * unreachable post-refactor. The `"set"` return exists so the caller
- * (`expandMapOpsToLeaves`) preserves rather than expands in the
- * defense-in-depth case — splitting a MapChange into per-key replaces at
- * a set path would be incorrect.
+ * **Set and Tree handling:** Sets and trees emit their own vocabulary
+ * (`SetChange`, `TreeChange`) via the writable transformer, so a
+ * `MapChange` reaching one of those paths is unreachable post-refactor.
+ * These returns exist so the caller (`expandMapOpsToLeaves`) preserves
+ * rather than expands in the defense-in-depth case — splitting a
+ * MapChange into per-key replaces at a set/tree path would be incorrect.
  *
  * Pure function — no I/O, no mutation.
  */
 function resolveSchemaKindAtPath(
   schema: SchemaNode,
   path: Path,
-): "product" | "map" | "set" | "other" {
+): "product" | "map" | "set" | "tree" | "other" {
   try {
     let current = schema
     // Walk each segment — we want the schema AT the path.
     for (const segment of path.segments) {
       current = advanceSchema(current, segment)
     }
-    if (current[KIND] === "product" || current[KIND] === "tree")
-      return "product"
+    if (current[KIND] === "product") return "product"
     if (current[KIND] === "map") return "map"
     if (current[KIND] === "set") return "set"
+    if (current[KIND] === "tree") return "tree"
     return "other"
   } catch {
     // Schema walk failed (e.g. sum mid-path, unknown field) — safe fallback
@@ -169,42 +173,52 @@ function resolveSchemaKindAtPath(
 }
 
 // ---------------------------------------------------------------------------
-// Tree-observable changefeed — schema-specific extension
+// Recursive (descendants-propagating) changefeed — schema-specific extension
 // ---------------------------------------------------------------------------
+//
+// "Recursive" propagates over the descendants of a schema-shaped subtree
+// of refs. Distinct from `Schema.tree`, the CRDT primitive (see
+// schema.ts) — keeping the names apart is what motivates "recursive"
+// over "tree" here.
 
 /**
  * The schema-specific extension of `ChangefeedProtocol` that adds
- * `subscribeTree` — observe own-path + descendants with relative paths.
+ * `subscribeDescendants` — observe own-path + descendants with relative paths.
  *
  * Every schema-issued changefeed (leaves and composites alike)
- * implements this. For a composite ref, `subscribeTree` aggregates
- * own-path changes with children's tree-streams (paths prefixed
- * appropriately). For a leaf ref, `subscribeTree` is the trivial
+ * implements this. For a composite ref, `subscribeDescendants` aggregates
+ * own-path changes with children's descendant-streams (paths prefixed
+ * appropriately). For a leaf ref, `subscribeDescendants` is the trivial
  * own-path lift: every change is delivered as a single `Op` whose
  * `path` is the leaf's registry-aware root (empty relative path).
- * A leaf is a tree of size 1.
+ * A leaf is a subtree of size 1.
  *
  * `subscribe` remains node-level — it fires only for changes at this
- * node's own path. Both `subscribe` and `subscribeTree` deliver
- * `Changeset` batches. `subscribeTree` delivers `Changeset<Op<C>>`,
+ * node's own path. Both `subscribe` and `subscribeDescendants` deliver
+ * `Changeset` batches. `subscribeDescendants` delivers `Changeset<Op<C>>`,
  * where each event in the batch carries the relative path where the
  * change occurred.
  */
-export interface TreeChangefeedProtocol<S, C extends ChangeBase = ChangeBase>
-  extends ChangefeedProtocol<S, C> {
+export interface RecursiveChangefeedProtocol<
+  S,
+  C extends ChangeBase = ChangeBase,
+> extends ChangefeedProtocol<S, C> {
   /** Subscribe to changes at this node and all descendants. */
-  subscribeTree(callback: (changeset: Changeset<Op<C>>) => void): () => void
+  subscribeDescendants(
+    callback: (changeset: Changeset<Op<C>>) => void,
+  ): () => void
 }
 
 /**
- * An object that carries a tree-observable changefeed protocol under
- * the `[CHANGEFEED]` symbol — every schema-issued ref satisfies this.
+ * An object that carries a recursive (descendants-propagating)
+ * changefeed protocol under the `[CHANGEFEED]` symbol — every
+ * schema-issued ref satisfies this.
  */
-export interface HasTreeChangefeed<
+export interface HasRecursiveChangefeed<
   S = unknown,
   A extends ChangeBase = ChangeBase,
 > {
-  readonly [CHANGEFEED]: TreeChangefeedProtocol<S, A>
+  readonly [CHANGEFEED]: RecursiveChangefeedProtocol<S, A>
 }
 
 // ---------------------------------------------------------------------------
@@ -250,23 +264,23 @@ export function getOrCreateChangefeed<S, A extends ChangeBase>(
 }
 
 // ---------------------------------------------------------------------------
-// Type guard — tree-observable changefeed
+// Type guard — recursive (descendants-propagating) changefeed
 // ---------------------------------------------------------------------------
 
 /**
  * Returns `true` if `value` has a `[CHANGEFEED]` property whose value
- * has a `subscribeTree` method — i.e. it implements `HasTreeChangefeed`.
+ * has a `subscribeDescendants` method — i.e. it implements `HasRecursiveChangefeed`.
  *
  * Returns `true` for every schema-issued ref (leaves and composites);
  * the guard's purpose is distinguishing schema-issued changefeeds from
  * primitive `createChangefeed()` sources, which carry only the
- * universal `ChangefeedProtocol` and have no `subscribeTree`.
+ * universal `ChangefeedProtocol` and have no `subscribeDescendants`.
  */
-export function hasTreeChangefeed<
+export function hasRecursiveChangefeed<
   S = unknown,
   A extends ChangeBase = ChangeBase,
->(value: unknown): value is HasTreeChangefeed<S, A> {
+>(value: unknown): value is HasRecursiveChangefeed<S, A> {
   if (!hasChangefeed(value)) return false
   const cf = value[CHANGEFEED]
-  return typeof (cf as any).subscribeTree === "function"
+  return typeof (cf as any).subscribeDescendants === "function"
 }

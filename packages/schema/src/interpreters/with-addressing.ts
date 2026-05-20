@@ -36,7 +36,12 @@ import {
   sequenceChange,
 } from "../change.js"
 import { isPropertyHost } from "../guards.js"
-import type { Interpreter, Path, SumVariants } from "../interpret.js"
+import type {
+  FlatTreeNode,
+  Interpreter,
+  Path,
+  SumVariants,
+} from "../interpret.js"
 import type { RefContext } from "../interpreter-types.js"
 import {
   AddressedPath,
@@ -315,8 +320,9 @@ export function withAddressing<A extends HasNavigation>(
         if (lastAddr.kind === "index") {
           // Sequence item
           registry?.registerSequenceRef(parentPath.key, lastAddr, ref)
-        } else if (lastAddr.kind === "key") {
-          // Map/product entry — register in the map table
+        } else if (lastAddr.kind === "field" || lastAddr.kind === "entry") {
+          // Product field, map entry, set member, tree node id — all
+          // string-keyed children register in the map address table.
           const childKey = lastAddr.key
           registry?.ensureMapEntry(parentPath.key, childKey, lastAddr)
           registry?.registerMapRef(parentPath.key, childKey, ref)
@@ -483,10 +489,11 @@ export function withAddressing<A extends HasNavigation>(
       ctx: RefContext,
       path: Path,
       schema: TreeSchema,
-      nodeData: () => A,
+      nodes: () => readonly FlatTreeNode<A>[],
+      node: (id: string) => A,
     ): A {
       getOrCreateRegistry(ctx)
-      return base.tree(ctx, path, schema, nodeData)
+      return base.tree(ctx, path, schema, nodes, node)
     },
 
     // --- Movable ---------------------------------------------------------------

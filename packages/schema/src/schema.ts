@@ -91,7 +91,7 @@ export type ScalarKind =
  * - `text()` — collaborative text (character-level CRDT)
  * - `counter()` — additive counter (increment/decrement CRDT)
  * - `set(item)` — unordered collection with add-wins semantics
- * - `tree(nodeData)` — hierarchical tree with move operations
+ * - `tree(item)` — hierarchical tree with move operations
  * - `movable(item)` — ordered collection with move operations
  * - `richtext(marks)` — collaborative rich text with formatting marks
  *
@@ -298,7 +298,7 @@ export interface SetSchema<
 
 /**
  * Hierarchical tree with move-subtree operations. Each node carries
- * structured data (`nodeData`). Trees navigate by node ID, support
+ * structured data (`item`). Trees navigate by node ID, support
  * parent/child relationships, and have move-subtree operations.
  *
  * `tree()` is NOT `PlainSchema` — it requires non-LWW merge and cannot
@@ -309,7 +309,7 @@ export interface TreeSchema<
   Laws extends string = string,
 > {
   readonly [KIND]: "tree"
-  readonly nodeData: S
+  readonly item: S
   readonly [LAWS]?: Laws
 }
 
@@ -664,9 +664,9 @@ function set<I extends Schema>(
 }
 
 function tree<S extends Schema>(
-  nodeData: S,
+  item: S,
 ): TreeSchema<S, "tree-move" | ExtractLaws<S>> {
-  return { [KIND]: "tree", nodeData } as any
+  return { [KIND]: "tree", item } as any
 }
 
 function movableList<I extends Schema>(
@@ -1014,7 +1014,7 @@ export function isNullableSum(schema: PositionalSumSchema): boolean {
  * First-class types are dispatched directly:
  * - `text` / `counter` — leaf types, cannot advance (throws)
  * - `set` — advance to `.item` on any key (like map)
- * - `tree` — advance to `.nodeData` then descend (like product)
+ * - `tree` — advance to `.item` then descend (like product)
  * - `movable` — advance to `.item` on index (like sequence)
  *
  * Sum types are never advanced through — sums resolve by value (store
@@ -1027,9 +1027,9 @@ export function isNullableSum(schema: PositionalSumSchema): boolean {
 export function advanceSchema(schema: Schema, segment: Segment): Schema {
   switch (schema[KIND]) {
     case "product": {
-      if (segment.role !== "key") {
+      if (segment.role !== "field") {
         throw new Error(
-          `advanceSchema: product expects a key segment, got index segment`,
+          `advanceSchema: product expects a field segment, got ${segment.role} segment`,
         )
       }
       const key = segment.resolve() as string
@@ -1043,16 +1043,16 @@ export function advanceSchema(schema: Schema, segment: Segment): Schema {
     case "sequence": {
       if (segment.role !== "index") {
         throw new Error(
-          `advanceSchema: sequence expects an index segment, got key segment "${segment.resolve()}"`,
+          `advanceSchema: sequence expects an index segment, got ${segment.role} segment "${segment.resolve()}"`,
         )
       }
       return schema.item
     }
 
     case "map": {
-      if (segment.role !== "key") {
+      if (segment.role !== "entry") {
         throw new Error(
-          `advanceSchema: map expects a key segment, got index segment`,
+          `advanceSchema: map expects an entry segment, got ${segment.role} segment`,
         )
       }
       return schema.item
@@ -1079,24 +1079,30 @@ export function advanceSchema(schema: Schema, segment: Segment): Schema {
       )
 
     case "set": {
-      if (segment.role !== "key") {
+      if (segment.role !== "entry") {
         throw new Error(
-          `advanceSchema: set expects a key segment, got index segment`,
+          `advanceSchema: set expects an entry segment, got ${segment.role} segment`,
         )
       }
       return schema.item
     }
 
     case "tree": {
-      // Advance into node data — delegates to the inner schema.
-      // Full tree navigation (by node ID) is deferred.
-      return advanceSchema(schema.nodeData, segment)
+      // Tree navigation: an `entry` segment is the tree's node id, and
+      // advances into the per-node data schema. `field`/`index` are
+      // rejected — tree paths use entry segments (runtime-keyed node ids).
+      if (segment.role !== "entry") {
+        throw new Error(
+          `advanceSchema: tree expects an entry segment (node id), got ${segment.role} segment`,
+        )
+      }
+      return schema.item
     }
 
     case "movable": {
       if (segment.role !== "index") {
         throw new Error(
-          `advanceSchema: movable sequence expects an index segment, got key segment "${segment.resolve()}"`,
+          `advanceSchema: movable sequence expects an index segment, got ${segment.role} segment "${segment.resolve()}"`,
         )
       }
       return schema.item

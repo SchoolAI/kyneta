@@ -3,8 +3,8 @@ import {
   type Address,
   AddressedPath,
   AddressTableRegistry,
+  fieldAddress,
   indexAddress,
-  keyAddress,
   RawPath,
   resetAddressIdCounter,
 } from "../path.js"
@@ -15,11 +15,11 @@ import { writeByPath } from "../reader.js"
 // ===========================================================================
 
 describe("RawPath", () => {
-  it("field(key) produces a new RawPath with appended key segment", () => {
+  it("field(key) produces a new RawPath with appended field segment", () => {
     const p = RawPath.empty.field("title")
     expect(p).toBeInstanceOf(RawPath)
     expect(p.length).toBe(1)
-    expect(p.segments[0]?.role).toBe("key")
+    expect(p.segments[0]?.role).toBe("field")
     expect(p.segments[0]?.resolve()).toBe("title")
   })
 
@@ -187,11 +187,11 @@ describe("Address", () => {
     resetAddressIdCounter()
   })
 
-  it("key address resolves to key, throws when dead", () => {
-    const addr = keyAddress("title")
+  it("field address resolves to key, throws when dead", () => {
+    const addr = fieldAddress("title")
     expect(addr.resolve()).toBe("title")
     addr.dead = true
-    expect(() => addr.resolve()).toThrow("Ref access on deleted map entry")
+    expect(() => addr.resolve()).toThrow("Ref access on deleted product field")
   })
 
   it("index address resolves to index, throws when dead", () => {
@@ -214,14 +214,14 @@ describe("AddressedPath", () => {
     registry = new AddressTableRegistry()
   })
 
-  it("field(key) creates a key address in the registry", () => {
+  it("field(key) creates a field address in the registry", () => {
     const root = new AddressedPath([], registry)
     const child = root.field("title")
     expect(child).toBeInstanceOf(AddressedPath)
     expect(child.length).toBe(1)
 
     const seg = child.segments[0]! as Address
-    expect(seg.kind).toBe("key")
+    expect(seg.kind).toBe("field")
     expect((seg as any).key).toBe("title")
     expect(seg.resolve()).toBe("title")
   })
@@ -452,17 +452,17 @@ describe("dead address propagation", () => {
     )
   })
 
-  it("read() throws when path contains a dead key address", () => {
+  it("read() throws when path contains a dead field address", () => {
     const registry = new AddressTableRegistry()
     const root = new AddressedPath([], registry)
     const p = root.field("settings").field("theme")
 
-    // Kill the key address
+    // Kill the field address
     const addr = p.segments[1]! as Address
     addr.dead = true
 
     expect(() => p.read({ settings: { theme: "dark" } })).toThrow(
-      "Ref access on deleted map entry",
+      "Ref access on deleted product field",
     )
   })
 })

@@ -280,7 +280,7 @@ testDescribe("describe: annotation rendering", () => {
         }),
       )
       expect(describe(s)).toBe(
-        ["tree", "  label: string", "  weight: number"].join("\n"),
+        ["tree of", "  label: string", "  weight: number"].join("\n"),
       )
     })
   })
@@ -392,7 +392,7 @@ testDescribe("describe: annotation rendering", () => {
         [
           "tasks: movable-list",
           "  title: string",
-          "hierarchy: tree",
+          "hierarchy: tree of",
           "  label: string",
           "  color: string",
         ].join("\n"),

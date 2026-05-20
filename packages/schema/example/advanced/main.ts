@@ -19,7 +19,7 @@ import {
   change,
   describe,
   formatPath,
-  hasTreeChangefeed,
+  hasRecursiveChangefeed,
   hasTransact,
   incrementChange,
   interpret,
@@ -234,9 +234,9 @@ log(`
     All use Symbol.for("kyneta:...") for cross-bundle identity.
 
     hasChangefeed(doc) → ${hasChangefeed(doc)}
-    hasTreeChangefeed(doc) → ${hasTreeChangefeed(doc)}  (product — composed tree subscribe)
-    hasTreeChangefeed(doc.settings) → ${hasTreeChangefeed(doc.settings)}  (product)
-    hasTreeChangefeed(doc.name) → ${hasTreeChangefeed(doc.name)}  (leaf — trivial own-path lift, subscribeTree is degenerate)
+    hasRecursiveChangefeed(doc) → ${hasRecursiveChangefeed(doc)}  (product — composed tree subscribe)
+    hasRecursiveChangefeed(doc.settings) → ${hasRecursiveChangefeed(doc.settings)}  (product)
+    hasRecursiveChangefeed(doc.name) → ${hasRecursiveChangefeed(doc.name)}  (leaf — trivial own-path lift, subscribeDescendants is degenerate)
     hasTransact(doc) → ${hasTransact(doc)}  (writable installed [TRANSACT])
 `)
 

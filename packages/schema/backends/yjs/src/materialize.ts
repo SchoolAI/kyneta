@@ -23,6 +23,7 @@ import {
   createMaterializeInterpreter,
   interpret,
   isNonNullObject,
+  materializeContextFromResolver,
 } from "@kyneta/schema"
 import * as Y from "yjs"
 import { extractValue, yTextToRichTextDelta } from "./yjs-extract.js"
@@ -81,6 +82,12 @@ function createYjsResolver(
       }
       return isNonNullObject(resolved) ? Object.keys(resolved) : []
     },
+
+    // Yjs has no tree primitive — schemas with `Schema.tree` are rejected
+    // at bind time. Defensive [] for any caller that reaches here.
+    resolveForest(_path: Path): readonly never[] {
+      return []
+    },
   }
 }
 
@@ -96,6 +103,7 @@ export function materializeYjsShadow(
   const rootMap = doc.getMap("root")
   const resolver = createYjsResolver(rootMap, schema, binding)
   const interp = createMaterializeInterpreter(resolver)
-  const result = interpret(schema, interp, undefined)
+  const ctx = materializeContextFromResolver(resolver)
+  const result = interpret(schema, interp, ctx)
   return result as PlainState
 }

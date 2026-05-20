@@ -70,6 +70,40 @@ import type { Schema as SchemaNode } from "./schema.js"
 export const BACKING_DOC = Symbol.for("kyneta:backingDoc")
 
 // ---------------------------------------------------------------------------
+// TREE_NODE_ALLOCATE — capability symbol for substrate-provided id allocation
+// ---------------------------------------------------------------------------
+
+/**
+ * `WritableContext` hook for tree node id allocation.
+ *
+ * Why a capability and not a generated id: Loro's `tree-move` merge
+ * semantics need peer-stamped (peer-id + Lamport) ids, so the substrate
+ * has to mint them. The plain substrate gets away with a counter because
+ * it doesn't merge. Substrates that don't support trees (e.g. Yjs) don't
+ * implement the symbol, and `installTreeWriteOps` throws if `.create` is
+ * called on such a context.
+ */
+export const TREE_NODE_ALLOCATE: unique symbol = Symbol.for(
+  "kyneta:tree-node-allocate",
+) as any
+
+/** Marker for contexts that implement `TREE_NODE_ALLOCATE`. */
+export interface HasTreeNodeAllocation {
+  readonly [TREE_NODE_ALLOCATE]: (path: Path) => string
+}
+
+export function hasTreeNodeAllocation(
+  ctx: unknown,
+): ctx is HasTreeNodeAllocation {
+  return (
+    ctx !== null &&
+    ctx !== undefined &&
+    typeof ctx === "object" &&
+    TREE_NODE_ALLOCATE in (ctx as object)
+  )
+}
+
+// ---------------------------------------------------------------------------
 // STRUCTURAL_YJS_CLIENT_ID — deterministic identity for container creation
 // ---------------------------------------------------------------------------
 

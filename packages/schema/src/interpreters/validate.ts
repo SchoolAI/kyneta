@@ -10,10 +10,13 @@
 // - validate()    — throws the first error if any
 // - tryValidate() — returns a discriminated result with all errors
 
+import type { FlatTreeNode } from "../forest.js"
+import { validateForest } from "../forest.js"
 import { isNonNullObject, isSameSetMember } from "../guards.js"
 import type { Interpreter, Path, SumVariants } from "../interpret.js"
 import { interpret } from "../interpret.js"
 import type { Plain } from "../interpreter-types.js"
+import { plainReader } from "../reader.js"
 import {
   type CounterSchema,
   type DiscriminatedSumSchema,
@@ -90,10 +93,14 @@ function describeActual(value: unknown): string {
  * - `root` — the root value being validated (same role as `ctx` in
  *   `plainInterpreter`)
  * - `errors` — mutable accumulator for validation failures
+ * - `reader` — `plainReader(root)` view used by the catamorphism's
+ *   `tree` case to enumerate flat-forest topology. Optional — the
+ *   `validate` entry point always supplies it.
  */
 export interface ValidateContext {
   readonly root: unknown
   readonly errors: SchemaValidationError[]
+  readonly reader?: import("../reader.js").Reader
 }
 
 // ---------------------------------------------------------------------------
@@ -402,12 +409,30 @@ export const validateInterpreter: Interpreter<ValidateContext, unknown> = {
   },
 
   tree(
-    _ctx: ValidateContext,
-    _path: Path,
+    ctx: ValidateContext,
+    path: Path,
     _schema: TreeSchema,
-    nodeData: () => unknown,
+    nodes: () => readonly import("../interpret.js").FlatTreeNode<unknown>[],
   ): unknown {
-    return nodeData()
+    // Structural checks run on the raw shape first, before forcing
+    // per-node data validation — a malformed forest would otherwise
+    // produce confusing per-node errors before the real problem surfaces.
+    // The substantive message lands in `expected` so callers reading
+    // the thrown error get the specific cause (cycle / duplicate / ...).
+    const raw = path.read(ctx.root)
+    if (!Array.isArray(raw)) {
+      ctx.errors.push(
+        new SchemaValidationError(path.format(), "FlatTreeNode[]", raw),
+      )
+      return undefined
+    }
+    const forestErrors = validateForest(raw as readonly FlatTreeNode<unknown>[])
+    for (const fe of forestErrors) {
+      ctx.errors.push(
+        new SchemaValidationError(path.format(), fe.message, fe.nodeId),
+      )
+    }
+    return nodes()
   },
 
   movable(
@@ -489,7 +514,7 @@ function innerSchemaExpected(schema: Schema): string {
     case "set":
       return "array"
     case "tree":
-      return innerSchemaExpected(schema.nodeData)
+      return innerSchemaExpected(schema.item)
     case "movable":
       return "array"
     case "richtext":
@@ -516,7 +541,16 @@ export function validate<S extends Schema>(
   schema: S,
   value: unknown,
 ): Plain<S> {
-  const ctx: ValidateContext = { root: value, errors: [] }
+  const ctx: ValidateContext = {
+    root: value,
+    errors: [],
+    reader: plainReader(
+      (typeof value === "object" && value !== null ? value : {}) as Record<
+        string,
+        unknown
+      >,
+    ),
+  }
   const result = interpret(schema, validateInterpreter, ctx)
 
   if (ctx.errors.length > 0) {
@@ -548,7 +582,16 @@ export function tryValidate<S extends Schema>(
 ):
   | { ok: true; value: Plain<S> }
   | { ok: false; errors: SchemaValidationError[] } {
-  const ctx: ValidateContext = { root: value, errors: [] }
+  const ctx: ValidateContext = {
+    root: value,
+    errors: [],
+    reader: plainReader(
+      (typeof value === "object" && value !== null ? value : {}) as Record<
+        string,
+        unknown
+      >,
+    ),
+  }
   const result = interpret(schema, validateInterpreter, ctx)
 
   if (ctx.errors.length > 0) {

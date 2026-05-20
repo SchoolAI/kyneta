@@ -10,7 +10,12 @@
 // and produces state invisible to the sync protocol. Initial content
 // should be applied via change() after substrate construction.
 
-import type { Interpreter, Path, SumVariants } from "./interpret.js"
+import type {
+  FlatTreeNode,
+  Interpreter,
+  Path,
+  SumVariants,
+} from "./interpret.js"
 import { interpret } from "./interpret.js"
 import type {
   DiscriminatedSumSchema,
@@ -120,9 +125,10 @@ export const zeroInterpreter: Interpreter<void, unknown> = {
     _ctx: undefined,
     _path: Path,
     _schema: TreeSchema,
-    nodeData: () => unknown,
+    _nodes: () => readonly FlatTreeNode<unknown>[],
   ): unknown {
-    return nodeData()
+    // Zero of a tree is an empty forest (matches `Plain<TreeSchema<I>>`).
+    return []
   },
   movable(): unknown {
     return []

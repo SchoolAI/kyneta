@@ -78,25 +78,47 @@ export {
   treeChange,
 } from "./change.js"
 export type {
-  HasTreeChangefeed,
+  HasRecursiveChangefeed,
   Op,
-  TreeChangefeedProtocol,
+  RecursiveChangefeedProtocol,
 } from "./changefeed.js"
 // Changefeed — schema-specific extensions (contract symbols live in @kyneta/changefeed)
 export {
   expandMapOpsToLeaves,
   getOrCreateChangefeed,
-  hasTreeChangefeed,
+  hasRecursiveChangefeed,
 } from "./changefeed.js"
 
 // Create-doc — generic document construction for any substrate
 export { createDoc, createRef } from "./create-doc.js"
 export { describe } from "./describe.js"
+// Doc-position algebra — flat↔document-tree position mapping for editor bindings
+export type { ResolvedDocPosition } from "./doc-position.js"
+export {
+  contentSize,
+  flattenDocPosition,
+  isLeaf,
+  nodeSize,
+  resolveDocPosition,
+} from "./doc-position.js"
 export type { CommitOptions } from "./facade/change.js"
 // Facade — library-level change capture and declarative application
 export { applyChanges, change, remove } from "./facade/change.js"
 // Facade — library-level observation protocol
 export { subscribe, subscribeNode } from "./facade/observe.js"
+// Forest helpers — pure flat↔recursive projection for `Schema.tree`
+export type {
+  FlatTreeNode,
+  ForestNode,
+  ForestValidationError,
+  ForestValidationErrorKind,
+} from "./forest.js"
+export {
+  flattenForest,
+  nestForest,
+  subtreeIds,
+  validateForest,
+} from "./forest.js"
 // Guards — shared type-narrowing utilities
 export { isNonNullObject, isPropertyHost, isSameSetMember } from "./guards.js"
 export type {
@@ -116,11 +138,16 @@ export {
   dispatchSum,
   interpret,
   RawPath,
+  rawEntry,
+  rawField,
   rawIndex,
-  rawKey,
 } from "./interpret.js"
 // Shared interpreter types (canonical location)
-export type { Plain, RefContext } from "./interpreter-types.js"
+export type {
+  Plain,
+  PlainFlatTreeNode,
+  RefContext,
+} from "./interpreter-types.js"
 export type {
   HasCaching,
   HasCall,
@@ -135,8 +162,14 @@ export {
 } from "./interpreters/bottom.js"
 // Built-in interpreters
 // Materialize interpreter — generic CRDT→PlainState materialization
-export type { MaterializeResolver } from "./interpreters/materialize.js"
-export { createMaterializeInterpreter } from "./interpreters/materialize.js"
+export type {
+  MaterializeContext,
+  MaterializeResolver,
+} from "./interpreters/materialize.js"
+export {
+  createMaterializeInterpreter,
+  materializeContextFromResolver,
+} from "./interpreters/materialize.js"
 // Navigable type interfaces — navigation-only collection refs
 export type {
   NavigableMapRef,
@@ -271,8 +304,9 @@ export type {
 } from "./path.js"
 export {
   AddressedPath,
+  entryAddress,
+  fieldAddress,
   indexAddress,
-  keyAddress,
   nextAddressId,
   resetAddressIdCounter,
   resolveToAddressed,
@@ -290,7 +324,11 @@ export {
   PlainPosition,
   POSITION,
 } from "./position.js"
-export type { PlainState, Reader } from "./reader.js"
+export type {
+  FlatTreeNodeTopology,
+  PlainState,
+  Reader,
+} from "./reader.js"
 // Reader — shared utilities for reading/writing plain state objects
 export {
   applyChange,
@@ -371,11 +409,13 @@ export {
   stepTree,
 } from "./step.js"
 // Substrate — state management, versioning, and transfer semantics
+// Tree node allocation — substrate capability for tree.create()
 export type {
   BatchOptions,
   Delivery,
   DocMetadata,
   Durability,
+  HasTreeNodeAllocation,
   Replica,
   ReplicaFactory,
   ReplicaFactoryLike,
@@ -393,12 +433,14 @@ export {
   BACKING_DOC,
   computeSchemaHash,
   HASH_ALGORITHM_VERSION,
+  hasTreeNodeAllocation,
   replicaTypesCompatible,
   requiresBidirectionalSync,
   STRUCTURAL_YJS_CLIENT_ID,
   SYNC_AUTHORITATIVE,
   SYNC_COLLABORATIVE,
   SYNC_EPHEMERAL,
+  TREE_NODE_ALLOCATE,
 } from "./substrate.js"
 // Plain substrate — plain JS object store with version tracking
 export {
@@ -420,15 +462,6 @@ export {
   merge,
   version,
 } from "./sync.js"
-// Tree-position algebra — flat↔tree position mapping for editor bindings
-export type { ResolvedTreePosition } from "./tree-position.js"
-export {
-  contentSize,
-  flattenTreePosition,
-  isLeaf,
-  nodeSize,
-  resolveTreePosition,
-} from "./tree-position.js"
 export type { HasNativeAny } from "./unwrap.js"
 // Unwrap — typed escape hatch for accessing the native container backing a ref
 export { unwrap } from "./unwrap.js"

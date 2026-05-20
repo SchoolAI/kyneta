@@ -1,4 +1,4 @@
-// tree-position.test.ts — Tree-position algebra tests.
+// doc-position.test.ts — Doc-position algebra tests.
 //
 // The round-trip property is the primary invariant:
 //   flatten(resolve(pos)) === pos  for all pos in [0, contentSize]
@@ -8,16 +8,16 @@
 // counting rules. The round-trip tests cover the general case.
 
 import { describe, expect, it } from "vitest"
+import {
+  contentSize,
+  flattenDocPosition,
+  isLeaf,
+  nodeSize,
+  resolveDocPosition,
+} from "../doc-position.js"
 import { RawPath } from "../path.js"
 import { plainReader } from "../reader.js"
 import { KIND, Schema } from "../schema.js"
-import {
-  contentSize,
-  flattenTreePosition,
-  isLeaf,
-  nodeSize,
-  resolveTreePosition,
-} from "../tree-position.js"
 
 // ===========================================================================
 // Helpers
@@ -32,15 +32,15 @@ function setup(state: unknown) {
 
 /** Assert the round-trip property for every valid position in [0, cs]. */
 function assertRoundTrip(
-  schema: Parameters<typeof resolveTreePosition>[1],
+  schema: Parameters<typeof resolveDocPosition>[1],
   state: unknown,
 ) {
   const { reader } = setup(state)
   const cs = contentSize(reader, schema, RawPath.empty)
   for (let pos = 0; pos <= cs; pos++) {
-    const resolved = resolveTreePosition(reader, schema, pos)
+    const resolved = resolveDocPosition(reader, schema, pos)
     expect(resolved, `resolve(${pos}) should not be null`).not.toBeNull()
-    const flat = flattenTreePosition(
+    const flat = flattenDocPosition(
       reader,
       schema,
       resolved!.path,
@@ -49,7 +49,7 @@ function assertRoundTrip(
     expect(flat, `round-trip failed at pos ${pos}`).toBe(pos)
   }
   // One past the end is out of bounds
-  expect(resolveTreePosition(reader, schema, cs + 1)).toBeNull()
+  expect(resolveDocPosition(reader, schema, cs + 1)).toBeNull()
   return cs
 }
 
@@ -152,19 +152,36 @@ describe("nodeSize", () => {
     expect(nodeSize(reader, schema, root)).toBe(5)
   })
 
-  it("set and tree throw", () => {
+  it("set throws (no stable child ordering)", () => {
     const s1 = setup([])
     expect(() =>
       nodeSize(s1.reader, Schema.set(Schema.string()), s1.root),
     ).toThrow(/set.*not supported/)
-    const s2 = setup({})
-    expect(() =>
+  })
+
+  it("tree contributes sum of nodeSize(node.data) over the forest", () => {
+    // Empty forest contributes 0.
+    const s1 = setup([])
+    expect(
+      nodeSize(
+        s1.reader,
+        Schema.tree(Schema.struct({ label: Schema.string() })),
+        s1.root,
+      ),
+    ).toBe(0)
+    // A single-node forest contributes nodeSize(node.data) — for a struct
+    // with one string field that's `3` (open + close + 1 scalar). The tree
+    // container itself adds no extra position.
+    const s2 = setup([
+      { id: "n1", parent: null, index: 0, data: { label: "x" } },
+    ])
+    expect(
       nodeSize(
         s2.reader,
         Schema.tree(Schema.struct({ label: Schema.string() })),
         s2.root,
       ),
-    ).toThrow(/tree.*not supported/)
+    ).toBe(3)
   })
 })
 
@@ -187,25 +204,25 @@ describe("contentSize", () => {
 })
 
 // ===========================================================================
-// resolveTreePosition — targeted regression tests
+// resolveDocPosition — targeted regression tests
 // ===========================================================================
 
-describe("resolveTreePosition", () => {
+describe("resolveDocPosition", () => {
   it("resolves text character offsets including end-of-text", () => {
     const schema = Schema.struct({ title: Schema.text() })
     const { reader } = setup({ title: "Hi" })
 
-    const r0 = resolveTreePosition(reader, schema, 0)
+    const r0 = resolveDocPosition(reader, schema, 0)
     expect(r0!.path.length).toBe(0) // root, before first child
     expect(r0!.offset).toBe(0)
 
-    const r1 = resolveTreePosition(reader, schema, 1)
+    const r1 = resolveDocPosition(reader, schema, 1)
     expect(r1!.path.format()).toBe("title")
     expect(r1!.offset).toBe(1)
     expect(r1!.schema[KIND]).toBe("text")
 
     // End-of-text is a valid position (offset = charCount)
-    const r2 = resolveTreePosition(reader, schema, 2)
+    const r2 = resolveDocPosition(reader, schema, 2)
     expect(r2!.path.format()).toBe("title")
     expect(r2!.offset).toBe(2)
   })
@@ -213,16 +230,16 @@ describe("resolveTreePosition", () => {
   it("out of bounds returns null", () => {
     const schema = Schema.struct({ x: Schema.text() })
     const { reader } = setup({ x: "abc" })
-    expect(resolveTreePosition(reader, schema, -1)).toBeNull()
-    expect(resolveTreePosition(reader, schema, -100)).toBeNull()
+    expect(resolveDocPosition(reader, schema, -1)).toBeNull()
+    expect(resolveDocPosition(reader, schema, -100)).toBeNull()
     const cs = contentSize(reader, schema, RawPath.empty)
-    expect(resolveTreePosition(reader, schema, cs + 1)).toBeNull()
+    expect(resolveDocPosition(reader, schema, cs + 1)).toBeNull()
   })
 
   it("position 0 is valid even for empty content", () => {
     const schema = Schema.struct({ a: Schema.text() })
     const { reader } = setup({ a: "" })
-    expect(resolveTreePosition(reader, schema, 0)).not.toBeNull()
+    expect(resolveDocPosition(reader, schema, 0)).not.toBeNull()
   })
 
   // --- Regression: composite boundary bug ---
@@ -243,7 +260,7 @@ describe("resolveTreePosition", () => {
 
     // pos 5 = exactly item[0].nodeSize → closing boundary of item[0]
     // Should resolve at the list level, offset=1 (after item[0])
-    const r = resolveTreePosition(reader, schema, 5)
+    const r = resolveDocPosition(reader, schema, 5)
     expect(r).not.toBeNull()
     expect(r!.path.length).toBe(0) // at the list root
     expect(r!.offset).toBe(1) // after the single item
@@ -270,7 +287,7 @@ describe("resolveTreePosition", () => {
     //   pos 3: root offset 2 (scalar consumed, before "c")
     //   pos 4: c offset 1
 
-    const r3 = resolveTreePosition(reader, schema, 3)
+    const r3 = resolveDocPosition(reader, schema, 3)
     expect(r3).not.toBeNull()
     // Must be root offset 2, NOT root offset 1 (the pre-fix bug)
     expect(r3!.path.length).toBe(0)
@@ -279,14 +296,14 @@ describe("resolveTreePosition", () => {
 })
 
 // ===========================================================================
-// flattenTreePosition — targeted tests
+// flattenDocPosition — targeted tests
 // ===========================================================================
 
-describe("flattenTreePosition", () => {
+describe("flattenDocPosition", () => {
   it("empty path at root: offset maps directly", () => {
     const schema = Schema.struct({ title: Schema.text() })
     const { reader } = setup({ title: "Hello" })
-    expect(flattenTreePosition(reader, schema, RawPath.empty, 0)).toBe(0)
+    expect(flattenDocPosition(reader, schema, RawPath.empty, 0)).toBe(0)
   })
 
   it("text field offset translates to flat position", () => {
@@ -297,7 +314,7 @@ describe("flattenTreePosition", () => {
     const { reader } = setup({ first: "AB", second: "C" })
     // "second" starts after "first" (nodeSize=2)
     expect(
-      flattenTreePosition(reader, schema, RawPath.empty.field("second"), 0),
+      flattenDocPosition(reader, schema, RawPath.empty.field("second"), 0),
     ).toBe(2)
   })
 
@@ -306,7 +323,7 @@ describe("flattenTreePosition", () => {
     const { reader } = setup([{ name: "Alice" }, { name: "Bob" }])
     // [1].name offset 0: skip item[0](nodeSize=7) + struct open(1) = 8
     expect(
-      flattenTreePosition(
+      flattenDocPosition(
         reader,
         schema,
         RawPath.empty.item(1).field("name"),
@@ -329,7 +346,7 @@ describe("flattenTreePosition", () => {
     //   root → items list (open=+1), item[0] nodeSize=4
     //   flat = 0 (no preceding root siblings) + 1 (list open) + 4 (item[0]) = 5
     expect(
-      flattenTreePosition(reader, schema, RawPath.empty.field("items"), 1),
+      flattenDocPosition(reader, schema, RawPath.empty.field("items"), 1),
     ).toBe(5)
   })
 })
@@ -447,8 +464,8 @@ describe("live reader reflects mutations", () => {
     // Round-trip pre-mutation
     const cs1 = contentSize(reader, schema, RawPath.empty)
     for (let pos = 0; pos <= cs1; pos++) {
-      const r = resolveTreePosition(reader, schema, pos)!
-      expect(flattenTreePosition(reader, schema, r.path, r.offset)).toBe(pos)
+      const r = resolveDocPosition(reader, schema, pos)!
+      expect(flattenDocPosition(reader, schema, r.path, r.offset)).toBe(pos)
     }
     // Mutate
     ;(state as any).title = "Document"
@@ -458,8 +475,8 @@ describe("live reader reflects mutations", () => {
     const cs2 = contentSize(reader, schema, RawPath.empty)
     expect(cs2).not.toBe(cs1)
     for (let pos = 0; pos <= cs2; pos++) {
-      const r = resolveTreePosition(reader, schema, pos)!
-      expect(flattenTreePosition(reader, schema, r.path, r.offset)).toBe(pos)
+      const r = resolveDocPosition(reader, schema, pos)!
+      expect(flattenDocPosition(reader, schema, r.path, r.offset)).toBe(pos)
     }
   })
 })

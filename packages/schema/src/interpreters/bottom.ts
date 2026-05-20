@@ -264,8 +264,9 @@ export const bottomInterpreter: Interpreter<unknown, HasCall> = {
   },
 
   // --- First-class container types ------------------------------------------
-  // Set delegates like map, tree delegates via nodeData, movable delegates
-  // like sequence.
+  // Set delegates like map; movable delegates like sequence. Tree returns a
+  // fresh carrier — the `nodes` thunk produces flat-forest topology
+  // (`readonly FlatTreeNode<HasCall>[]`), not a single carrier.
 
   set(
     _ctx: unknown,
@@ -280,9 +281,9 @@ export const bottomInterpreter: Interpreter<unknown, HasCall> = {
     _ctx: unknown,
     _path: Path,
     _schema: TreeSchema,
-    nodeData: () => HasCall,
+    _nodes: () => readonly import("../interpret.js").FlatTreeNode<HasCall>[],
   ): HasCall {
-    return nodeData()
+    return makeCarrier()
   },
 
   movable(

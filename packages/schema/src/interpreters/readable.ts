@@ -8,7 +8,7 @@
 //   withReadable (src/interpreters/with-readable.ts) — reading + navigation
 //   withCaching  (src/interpreters/with-caching.ts)  — identity-preserving caching
 
-import type { Plain } from "../interpreter-types.js"
+import type { Plain, PlainFlatTreeNode } from "../interpreter-types.js"
 import type {
   CounterSchema,
   DiscriminatedSumSchema,
@@ -83,6 +83,38 @@ export interface ReadableMapRef<T = unknown, V = unknown>
 }
 
 /**
+ * Recursive read-layer projection of a tree node. `data` is a live
+ * `Readable<I>` ref (not a plain value) so `.roots[i].data.label()`
+ * keeps working through structural changes.
+ */
+export interface ReadableTreeNode<I extends Schema> {
+  readonly id: string
+  readonly parent: string | null
+  readonly data: Readable<I>
+  readonly children: readonly ReadableTreeNode<I>[]
+}
+
+/**
+ * User-facing read surface for `Schema.tree`. Call `()` for the flat
+ * snapshot (matches `Plain<TreeSchema<I>>` so it serializes 1:1 with the
+ * shadow); use `.roots` for the recursive projection and `.node(id)`
+ * for keyed lookup. `WritableTreeRef` extends this with `.create`,
+ * `.delete`, `.move`.
+ */
+export interface ReadableTreeRef<I extends Schema> {
+  /** Deep-plain snapshot of the entire forest (flat shape, matches `Plain<S>`). */
+  (): readonly PlainFlatTreeNode<I>[]
+  /** Recursive projection roots (sorted by `index` per parent). */
+  readonly roots: readonly ReadableTreeNode<I>[]
+  /** Lookup by stable id. Returns undefined for unknown/deleted ids. */
+  node(id: string): ReadableTreeNode<I> | undefined
+  /** Depth-first iteration (parent-then-children). */
+  [Symbol.iterator](): IterableIterator<ReadableTreeNode<I>>
+  /** Total node count. */
+  readonly size: number
+}
+
+/**
  * An interface for readable set refs: callable + native-Set-like ergonomics.
  *
  * Sets are ref-layer **leaf-shaped** — there are no addressable per-member
@@ -137,7 +169,7 @@ export type Readable<S extends Schema> =
         S extends SetSchema<infer I>
         ? ReadableSetRef<Plain<I>>
         : S extends TreeSchema<infer Inner>
-          ? Readable<Inner>
+          ? ReadableTreeRef<Inner>
           : S extends MovableSequenceSchema<infer I>
             ? ReadableSequenceRef<Readable<I>, Plain<I>>
             : // --- Scalar ---

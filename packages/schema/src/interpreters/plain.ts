@@ -4,7 +4,7 @@
 // reads the value at each path in the object tree. First-class types
 // (text, counter, set, tree, movable) are handled directly — text and
 // counter read raw values, set and movable delegate like their structural
-// analogs, and tree delegates via nodeData.
+// analogs, and tree returns the flat-forest snapshot.
 
 import { isNonNullObject } from "../guards.js"
 import type { Interpreter, Path } from "../interpret.js"
@@ -163,14 +163,15 @@ export const plainInterpreter: Interpreter<unknown, unknown> = {
   },
 
   // --- Tree ------------------------------------------------------------------
-  // Delegate via nodeData — the inner interpretation reads from the same path.
+  // Read the flat-forest snapshot — matches `Plain<TreeSchema<I>>`.
+  // Forcing the thunk runs full schema interpretation on each node's data.
   tree(
     _ctx: unknown,
     _path: Path,
     _schema: TreeSchema,
-    nodeData: () => unknown,
+    nodes: () => readonly import("../interpret.js").FlatTreeNode<unknown>[],
   ): unknown {
-    return nodeData()
+    return nodes()
   },
 
   // --- Movable ---------------------------------------------------------------

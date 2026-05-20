@@ -110,7 +110,7 @@ Source: `packages/schema/src/schema.ts`. The recursive type `Schema` has eleven 
 | `text` | `text()` | CRDT | — | Character-level collaborative text |
 | `counter` | `counter()` | CRDT | — | Additive counter |
 | `set` | `set(item)` | CRDT | `() => Schema` | Add-wins unordered collection |
-| `tree` | `tree(nodeData)` | CRDT | `() => Schema` | Hierarchical tree with move operations |
+| `tree` | `tree(item)` | CRDT | `() => Schema` | Hierarchical forest with move operations; each node carries `item`-typed data |
 | `movable` | `movableList(item)` | CRDT | `() => Schema` | Ordered collection with move operations |
 | `richtext` | `richText(marks)` | CRDT | — | Collaborative rich text with formatting marks |
 
@@ -396,7 +396,13 @@ interface Interpreter<Ctx, A> {
   text: (ctx: Ctx, path: Path, schema: TextSchema) => A
   counter: (ctx: Ctx, path: Path, schema: CounterSchema) => A
   set: (ctx: Ctx, path: Path, schema: SetSchema, item: (k: string) => A) => A
-  tree: (ctx: Ctx, path: Path, schema: TreeSchema, nodeData: () => A) => A
+  tree: (
+    ctx: Ctx,
+    path: Path,
+    schema: TreeSchema,
+    nodes: () => readonly FlatTreeNode<A>[],
+    node: (id: string) => A,
+  ) => A
   movable: (ctx: Ctx, path: Path, schema: MovableSequenceSchema, item: (i: number) => A) => A
 }
 ```
@@ -943,7 +949,7 @@ Source: `packages/schema/src/zero.ts`.
 - Sum → first variant's default.
 - Text → empty text.
 - Counter → `0`.
-- Tree → single root node with `nodeData`'s default.
+- Tree → empty forest `[]` (matches `Plain<TreeSchema<I>> = readonly PlainFlatTreeNode<I>[]`).
 
 `scalarDefault(kind)` is the scalar-only version. Used by `createDoc` when no initial state is supplied, by migrations' `setDefault` primitive, and by tests.
 

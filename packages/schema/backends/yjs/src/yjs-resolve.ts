@@ -122,10 +122,11 @@ export function resolveYjsType(
     if (!seg) throw new Error(`Missing segment at index ${i}`)
     const nextSchema = advanceSchema(schema, seg)
 
-    // Compute identity for this step if binding is provided and the
-    // segment is a key (field name at a product boundary).
+    // Identity-keying is a product-field-only concern (the binding is
+    // populated with declared field paths). The role check makes that
+    // predicate segment-local instead of relying on a parent-kind sniff.
     let identity: string | undefined
-    if (binding && seg.role === "key") {
+    if (binding && seg.role === "field") {
       const segStr = seg.resolve() as string
       absPath = absPath ? `${absPath}.${segStr}` : segStr
       identity = binding.forward.get(absPath) as string | undefined

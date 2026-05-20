@@ -1,9 +1,14 @@
-// tree-position — flat↔tree position mapping for editor bindings.
+// doc-position — flat↔document-tree position mapping for editor bindings.
+//
+// "doc" here is the rooted schema interpreted as a document tree
+// (ProseMirror convention). Distinct from `Schema.tree`, the CRDT
+// primitive — see schema.ts. Trees of *schema nodes* always exist;
+// `Schema.tree` is one CRDT kind that can appear *within* such a tree.
 //
 // Rich text editors (ProseMirror, CodeMirror, Slate, Lexical) address
 // positions in a document tree using a single flat integer. This module
 // provides pure functions that convert between flat integers and kyneta's
-// (path, offset) pairs in the schema tree.
+// (path, offset) pairs in the document tree.
 //
 // The counting convention follows ProseMirror (the de facto standard):
 //
@@ -118,7 +123,7 @@ export function nodeSize(
       let size = 2 // open + close
       const keys = reader.keys(path).slice().sort()
       for (const key of keys) {
-        size += nodeSize(reader, schema.item, path.field(key))
+        size += nodeSize(reader, schema.item, path.entry(key))
       }
       return size
     }
@@ -145,17 +150,23 @@ export function nodeSize(
 
     case "set":
       throw new Error(
-        "nodeSize: `set` schema kind is not supported for tree-position mapping. " +
+        "nodeSize: `set` schema kind is not supported for doc-position mapping. " +
           "Sets have no stable child ordering for flat position computation. " +
-          "See tree-position.ts for details.",
+          "See doc-position.ts for details.",
       )
 
-    case "tree":
-      throw new Error(
-        "nodeSize: `tree` schema kind is not supported for tree-position mapping. " +
-          "Trees have move semantics that break the static depth-first walk assumption. " +
-          "See tree-position.ts for details.",
-      )
+    case "tree": {
+      // A `Schema.tree` contributes the sum of `nodeSize(node.data)` across
+      // its forest. The tree container itself is NOT a doc-position (no
+      // open/close boundary at the container level); each node contributes
+      // exactly its data subtree's size.
+      let size = 0
+      const topology = reader.forestTopology(path)
+      for (const t of topology) {
+        size += nodeSize(reader, schema.item, path.node(t.id))
+      }
+      return size
+    }
 
     case "richtext": {
       const value = reader.read(path)
@@ -187,28 +198,28 @@ export function contentSize(
 }
 
 // ---------------------------------------------------------------------------
-// ResolvedTreePosition — result of resolving a flat position
+// ResolvedDocPosition — result of resolving a flat position
 // ---------------------------------------------------------------------------
 
-export interface ResolvedTreePosition {
+export interface ResolvedDocPosition {
   readonly path: Path
   readonly offset: number
   readonly schema: SchemaNode
 }
 
 // ---------------------------------------------------------------------------
-// resolveTreePosition — Flat → (Path, Offset)
+// resolveDocPosition — Flat → (Path, Offset)
 // ---------------------------------------------------------------------------
 
 /**
  * Flat integer → `{ path, offset, schema }` at the innermost node.
  * Returns `null` if out of bounds.
  */
-export function resolveTreePosition(
+export function resolveDocPosition(
   reader: Reader,
   schema: SchemaNode,
   flatPos: number,
-): ResolvedTreePosition | null {
+): ResolvedDocPosition | null {
   if (flatPos < 0) return null
 
   const rootPath = RawPath.empty
@@ -229,7 +240,7 @@ function resolveInComposite(
   schema: SchemaNode,
   path: Path,
   remaining: number,
-): ResolvedTreePosition {
+): ResolvedDocPosition {
   const children = getChildren(reader, schema, path)
 
   let childIndex = 0
@@ -256,15 +267,15 @@ function resolveInComposite(
 }
 
 // ---------------------------------------------------------------------------
-// flattenTreePosition — (Path, Offset) → Flat
+// flattenDocPosition — (Path, Offset) → Flat
 // ---------------------------------------------------------------------------
 
 /**
- * `{ path, offset }` → flat integer. Inverse of `resolveTreePosition`.
+ * `{ path, offset }` → flat integer. Inverse of `resolveDocPosition`.
  *
  * Round-trip invariant: `flatten(r, s, ...resolve(r, s, pos)) === pos`.
  */
-export function flattenTreePosition(
+export function flattenDocPosition(
   reader: Reader,
   schema: SchemaNode,
   path: Path,
@@ -297,9 +308,11 @@ export function flattenTreePosition(
 
     const childSchema = advanceToChild(currentSchema, segment)
     const childPath =
-      segment.role === "key"
+      segment.role === "field"
         ? currentPath.field(segment.resolve() as string)
-        : currentPath.item(segment.resolve() as number)
+        : segment.role === "entry"
+          ? currentPath.entry(segment.resolve() as string)
+          : currentPath.item(segment.resolve() as number)
 
     if (depth < segments.length - 1) {
       if (!isLeaf(childSchema)) {
@@ -403,7 +416,7 @@ function getChildren(
       for (const key of keys) {
         result.push({
           schema: schema.item,
-          path: path.field(key),
+          path: path.entry(key),
           key,
         })
       }
@@ -435,13 +448,23 @@ function getChildren(
 
     case "set":
       throw new Error(
-        "getChildren: `set` schema kind is not supported for tree-position mapping.",
+        "getChildren: `set` schema kind is not supported for doc-position mapping.",
       )
 
-    case "tree":
-      throw new Error(
-        "getChildren: `tree` schema kind is not supported for tree-position mapping.",
-      )
+    case "tree": {
+      // Enumerate tree node data as children, in topology order.
+      // Each node contributes one ChildInfo pointing at its data subtree.
+      const result: ChildInfo[] = []
+      const topology = reader.forestTopology(path)
+      for (const t of topology) {
+        result.push({
+          schema: schema.item,
+          path: path.node(t.id),
+          key: t.id,
+        })
+      }
+      return result
+    }
   }
 }
 
@@ -449,7 +472,10 @@ function matchesSegment(
   child: ChildInfo,
   segment: { role: string; resolve(): string | number },
 ): boolean {
-  if (segment.role === "key" && child.key !== undefined) {
+  if (
+    (segment.role === "field" || segment.role === "entry") &&
+    child.key !== undefined
+  ) {
     return child.key === segment.resolve()
   }
   if (segment.role === "index" && child.index !== undefined) {

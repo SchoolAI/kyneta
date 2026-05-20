@@ -65,7 +65,7 @@ export function fnv1aHex(input: string): string {
  *   - text: `t:text`
  *   - counter: `t:counter`
  *   - set: `t:set(item)`
- *   - tree: `t:tree(nodeData)`
+ *   - tree: `t:tree(item)`
  *   - movable: `t:movable(item)`
  */
 function canonicalizeSchema(schema: SchemaNode): string {
@@ -121,7 +121,7 @@ function canonicalizeSchema(schema: SchemaNode): string {
       return `t:set(${canonicalizeSchema((schema as any).item as SchemaNode)})`
 
     case "tree":
-      return `t:tree(${canonicalizeSchema((schema as any).nodeData as SchemaNode)})`
+      return `t:tree(${canonicalizeSchema((schema as any).item as SchemaNode)})`
 
     case "movable":
       return `t:movable(${canonicalizeSchema((schema as any).item as SchemaNode)})`

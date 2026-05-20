@@ -613,7 +613,7 @@ describe("withAddressing: subscription survival after structural change", () => 
     expect(authorRef()).toBe("bob")
   })
 
-  it("subscribeTree on a list propagates events after structural change", () => {
+  it("subscribeDescendants on a list propagates events after structural change", () => {
     const { doc } = createTodoDoc([
       { text: "alpha", done: false },
       { text: "beta", done: false },
@@ -625,7 +625,7 @@ describe("withAddressing: subscription survival after structural change", () => 
 
     const cf = (doc.todos as any)[CHANGEFEED]
     const treeEvents: any[] = []
-    cf.subscribeTree((cs: any) => {
+    cf.subscribeDescendants((cs: any) => {
       for (const e of cs.changes) treeEvents.push(e)
     })
 
@@ -708,7 +708,7 @@ describe("withAddressing: subscription survival after structural change", () => 
     doc.todos.at(1)
     const cf = (doc.todos as any)[CHANGEFEED]
     const treeEvents: any[] = []
-    cf.subscribeTree((cs: any) => {
+    cf.subscribeDescendants((cs: any) => {
       for (const e of cs.changes) treeEvents.push(e)
     })
 

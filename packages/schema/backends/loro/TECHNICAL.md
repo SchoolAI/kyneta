@@ -235,7 +235,7 @@ The write path is two-phase. During `prepare`, local mutations are applied eager
 | `"text"` | `TextDiff` with retain/insert/delete runs |
 | `"sequence"` | `ListDiff` with splice ops |
 | `"map"` | `MapDiff` with `updated` record |
-| `"tree"` | `TreeDiff` with create/move/delete |
+| `"tree"` | `TreeDiff` with create/move/delete; `TREE_NODE_ALLOCATE` calls `doc.getTree(...).createNode().id` during prepare (create-then-record) so kyneta records carry real Loro `TreeID`s |
 | `"replace"` | Container-level replacement (varies by kind) |
 | `"increment"` | `CounterDiff` with delta |
 

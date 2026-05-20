@@ -15,6 +15,13 @@ import { hasKind } from "./loro-guards.js"
  * - LoroMap → `.toJSON()` (plain object snapshot — for product/map reads)
  * - LoroList/LoroMovableList → `.toJSON()` (plain array snapshot)
  * - Plain values (string, number, boolean, null) → returned as-is
+ *
+ * `LoroTree` is deliberately omitted. `.toJSON()` on a tree returns a
+ * nested `meta`/`children` shape with identity-hash field names — it
+ * disagrees with `stepTree` / `TreeChange` / `LoroTree.toArray()`, the
+ * four layers `Schema.tree` requires to agree. Tree reads go through
+ * `resolveForest` (which uses `.toArray()`); this function falls through
+ * to the default branch for trees, but no caller hits that path.
  */
 export function extractValue(resolved: unknown): unknown {
   if (!hasKind(resolved)) {
@@ -34,9 +41,8 @@ export function extractValue(resolved: unknown): unknown {
     case "List":
     case "MovableList":
       return (resolved as any).toJSON()
-    case "Tree":
-      return (resolved as any).toJSON()
     default:
+      // Tree falls through here — handled separately by `resolveForest`.
       return resolved
   }
 }

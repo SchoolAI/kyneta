@@ -13,6 +13,26 @@ import type { RichTextDelta } from "./change.js"
 import type { Path } from "./path.js"
 import type { PositionCapable } from "./position.js"
 import type { Reader } from "./reader.js"
+
+// ---------------------------------------------------------------------------
+// PlainFlatTreeNode — Plain-form flat-forest node (matches the shadow)
+// ---------------------------------------------------------------------------
+
+/**
+ * Plain-form one tree node — `{id, parent, index, data: Plain<I>}`.
+ *
+ * `Plain<TreeSchema<I>>` is the canonical flat-array snapshot, matching
+ * `LoroTree.toArray()`, `stepTree`, and `TreeChange`. The recursive
+ * `ForestNode<Plain<I>>` projection lives in the read layer only — it's
+ * not the canonical Plain shape.
+ */
+export interface PlainFlatTreeNode<I extends Schema> {
+  readonly id: string
+  readonly parent: string | null
+  readonly index: number
+  readonly data: Plain<I>
+}
+
 import type {
   CounterSchema,
   DiscriminatedSumSchema,
@@ -139,7 +159,7 @@ export type Plain<S extends Schema> =
         : S extends SetSchema<infer I>
           ? Plain<I>[]
           : S extends TreeSchema<infer Inner>
-            ? Plain<Inner>
+            ? readonly PlainFlatTreeNode<Inner>[]
             : S extends MovableSequenceSchema<infer I>
               ? Plain<I>[]
               : // --- Scalar ---

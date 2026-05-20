@@ -23,7 +23,7 @@
 import type { Changeset } from "@kyneta/changefeed"
 import { CHANGEFEED, hasChangefeed } from "@kyneta/changefeed"
 import type { Op } from "../changefeed.js"
-import { hasTreeChangefeed } from "../changefeed.js"
+import { hasRecursiveChangefeed } from "../changefeed.js"
 
 // ---------------------------------------------------------------------------
 // subscribe — observe changes at a ref and all descendants (deep default)
@@ -51,24 +51,24 @@ import { hasTreeChangefeed } from "../changefeed.js"
  * ```
  *
  * @param ref - A schema-issued ref with a `[CHANGEFEED]` symbol that
- *   includes `subscribeTree` (from `withChangefeed`).
+ *   includes `subscribeDescendants` (from `withChangefeed`).
  * @param callback - Called with a `Changeset<Op>` on each notification.
  * @returns An unsubscribe function.
  *
  * @throws If `ref` does not have a `[CHANGEFEED]` symbol carrying
- *   `subscribeTree` — i.e. it isn't a schema-issued ref.
+ *   `subscribeDescendants` — i.e. it isn't a schema-issued ref.
  */
 export function subscribe(
   ref: unknown,
   callback: (changeset: Changeset<Op>) => void,
 ): () => void {
-  if (!hasTreeChangefeed(ref)) {
+  if (!hasRecursiveChangefeed(ref)) {
     throw new Error(
       "subscribe() requires a schema-issued ref with [CHANGEFEED] carrying " +
-        "subscribeTree. Use a ref produced by interpret() with withChangefeed.",
+        "subscribeDescendants. Use a ref produced by interpret() with withChangefeed.",
     )
   }
-  return ref[CHANGEFEED].subscribeTree(callback)
+  return ref[CHANGEFEED].subscribeDescendants(callback)
 }
 
 // ---------------------------------------------------------------------------

@@ -49,6 +49,7 @@ import type {
   ReadableMapRef,
   ReadableSequenceRef,
   ReadableSetRef,
+  ReadableTreeRef,
 } from "./interpreters/readable.js"
 import type {
   CounterRef,
@@ -61,6 +62,7 @@ import type {
   TextRef,
   WritableMapRef,
   WritableSetRef,
+  WritableTreeRef,
 } from "./interpreters/writable.js"
 import type {
   HasNative,
@@ -236,11 +238,13 @@ export type SchemaRef<
               M,
               N["set"]
             >
-          : // --- Tree (delegate to inner nodeData) ---
+          : // --- Tree (flat-forest with recursive read surface) ---
             S extends TreeSchema<infer Inner>
-            ? Inner extends Schema
-              ? SchemaRef<Inner, M, N>
-              : unknown
+            ? Wrap<
+                ReadableTreeRef<Inner> & WritableTreeRef<Plain<Inner>>,
+                M,
+                N["tree"]
+              >
             : // --- MovableSequence ---
               S extends MovableSequenceSchema<infer I>
               ? Wrap<

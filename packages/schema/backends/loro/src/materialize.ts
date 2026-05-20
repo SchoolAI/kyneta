@@ -10,6 +10,7 @@
 // inlined here.
 
 import type {
+  FlatTreeNodeTopology,
   MaterializeResolver,
   Path,
   PlainState,
@@ -21,6 +22,7 @@ import {
   createMaterializeInterpreter,
   interpret,
   isNonNullObject,
+  materializeContextFromResolver,
 } from "@kyneta/schema"
 import type { Delta, LoroDoc } from "loro-crdt"
 import { extractValue, loroDeltaToRichTextDelta } from "./loro-extract.js"
@@ -91,6 +93,21 @@ function createLoroResolver(
       }
       return []
     },
+
+    resolveForest(path: Path): readonly FlatTreeNodeTopology[] {
+      const { container } = resolveContainer(doc, rootSchema, path, binding)
+      if (!hasKind(container) || container.kind() !== "Tree") return []
+      const rows = (container as any).toArray() as Array<{
+        id: string
+        parent: string | null | undefined
+        index: number
+      }>
+      return rows.map(row => ({
+        id: row.id,
+        parent: row.parent ?? null,
+        index: row.index,
+      }))
+    },
   }
 }
 
@@ -105,6 +122,7 @@ export function materializeLoroShadow(
 ): PlainState {
   const resolver = createLoroResolver(doc, schema, binding)
   const interp = createMaterializeInterpreter(resolver)
-  const result = interpret(schema, interp, undefined)
+  const ctx = materializeContextFromResolver(resolver)
+  const result = interpret(schema, interp, ctx)
   return result as PlainState
 }

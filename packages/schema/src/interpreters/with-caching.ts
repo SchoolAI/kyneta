@@ -26,7 +26,12 @@
 // directly — the pipeline handles it.
 
 import type { ChangeBase } from "../change.js"
-import type { Interpreter, Path, SumVariants } from "../interpret.js"
+import type {
+  FlatTreeNode,
+  Interpreter,
+  Path,
+  SumVariants,
+} from "../interpret.js"
 import type { RefContext } from "../interpreter-types.js"
 import {
   type CounterSchema,
@@ -409,17 +414,19 @@ export function withCaching<A extends HasNavigation>(
     },
 
     // --- Tree ------------------------------------------------------------------
-    // Delegate via nodeData — the inner interpretation already has caching.
-    // Wrap with product-style field memoization since tree surfaces nodeData
-    // fields.
+    // Per-node refs are cached by the inner recursion (each node's `data`
+    // ref carries caching). The `.roots` projection is built fresh per
+    // read; memoizing it per tree-version is a future optimization.
     tree(
       ctx: RefContext,
       path: Path,
       schema: TreeSchema,
-      nodeData: () => A & HasCaching,
+      nodes: () => readonly FlatTreeNode<A & HasCaching>[],
+      node: (id: string) => A & HasCaching,
     ): A & HasCaching {
-      const baseNodeData = nodeData as () => A
-      return base.tree(ctx, path, schema, baseNodeData) as A & HasCaching
+      const baseNodes = nodes as unknown as () => readonly FlatTreeNode<A>[]
+      const baseNode = node as unknown as (id: string) => A
+      return base.tree(ctx, path, schema, baseNodes, baseNode) as A & HasCaching
     },
 
     // --- Movable ---------------------------------------------------------------

@@ -11,14 +11,14 @@ import type {
 } from "../index.js"
 import {
   bottomInterpreter,
+  hasRecursiveChangefeed,
   hasTransact,
-  hasTreeChangefeed,
   interpret,
   observation,
   plainContext,
   plainReader,
   RawPath,
-  rawKey,
+  rawField,
   readable,
   Schema,
   TRANSACT,
@@ -126,12 +126,12 @@ describe("fluent: interpret(schema, ctx).with(...).done()", () => {
 
     // Observable — leaf and composite
     expect(hasChangefeed(doc.title)).toBe(true)
-    expect(hasTreeChangefeed(doc.settings)).toBe(true)
-    expect(hasTreeChangefeed(doc.messages)).toBe(true)
+    expect(hasRecursiveChangefeed(doc.settings)).toBe(true)
+    expect(hasRecursiveChangefeed(doc.messages)).toBe(true)
 
-    // subscribeTree works
+    // subscribeDescendants works
     const events: Op[] = []
-    ;(doc.settings as any)[CHANGEFEED].subscribeTree(
+    ;(doc.settings as any)[CHANGEFEED].subscribeDescendants(
       (changeset: Changeset<Op>) => {
         for (const event of changeset.changes) events.push(event)
       },
@@ -314,7 +314,7 @@ describe("fluent: three-arg interpret regression", () => {
       innerSchema,
       interp,
       ctx,
-      new RawPath([rawKey("nested")]),
+      new RawPath([rawField("nested")]),
     ) as any
 
     expect(doc.a()).toBe(99)

@@ -22,7 +22,12 @@
 //
 // See .plans/navigation-layer.md §Phase 2, Task 2.2.
 
-import type { Interpreter, Path, SumVariants } from "../interpret.js"
+import type {
+  FlatTreeNode,
+  Interpreter,
+  Path,
+  SumVariants,
+} from "../interpret.js"
 import type { RefContext } from "../interpreter-types.js"
 import type {
   CounterSchema,
@@ -43,6 +48,7 @@ import { CALL } from "./bottom.js"
 import { installKeyedReadable } from "./keyed-helpers.js"
 import { installSequenceReadable } from "./sequence-helpers.js"
 import { installSetReadable } from "./set-helpers.js"
+import { installTreeReadable } from "./tree-helpers.js"
 
 // ---------------------------------------------------------------------------
 // withReadable — the reading transformer
@@ -202,16 +208,20 @@ export function withReadable<A extends HasNavigation>(
     },
 
     // --- Tree ------------------------------------------------------------------
-    // Delegate via nodeData() — the inner interpretation already has
-    // reading installed.
+    // Wire the recursive read surface (`ReadableTreeRef`): `.roots`,
+    // `.node(id)`, callable snapshot `()`, depth-first iteration.
     tree(
       ctx: RefContext,
       path: Path,
       schema: TreeSchema,
-      nodeData: () => A & HasRead,
+      nodes: () => readonly FlatTreeNode<A & HasRead>[],
+      node: (id: string) => A & HasRead,
     ): A & HasRead {
-      const baseNodeData = nodeData as () => A
-      return base.tree(ctx, path, schema, baseNodeData) as A & HasRead
+      const baseNodes = nodes as unknown as () => readonly FlatTreeNode<A>[]
+      const baseNode = node as unknown as (id: string) => A
+      const result = base.tree(ctx, path, schema, baseNodes, baseNode) as any
+      installTreeReadable(result, ctx, path, node)
+      return result as A & HasRead
     },
 
     // --- Movable ---------------------------------------------------------------

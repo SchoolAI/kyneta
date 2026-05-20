@@ -139,7 +139,7 @@ export const writable: InterpreterLayer<
 
 /**
  * Observation layer: compositional observation protocol (`[CHANGEFEED]`,
- * `subscribeTree`).
+ * `subscribeDescendants`).
  *
  * Wraps `withChangefeed(base)`. Accepts `RefContext` — works on both
  * read-only and read-write stacks. On read-only stacks, produces

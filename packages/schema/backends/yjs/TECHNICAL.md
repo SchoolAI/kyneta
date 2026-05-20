@@ -364,6 +364,8 @@ const Todo = yjs.bind(Schema.struct({
 
 **`Schema.set` is not supported by Yjs.** The `case "set"` and `case "set-op"` branches in `change-mapping.ts` throw at runtime — they are unreachable from any bound Yjs substrate via the law restriction above, but the explicit throws guard against any future code path that bypasses the type-level check. See [§Set: value-addressed leaf](../../TECHNICAL.md#set-value-addressed-leaf) for the kyneta-level set semantics.
 
+**`Schema.tree` is not supported by Yjs.** Rejected at `yjs.bind` time via the `"tree-move"` law restriction. `MaterializeResolver.resolveForest` returns `[]` defensively for any code path that reaches it.
+
 `yjs.replica()` produces a `BoundReplica<YjsVersion>` — the replication-only variant for sync conduits that don't need to interpret state.
 
 ### Compile-time composition-law enforcement

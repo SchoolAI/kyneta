@@ -22,6 +22,7 @@ import type {
   MapChange,
   Op,
   Path,
+  ProductSchema,
   ReplaceChange,
   RichTextChange,
   RichTextInstruction,
@@ -270,9 +271,10 @@ function applyMapChange(
       // For map schemas (records), use the key as-is (no identity-keying).
       let mapKey = key
       if (binding && targetSchema[KIND] === "product") {
-        // Compute absolute schema path for this field.
+        // Compute absolute schema path for this field — only product-field
+        // segments contribute (entry segments are runtime keys).
         const parentAbsPath = path.segments
-          .filter(s => s.role === "key")
+          .filter(s => s.role === "field")
           .map(s => s.resolve() as string)
           .join(".")
         const absPath = parentAbsPath ? `${parentAbsPath}.${key}` : key
@@ -314,15 +316,19 @@ function applyReplaceChange(
   )
 
   const resolved = lastSeg.resolve()
-  if (parent instanceof Y.Map && lastSeg.role === "key") {
+  if (
+    parent instanceof Y.Map &&
+    (lastSeg.role === "field" || lastSeg.role === "entry")
+  ) {
     // Resolve schema for the target field for structured value detection
     const targetSchema = resolveSchemaAtPath(rootSchema, path)
     const yjsValue = maybeCreateSharedType(change.value, targetSchema)
-    // Use identity hash for product-field boundaries.
+    // Identity-keying applies only at product-field boundaries; entry
+    // segments use the runtime key as-is.
     let mapKey = resolved as string
-    if (binding) {
+    if (binding && lastSeg.role === "field") {
       const absPath = path.segments
-        .filter(s => s.role === "key")
+        .filter(s => s.role === "field")
         .map(s => s.resolve() as string)
         .join(".")
       const identity = binding.forward.get(absPath) as string | undefined
@@ -520,7 +526,7 @@ export function eventsToOps(
   const ops: Op[] = []
 
   for (const event of events) {
-    const kynetaPath = yjsPathToKynetaPath(event.path, binding)
+    const kynetaPath = yjsPathToKynetaPath(event.path, schema, binding)
     const change = eventToChange(event, schema, kynetaPath, binding)
     if (change) {
       ops.push({ path: kynetaPath, change })
@@ -535,31 +541,55 @@ export function eventsToOps(
 // ---------------------------------------------------------------------------
 
 /**
- * Convert a Yjs event path (array of string | number) to a kyneta Path.
+ * Convert a Yjs event path to a kyneta `RawPath`, walking the schema
+ * alongside so each segment is classified as field / entry / index by
+ * the current schema kind.
  *
- * `event.path` from `observeDeep` is relative to the observed type.
- * Strings become key segments, numbers become index segments.
+ * Why schema-aware and not "did the inverse lookup hit?": the binding's
+ * inverse map only covers declared product-field positions reachable
+ * without crossing a runtime-keyed container. A declared struct field
+ * nested under a `record(...)` value type is reachable via Yjs but
+ * absent from `binding.inverse` — without the schema walk it would be
+ * misclassified as an entry and then rejected by `advanceSchema`.
  */
 function yjsPathToKynetaPath(
   yjsPath: (string | number)[],
+  rootSchema: SchemaNode,
   binding?: SchemaBinding,
 ): RawPath {
   let path = RawPath.empty
+  let schema: SchemaNode | undefined = rootSchema
   for (const segment of yjsPath) {
     if (typeof segment === "string") {
-      // Reverse-map identity hash → absolute schema path → leaf field name.
-      // Yjs events emit identity-keyed strings at product-field positions;
-      // we need to recover the original field name for kyneta schema paths.
+      // Inverse-lookup recovers the original declared field name when
+      // the segment IS an identity hash; otherwise we keep the string.
+      let leaf = segment
       const absPath = binding?.inverse.get(segment as any)
       if (absPath) {
         const lastDot = absPath.lastIndexOf(".")
-        const leaf = lastDot >= 0 ? absPath.slice(lastDot + 1) : absPath
+        leaf = lastDot >= 0 ? absPath.slice(lastDot + 1) : absPath
+      }
+      const kind = schema?.[KIND]
+      if (kind === "product") {
         path = path.field(leaf)
+        schema = (schema as ProductSchema | undefined)?.fields[leaf]
+      } else if (kind === "map" || kind === "set" || kind === "tree") {
+        path = path.entry(leaf)
+        schema = (schema as any)?.item
       } else {
-        path = path.field(segment)
+        // Unknown / sum / unrecognized — fall back to entry. Subsequent
+        // segments are likely walking plain JSON inside a sum variant.
+        path = path.entry(leaf)
+        schema = undefined
       }
     } else if (typeof segment === "number") {
       path = path.item(segment)
+      const kind = schema?.[KIND]
+      if (kind === "sequence" || kind === "movable") {
+        schema = (schema as any).item
+      } else {
+        schema = undefined
+      }
     }
   }
   return path

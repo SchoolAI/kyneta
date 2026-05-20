@@ -1,10 +1,28 @@
+/**
+ * Recognize the `stepTree` shadow shape (`{id, parent, index, data}[]`)
+ * structurally, so `path.node(id)` can step into a node's data without
+ * a schema lookup. The role-`"entry"` guard at the call site keeps this
+ * heuristic from misfiring on user data that happens to have `id`/`data`
+ * keys but isn't a `Schema.tree` shadow.
+ */
+function isFlatForestArray(arr: readonly unknown[]): boolean {
+  if (arr.length === 0) return false
+  const first = arr[0]
+  return (
+    typeof first === "object" &&
+    first !== null &&
+    typeof (first as { id?: unknown }).id === "string" &&
+    "data" in (first as object)
+  )
+}
+
 // path — typed path infrastructure for the interpreter stack.
 //
 // Two implementations of a single Path interface:
 //
 // - RawPath: external, serializable, positional. Segments are immutable
-//   value objects ({ type: "key", key } | { type: "index", index }).
-//   Used by wire formats, external ops, and non-addressing stacks.
+//   value objects (`{ type: "field" | "entry" | "index", ... }`). Used by
+//   wire formats, external ops, and non-addressing stacks.
 //
 // - AddressedPath: internal, identity-stable, tombstone-aware. Segments
 //   are Address objects with mutable indices (sequences) or tombstone
@@ -27,22 +45,22 @@
  * The minimal contract for a path segment. Both `RawSegment` and
  * `Address` implement this interface.
  *
- * Most consumers need only `resolve()` — the resolved `string | number`
- * is sufficient for container navigation, store reads, and writes.
- * `role` exists for `advanceSchema`, which is the single enforcement
- * point that validates segment-schema compatibility (key segment into
- * product/map, index segment into sequence). Backends trust the schema
- * invariant and dispatch on container kind instead.
+ * `role` is what makes identity-keying (`resolveContainer`) a segment-local
+ * predicate — `binding && seg.role === "field"`. Without the role split,
+ * identity-keying had to sniff the parent schema's kind to decide whether
+ * a key belonged to a declared product field or a runtime container key.
+ *
+ *  - `"field"` — declared product field. Identity-keyed at binding boundaries.
+ *  - `"entry"` — runtime string key (map / set / tree node id). Not identity-keyed.
+ *  - `"index"` — runtime numeric position (sequence / movable).
  */
 export interface Segment {
   /**
-   * "key" for fields/map entries, "index" for sequence items.
-   *
-   * Only needed by `advanceSchema` (the schema-enforcement layer).
-   * All other consumers — backends, store readers, changefeed routing —
-   * use `resolve()` alone and dispatch on container kind, not segment role.
+   * The functorial role. Construction sites pick the role from the kind
+   * case that built the segment (`product` → "field"; `map`/`set`/`tree`
+   * → "entry"; `sequence`/`movable` → "index").
    */
-  readonly role: "key" | "index"
+  readonly role: "field" | "entry" | "index"
 
   /**
    * Resolve this segment to a store-access key (string or number).
@@ -59,18 +77,23 @@ export interface Segment {
 
 /**
  * A raw path segment — the existing segment shape, now implementing
- * `Segment`. Created by `rawKey()` and `rawIndex()` factory functions.
+ * `Segment`. Created by `rawField()`, `rawEntry()`, and `rawIndex()`
+ * factory functions.
  *
- * The `type`/`key`/`index` fields are retained for wire-format
- * compatibility (serialization boundaries construct `RawSegment` from
- * external data). `role` and `resolve()` are the `Segment` interface
- * contract; `type`/`key`/`index` are `RawSegment`-specific.
+ * `type` is the wire-format discriminant; `role` and `resolve()` are the
+ * `Segment` interface contract used by the interpreter stack.
  */
 export type RawSegment =
   | {
-      readonly type: "key"
-      readonly key: string
-      readonly role: "key"
+      readonly type: "field"
+      readonly field: string
+      readonly role: "field"
+      resolve(): string
+    }
+  | {
+      readonly type: "entry"
+      readonly entry: string
+      readonly role: "entry"
       resolve(): string
     }
   | {
@@ -80,16 +103,17 @@ export type RawSegment =
       resolve(): number
     }
 
-/**
- * Create a key-based raw segment (for product fields, map entries).
- */
-export function rawKey(key: string): RawSegment {
-  return { type: "key", key, role: "key", resolve: () => key }
+/** Declared product field segment. Identity-keyed at binding boundaries. */
+export function rawField(key: string): RawSegment {
+  return { type: "field", field: key, role: "field", resolve: () => key }
 }
 
-/**
- * Create an index-based raw segment (for sequence items).
- */
+/** Runtime string-key segment for map entries, set members, tree node ids. */
+export function rawEntry(key: string): RawSegment {
+  return { type: "entry", entry: key, role: "entry", resolve: () => key }
+}
+
+/** Numeric position segment for sequences and movable lists. */
 export function rawIndex(index: number): RawSegment {
   return { type: "index", index, role: "index", resolve: () => index }
 }
@@ -101,23 +125,28 @@ export function rawIndex(index: number): RawSegment {
 /**
  * An address is the internal, identity-stable, tombstone-aware segment.
  *
- * - `kind: "key"` serves products, maps, and sums. The key is the
- *   stable identity. `dead` is set true when a map entry is deleted.
- *   For product fields, `dead` is always false (schema-defined).
+ * Tombstone checking is built into the segment via `resolve()` rather
+ * than the path or the caller — refs holding a stale address fail loudly
+ * the moment they try to navigate, not later via silent undefined reads.
  *
- * - `kind: "index"` serves sequences. The address carries a mutable
- *   index that is advanced eagerly on structural change, and a stable
- *   `id` that never changes. `dead` is set true when the item is deleted.
- *
- * `resolve()` throws if `dead` is true — tombstone checking is built
- * into the segment, not the path or the caller.
+ *  - `"field"` — declared product fields and sums. Schema-defined; never dies.
+ *  - `"entry"` — map entries, set members, tree node ids. Dies per-key.
+ *  - `"index"` — sequences. Mutable `index` (advanced on structural change),
+ *    stable `id`. Dies per-item.
  */
 export type Address =
   | {
-      readonly kind: "key"
+      readonly kind: "field"
       readonly key: string
       dead: boolean
-      readonly role: "key"
+      readonly role: "field"
+      resolve(): string
+    }
+  | {
+      readonly kind: "entry"
+      readonly key: string
+      dead: boolean
+      readonly role: "entry"
       resolve(): string
     }
   | {
@@ -168,14 +197,37 @@ export function resetAddressIdCounter(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Create a key-based address (for products, maps, sums).
+ * Field address for declared product fields and sums. The `dead` flag
+ * is shape parity with `entryAddress` / `indexAddress` — product fields
+ * are schema-defined and never tombstoned in normal operation.
  */
-export function keyAddress(key: string, dead = false): Address {
+export function fieldAddress(key: string, dead = false): Address {
   return {
-    kind: "key",
+    kind: "field",
     key,
     dead,
-    role: "key",
+    role: "field",
+    resolve() {
+      if (this.dead) {
+        throw new Error(
+          `Ref access on deleted product field. The field "${this.key}" this ref pointed to has been removed.`,
+        )
+      }
+      return this.key
+    },
+  }
+}
+
+/**
+ * Entry address for runtime string keys (map entries, set members, tree
+ * node ids). Tombstones on delete; subsequent `.resolve()` throws.
+ */
+export function entryAddress(key: string, dead = false): Address {
+  return {
+    kind: "entry",
+    key,
+    dead,
+    role: "entry",
     resolve() {
       if (this.dead) {
         throw new Error(
@@ -219,14 +271,19 @@ export function indexAddress(index: number, dead = false): Address {
  * - `RawPath`: external, serializable, positional.
  * - `AddressedPath`: internal, identity-stable, tombstone-aware.
  *
- * Consumers use `Path` uniformly — `field()`, `item()`, `key`,
- * `read()`, `format()`, `slice()`, `concat()`. They never branch
- * on path kind.
+ * Consumers use `Path` uniformly and never branch on path kind. The
+ * three structural appenders mirror `Segment.role`:
+ * `field(key)`, `entry(key)`, `item(index)`. `node(id)` is sugar for
+ * `entry(id)` — preferred at tree-node call sites for clarity.
  */
 export interface Path {
-  /** Append a field (key-based) segment, returning a new Path of the same concrete type. */
+  /** Declared product field. Identity-keyed at binding boundaries. */
   field(key: string): Path
-  /** Append an item (index-based) segment, returning a new Path of the same concrete type. */
+  /** Runtime string key — map entries, set members, tree node ids. */
+  entry(key: string): Path
+  /** Sugar for `entry(id)` at tree-node call sites. */
+  node(id: string): Path
+  /** Numeric position — sequence / movable list items. */
   item(index: number): Path
   /**
    * Identity-stable string key for routing, caching, subscription maps.
@@ -265,10 +322,16 @@ export abstract class AbstractPath implements Path {
   abstract readonly segments: readonly Segment[]
   abstract readonly isAddressed: boolean
   abstract field(key: string): Path
+  abstract entry(key: string): Path
   abstract item(index: number): Path
   abstract slice(start: number, end?: number): Path
   abstract concat(other: Path): Path
   abstract root(): Path
+
+  /** Sugar for `entry(id)`. */
+  node(id: string): Path {
+    return this.entry(id)
+  }
 
   get length(): number {
     return this.segments.length
@@ -292,7 +355,24 @@ export abstract class AbstractPath implements Path {
     let current = store
     for (const seg of this.segments) {
       if (current == null) return undefined
-      current = (current as Record<string | number, unknown>)[seg.resolve()]
+      const key = seg.resolve()
+      // Flat-forest navigation: when traversing an `entry` segment
+      // over an array of `{id, parent, index, data}` nodes (the canonical
+      // shadow shape produced by `stepTree`), look the node up by id and
+      // step into its `.data`. This makes `path.node(id)` reads work over
+      // the flat shadow without requiring schema-aware readers.
+      if (
+        seg.role === "entry" &&
+        Array.isArray(current) &&
+        isFlatForestArray(current)
+      ) {
+        const node = (
+          current as ReadonlyArray<{ id: string; data: unknown }>
+        ).find(n => n != null && n.id === key)
+        current = node === undefined ? undefined : node.data
+        continue
+      }
+      current = (current as Record<string | number, unknown>)[key]
     }
     return current
   }
@@ -301,7 +381,7 @@ export abstract class AbstractPath implements Path {
     if (this.segments.length === 0) return "root"
     let result = ""
     for (const seg of this.segments) {
-      if (seg.role === "key") {
+      if (seg.role === "field" || seg.role === "entry") {
         if (result.length > 0) result += "."
         result += String(seg.resolve())
       } else {
@@ -331,7 +411,15 @@ export class RawPath extends AbstractPath {
   readonly isAddressed = false as const
 
   field(key: string): RawPath {
-    return new RawPath([...this.segments, rawKey(key)])
+    return new RawPath([...this.segments, rawField(key)])
+  }
+
+  entry(key: string): RawPath {
+    return new RawPath([...this.segments, rawEntry(key)])
+  }
+
+  override node(id: string): RawPath {
+    return this.entry(id)
   }
 
   item(index: number): RawPath {
@@ -406,10 +494,16 @@ export interface MapAddressTable {
  */
 export class AddressTableRegistry {
   /**
-   * Key addresses keyed by `parentPathKey + "\0" + childKey`.
-   * Ensures idempotency: same parent + key → same Address object.
+   * Field addresses (declared product fields) keyed by
+   * `parentPathKey + "\0" + childKey`. Idempotent.
    */
-  private readonly keyAddresses = new Map<string, Address>()
+  private readonly fieldAddresses = new Map<string, Address>()
+
+  /**
+   * Entry addresses (map / set / tree node ids — runtime keys) keyed
+   * by `parentPathKey + "\0" + childKey`. Idempotent; tombstone-aware.
+   */
+  private readonly entryAddresses = new Map<string, Address>()
 
   /**
    * Sequence address tables keyed by parent path key.
@@ -422,18 +516,34 @@ export class AddressTableRegistry {
   private readonly mapTables = new Map<string, MapAddressTable>()
 
   /**
-   * Get or create a key-based address for a field/map entry at the
-   * given parent path key.
+   * Get or create a field address for a declared product field at the
+   * given parent path key. Field addresses never tombstone (schema-defined
+   * existence).
    *
-   * Idempotent: calling with the same arguments returns the same
-   * Address object.
+   * Idempotent: same arguments → same Address object.
    */
-  getOrCreateKeyAddress(parentKey: string, childKey: string): Address {
+  getOrCreateFieldAddress(parentKey: string, childKey: string): Address {
     const lookupKey = `${parentKey}\0${childKey}`
-    let addr = this.keyAddresses.get(lookupKey)
+    let addr = this.fieldAddresses.get(lookupKey)
     if (!addr) {
-      addr = keyAddress(childKey)
-      this.keyAddresses.set(lookupKey, addr)
+      addr = fieldAddress(childKey)
+      this.fieldAddresses.set(lookupKey, addr)
+    }
+    return addr
+  }
+
+  /**
+   * Get or create an entry address for a map entry, set member, or
+   * tree node id at the given parent path key.
+   *
+   * Idempotent: same arguments → same Address object.
+   */
+  getOrCreateEntryAddress(parentKey: string, childKey: string): Address {
+    const lookupKey = `${parentKey}\0${childKey}`
+    let addr = this.entryAddresses.get(lookupKey)
+    if (!addr) {
+      addr = entryAddress(childKey)
+      this.entryAddresses.set(lookupKey, addr)
     }
     return addr
   }
@@ -521,11 +631,19 @@ export class AddressTableRegistry {
   }
 
   /**
-   * Get a key address by parent path key and child key.
+   * Get a field address by parent path key and child key.
    * Returns undefined if no address exists.
    */
-  getKeyAddress(parentKey: string, childKey: string): Address | undefined {
-    return this.keyAddresses.get(`${parentKey}\0${childKey}`)
+  getFieldAddress(parentKey: string, childKey: string): Address | undefined {
+    return this.fieldAddresses.get(`${parentKey}\0${childKey}`)
+  }
+
+  /**
+   * Get an entry address by parent path key and child key.
+   * Returns undefined if no address exists.
+   */
+  getEntryAddress(parentKey: string, childKey: string): Address | undefined {
+    return this.entryAddresses.get(`${parentKey}\0${childKey}`)
   }
 }
 
@@ -537,10 +655,11 @@ export class AddressTableRegistry {
  * An addressed path — the internal, identity-stable, tombstone-aware path.
  *
  * Segments are `Address` objects. `key` produces identity-stable strings
- * (address.id for sequences, key string for fields/maps). `field()` and
- * `item()` are **effectful** — they call `registry.getOrCreate*()` which
- * mutates the address table. The effect is idempotent: calling with the
- * same arguments returns the same `Address` object.
+ * (address.id for sequences, key string for fields/entries). `field()`,
+ * `entry()`, and `item()` are **effectful** — they call
+ * `registry.getOrCreate*()` which mutates the address table. The effect
+ * is idempotent: calling with the same arguments returns the same
+ * `Address` object.
  */
 export class AddressedPath extends AbstractPath {
   constructor(
@@ -553,8 +672,17 @@ export class AddressedPath extends AbstractPath {
   readonly isAddressed = true as const
 
   field(key: string): AddressedPath {
-    const address = this.registry.getOrCreateKeyAddress(this.key, key)
+    const address = this.registry.getOrCreateFieldAddress(this.key, key)
     return new AddressedPath([...this.segments, address], this.registry)
+  }
+
+  entry(key: string): AddressedPath {
+    const address = this.registry.getOrCreateEntryAddress(this.key, key)
+    return new AddressedPath([...this.segments, address], this.registry)
+  }
+
+  override node(id: string): AddressedPath {
+    return this.entry(id)
   }
 
   item(index: number): AddressedPath {
@@ -626,8 +754,10 @@ export function resolveToAddressed(
   // the registry's getOrCreate* methods at each level.
   let current = new AddressedPath([], registry)
   for (const seg of path.segments) {
-    if (seg.role === "key") {
+    if (seg.role === "field") {
       current = current.field(seg.resolve() as string) as AddressedPath
+    } else if (seg.role === "entry") {
+      current = current.entry(seg.resolve() as string) as AddressedPath
     } else {
       current = current.item(seg.resolve() as number) as AddressedPath
     }

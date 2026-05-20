@@ -1,6 +1,11 @@
 import { describe, expect, expectTypeOf, it } from "vitest"
 import type { MaterializeResolver, Plain } from "../index.js"
-import { createMaterializeInterpreter, interpret, Schema } from "../index.js"
+import {
+  createMaterializeInterpreter,
+  interpret,
+  materializeContextFromResolver,
+  Schema,
+} from "../index.js"
 import type { Path } from "../interpret.js"
 
 // ---------------------------------------------------------------------------
@@ -17,6 +22,7 @@ function mockResolver(
     resolveRichText: () => undefined,
     resolveLength: () => 0,
     resolveKeys: () => [],
+    resolveForest: () => [],
     ...overrides,
   }
 }
@@ -48,7 +54,11 @@ describe("createMaterializeInterpreter", () => {
       }),
     })
 
-    const result = interpret(schema, interp, undefined)
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    )
     expect(result).toEqual({
       title: "",
       viewCount: 0,
@@ -70,7 +80,11 @@ describe("createMaterializeInterpreter", () => {
     const interp = createMaterializeInterpreter(resolver)
     const schema = Schema.struct({ value: Schema.string().nullable() })
 
-    const result = interpret(schema, interp, undefined)
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    )
     expect(result).toEqual({ value: null })
   })
 
@@ -79,7 +93,11 @@ describe("createMaterializeInterpreter", () => {
     const interp = createMaterializeInterpreter(resolver)
     const schema = Schema.struct({ value: Schema.number().nullable() })
 
-    const result = interpret(schema, interp, undefined)
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    )
     expect(result).toEqual({ value: null })
   })
 
@@ -88,7 +106,11 @@ describe("createMaterializeInterpreter", () => {
     const interp = createMaterializeInterpreter(resolver)
     const schema = Schema.struct({ value: Schema.string().nullable() })
 
-    const result = interpret(schema, interp, undefined)
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    )
     expect(result).toEqual({ value: "hello" })
   })
 
@@ -107,7 +129,11 @@ describe("createMaterializeInterpreter", () => {
       ]),
     })
 
-    const result = interpret(schema, interp, undefined)
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    )
     expect(result).toEqual({ node: { type: "text", content: "" } })
   })
 
@@ -132,7 +158,11 @@ describe("createMaterializeInterpreter", () => {
       ]),
     })
 
-    const result = interpret(schema, interp, undefined)
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    )
     expect(result).toEqual({
       node: { type: "image", url: "https://example.com/pic.png" },
     })
@@ -148,7 +178,11 @@ describe("createMaterializeInterpreter", () => {
     const interp = createMaterializeInterpreter(resolver)
     const schema = Schema.struct({ items: Schema.list(Schema.string()) })
 
-    const result = interpret(schema, interp, undefined)
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    )
     expect(result).toEqual({ items: ["x", "x", "x"] })
   })
 
@@ -160,7 +194,11 @@ describe("createMaterializeInterpreter", () => {
     const interp = createMaterializeInterpreter(resolver)
     const schema = Schema.struct({ data: Schema.record(Schema.number()) })
 
-    const result = interpret(schema, interp, undefined)
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    )
     expect(result).toEqual({ data: { a: 7, b: 7 } })
   })
 
@@ -174,7 +212,11 @@ describe("createMaterializeInterpreter", () => {
     const interp = createMaterializeInterpreter(resolver)
     const schema = Schema.struct({ tags: Schema.set(Schema.string()) })
 
-    const result = interpret(schema, interp, undefined)
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    )
     expect(result).toEqual({ tags: [] })
     expect(Array.isArray((result as { tags: unknown }).tags)).toBe(true)
   })
@@ -187,7 +229,11 @@ describe("createMaterializeInterpreter", () => {
     const interp = createMaterializeInterpreter(resolver)
     const schema = Schema.struct({ tags: Schema.set(Schema.string()) })
 
-    const result = interpret(schema, interp, undefined)
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    )
     expect(result).toEqual({ tags: ["alice", "bob"] })
     expect(Array.isArray((result as { tags: unknown }).tags)).toBe(true)
   })
@@ -221,10 +267,11 @@ describe("createMaterializeInterpreter", () => {
       set: Schema.set(Schema.string()),
     })
 
-    const result = interpret(schema, interp, undefined) as Record<
-      string,
-      unknown
-    >
+    const result = interpret(
+      schema,
+      interp,
+      materializeContextFromResolver(resolver),
+    ) as Record<string, unknown>
     expect(Array.isArray(result.seq)).toBe(true)
     expect(Array.isArray(result.mov)).toBe(true)
     expect(Array.isArray(result.set)).toBe(true)

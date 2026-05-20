@@ -446,12 +446,16 @@ describe("withReadable: annotated", () => {
     expect(doc.settings.darkMode()).toBe(true)
   })
 
-  it("tree delegates to inner", () => {
+  it("tree produces a readable ref carrier", () => {
+    // Phase 2: the tree case produces a carrier (the catamorphism's `tree`
+    // algebra arg is `() => readonly FlatTreeNode<A>[]`). Phase 6 fills in
+    // the `ReadableTreeRef` surface (`.roots`, `.node(id)`, iteration).
+    // Phase 7 adds `.create / .delete / .move`.
     const schema = Schema.struct({
-      data: Schema.tree(Schema.string()),
+      data: Schema.tree(Schema.struct({ label: Schema.string() })),
     })
-    const { doc } = createDoc(schema, { data: "leaf" })
-    expect(doc.data()).toBe("leaf")
+    const { doc } = createDoc(schema, { data: [] })
+    expect(typeof doc.data).toBe("function")
   })
 })
 

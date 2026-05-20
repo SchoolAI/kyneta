@@ -236,7 +236,7 @@ describe("interpret: path accumulation", () => {
         paths.push({ kind: "set", path })
         return null
       },
-      tree(_ctx, path, _schema, _nodeData) {
+      tree(_ctx, path, _schema, _nodes, _node) {
         paths.push({ kind: "tree", path })
         return null
       },

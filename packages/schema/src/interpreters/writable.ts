@@ -22,7 +22,12 @@
 import type { Lease } from "@kyneta/machine"
 
 import type { Op } from "../changefeed.js"
-import type { Interpreter, Path, SumVariants } from "../interpret.js"
+import type {
+  FlatTreeNode,
+  Interpreter,
+  Path,
+  SumVariants,
+} from "../interpret.js"
 
 export type { Op }
 
@@ -53,6 +58,7 @@ import {
   installTextWriteOps,
 } from "./sequence-helpers.js"
 import { installSetWriteOps } from "./set-helpers.js"
+import { installTreeWriteOps } from "./tree-helpers.js"
 
 // ---------------------------------------------------------------------------
 // WritableDiscriminantProductRef — hybrid product ref for discriminated unions
@@ -450,6 +456,33 @@ export interface WritableSetRef<V = unknown> {
   clear(): void
 }
 
+/**
+ * Mutation-only interface for tree refs. Added by `withWritable`.
+ *
+ * `.create({ parent, index, data })` allocates a new node id via the
+ * substrate's `[TREE_NODE_ALLOCATE]` hook, returns the id synchronously,
+ * and records a `TreeInstruction.create` in the prepare queue. Optional
+ * initial `data` is recorded as further per-node writes at `path.node(id)`.
+ *
+ * `.delete(id)` enumerates the subtree via `subtreeIds` and records one
+ * `TreeInstruction.delete` per descendant in a single `TreeChange`.
+ *
+ * `.move(id, opts)` records a `TreeInstruction.move`. Concurrent-move
+ * correctness is the substrate's responsibility (Loro implements
+ * Kleppmann-style `tree-move`).
+ *
+ * Reading is provided by `ReadableTreeRef` from the readable interpreter.
+ */
+export interface WritableTreeRef<V = unknown> {
+  create(opts?: {
+    parent?: string | null
+    index?: number
+    data?: Partial<V>
+  }): string
+  delete(id: string): void
+  move(id: string, opts: { parent: string | null; index: number }): void
+}
+
 // ---------------------------------------------------------------------------
 // Type-level interpretations — schema type → TypeScript type
 // ---------------------------------------------------------------------------
@@ -492,7 +525,7 @@ export type Writable<S extends Schema> =
           S extends SetSchema<infer I>
           ? WritableSetRef<Plain<I>>
           : S extends TreeSchema<infer Inner>
-            ? Writable<Inner>
+            ? WritableTreeRef<Plain<Inner>>
             : S extends MovableSequenceSchema<infer _I>
               ? SequenceRef
               : // --- Scalar ---
@@ -712,17 +745,19 @@ export function withWritable<A>(
     },
 
     // --- Tree -----------------------------------------------------------------
-    // Delegate via nodeData() — the inner interpretation already has
-    // mutation methods attached by recursion through withWritable.
+    // Install `.create / .delete / .move` via `installTreeWriteOps`.
+    // [TRANSACT] is attached by the inner recursion through each node's data.
 
     tree(
       ctx: WritableContext,
       path: Path,
       schema: TreeSchema,
-      nodeData: () => A,
+      nodes: () => readonly FlatTreeNode<A>[],
+      node: (id: string) => A,
     ): A & HasTransact {
-      const result = base.tree(ctx, path, schema, nodeData)
-      // [TRANSACT] is already attached by the inner case (product, etc.)
+      const result = base.tree(ctx, path, schema, nodes, node) as any
+      installTreeWriteOps(result, ctx, path)
+      attachTransact(result, ctx)
       return result as A & HasTransact
     },
 

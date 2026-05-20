@@ -4,7 +4,8 @@
 //
 // 1. **Container cases** (backend-agnostic) — product and tree delegate
 //    structurally without touching the resolver. Product forces all field
-//    thunks into a record; tree delegates via nodeData.
+//    thunks into a record; tree returns the flat-forest snapshot via
+//    the `nodes` thunk (topology from `resolveForest`).
 //
 // 2. **Resolution cases** — the remaining 9 cases call one of 6 resolver
 //    methods, split into two sub-families:
@@ -32,6 +33,7 @@
 import type { RichTextDelta } from "../change.js"
 import { isNonNullObject } from "../guards.js"
 import type { Interpreter, Path, SumVariants } from "../interpret.js"
+import type { FlatTreeNodeTopology } from "../reader.js"
 import type {
   CounterSchema,
   MapSchema,
@@ -63,6 +65,12 @@ export interface MaterializeResolver {
   // --- Container shape resolvers ---
   resolveLength(path: Path): number
   resolveKeys(path: Path): string[]
+
+  // --- Topology resolvers ---
+  // Third resolver family. `Schema.tree` needs richer structural data
+  // than leaf/length/keys can express; future graph-shaped CRDTs would
+  // join the family with `resolveGraph` / `resolveDAG`.
+  resolveForest(path: Path): readonly FlatTreeNodeTopology[]
 }
 
 // ---------------------------------------------------------------------------
@@ -97,15 +105,45 @@ function collectArrayByKeys<T>(
 }
 
 // ---------------------------------------------------------------------------
+// MaterializeContext — minimal ctx shape with a Reader-like topology hook
+// ---------------------------------------------------------------------------
+
+/**
+ * Reader-shaped facade over a `MaterializeResolver`. Only `forestTopology`
+ * is bridged — that's the one hook the catamorphism's tree case looks for
+ * on `ctx.reader`. The materializer's other case-bodies talk to the
+ * resolver directly via closure, not through the context.
+ */
+export interface MaterializeContext {
+  readonly reader: {
+    forestTopology: (path: Path) => readonly FlatTreeNodeTopology[]
+  }
+}
+
+// ---------------------------------------------------------------------------
 // createMaterializeInterpreter
 // ---------------------------------------------------------------------------
 
+export function materializeContextFromResolver(
+  resolver: MaterializeResolver,
+): MaterializeContext {
+  return {
+    reader: {
+      forestTopology: (path: Path) => resolver.resolveForest(path),
+    },
+  }
+}
+
 export function createMaterializeInterpreter(
   resolver: MaterializeResolver,
-): Interpreter<void, unknown> {
+): Interpreter<MaterializeContext, unknown> {
   return {
     // 1. scalar — resolve value, falling back to zeroInterpreter for defaults
-    scalar(_ctx: undefined, path: Path, schema: ScalarSchema): unknown {
+    scalar(
+      _ctx: MaterializeContext,
+      path: Path,
+      schema: ScalarSchema,
+    ): unknown {
       const value = resolver.resolveValue(path)
       if (value === undefined) {
         return zeroInterpreter.scalar(undefined, path, schema)
@@ -115,7 +153,7 @@ export function createMaterializeInterpreter(
 
     // 2. product — container case, no resolver needed
     product(
-      _ctx: undefined,
+      _ctx: MaterializeContext,
       _path: Path,
       _schema: ProductSchema,
       fields: Readonly<Record<string, () => unknown>>,
@@ -129,7 +167,7 @@ export function createMaterializeInterpreter(
 
     // 3. sequence — resolve length, collect items into array
     sequence(
-      _ctx: undefined,
+      _ctx: MaterializeContext,
       path: Path,
       _schema: SequenceSchema,
       item: (index: number) => unknown,
@@ -139,7 +177,7 @@ export function createMaterializeInterpreter(
 
     // 4. map — resolve keys, iterate items
     map(
-      _ctx: undefined,
+      _ctx: MaterializeContext,
       path: Path,
       _schema: MapSchema,
       item: (key: string) => unknown,
@@ -154,7 +192,7 @@ export function createMaterializeInterpreter(
 
     // 5. sum — discriminated or positional dispatch
     sum(
-      _ctx: undefined,
+      _ctx: MaterializeContext,
       path: Path,
       schema: SumSchema,
       variants: SumVariants<unknown>,
@@ -188,12 +226,16 @@ export function createMaterializeInterpreter(
     },
 
     // 6. text — resolve text, default to ""
-    text(_ctx: undefined, path: Path, _schema: TextSchema): unknown {
+    text(_ctx: MaterializeContext, path: Path, _schema: TextSchema): unknown {
       return resolver.resolveText(path) ?? ""
     },
 
     // 7. counter — resolve counter, default to 0
-    counter(_ctx: undefined, path: Path, _schema: CounterSchema): unknown {
+    counter(
+      _ctx: MaterializeContext,
+      path: Path,
+      _schema: CounterSchema,
+    ): unknown {
       return resolver.resolveCounter(path) ?? 0
     },
 
@@ -203,7 +245,7 @@ export function createMaterializeInterpreter(
     // Iteration order is the resolver's `resolveKeys` order — opaque to
     // the materializer but stable for a given doc state.
     set(
-      _ctx: undefined,
+      _ctx: MaterializeContext,
       path: Path,
       _schema: SetSchema,
       item: (key: string) => unknown,
@@ -211,19 +253,22 @@ export function createMaterializeInterpreter(
       return collectArrayByKeys(resolver.resolveKeys(path), item)
     },
 
-    // 9. tree — container case, delegate via nodeData
+    // 9. tree — structural, forces the flat-forest projection.
+    // Topology comes from `resolver.resolveForest(path)` via the catamorphism's
+    // `reader.forestTopology` lookup; each node's `data: unknown` is the result
+    // of recursive schema interpretation. The materializer just forces the thunk.
     tree(
-      _ctx: undefined,
+      _ctx: MaterializeContext,
       _path: Path,
       _schema: TreeSchema,
-      nodeData: () => unknown,
+      nodes: () => readonly import("../interpret.js").FlatTreeNode<unknown>[],
     ): unknown {
-      return nodeData()
+      return nodes()
     },
 
     // 10. movable — resolve length, collect items into array
     movable(
-      _ctx: undefined,
+      _ctx: MaterializeContext,
       path: Path,
       _schema: MovableSequenceSchema,
       item: (index: number) => unknown,
@@ -232,7 +277,11 @@ export function createMaterializeInterpreter(
     },
 
     // 11. richtext — resolve rich text, default to []
-    richtext(_ctx: undefined, path: Path, _schema: RichTextSchema): unknown {
+    richtext(
+      _ctx: MaterializeContext,
+      path: Path,
+      _schema: RichTextSchema,
+    ): unknown {
       return resolver.resolveRichText(path) ?? []
     },
   }

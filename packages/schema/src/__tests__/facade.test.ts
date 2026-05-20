@@ -65,7 +65,7 @@ const CF_SYM = Symbol.for("kyneta:changefeed")
 function getChangefeed(obj: unknown): {
   current: unknown
   subscribe: (cb: (changeset: Changeset) => void) => () => void
-  subscribeTree?: (cb: (changeset: Changeset<Op>) => void) => () => void
+  subscribeDescendants?: (cb: (changeset: Changeset<Op>) => void) => () => void
 } {
   return (obj as any)[CF_SYM]
 }
@@ -558,7 +558,9 @@ describe("applyChanges: origin tagging", () => {
     const { doc } = createChatDoc()
 
     const treeChangesets: Changeset<Op>[] = []
-    getChangefeed(doc.settings).subscribeTree?.(cs => treeChangesets.push(cs))
+    getChangefeed(doc.settings).subscribeDescendants?.(cs =>
+      treeChangesets.push(cs),
+    )
 
     applyChanges(
       doc,
@@ -656,14 +658,16 @@ describe("applyChanges: surgical cache invalidation", () => {
 // Changeset<Op> ≅ (Op[], origin) round-trip
 // ===========================================================================
 
-describe("round-trip: subscribeTree output → applyChanges input", () => {
+describe("round-trip: subscribeDescendants output → applyChanges input", () => {
   it("tree events from docA can reconstruct Op[] for docB", () => {
     const docA = createChatDoc()
     const docB = createChatDoc()
 
     // Subscribe to tree events on the root of docA
     const treeChangesets: Changeset<Op>[] = []
-    getChangefeed(docA.doc).subscribeTree?.(cs => treeChangesets.push(cs))
+    getChangefeed(docA.doc).subscribeDescendants?.(cs =>
+      treeChangesets.push(cs),
+    )
 
     // Mutate docA — two changes at different leaf paths
     change(docA.doc, d => {
@@ -698,7 +702,7 @@ describe("round-trip: subscribeTree output → applyChanges input", () => {
 
     // Subscribe to tree events on docA.settings (subtree)
     const treeChangesets: Changeset<Op>[] = []
-    getChangefeed(docA.doc.settings).subscribeTree?.(cs =>
+    getChangefeed(docA.doc.settings).subscribeDescendants?.(cs =>
       treeChangesets.push(cs),
     )
 

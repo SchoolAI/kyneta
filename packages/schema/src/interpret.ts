@@ -50,7 +50,26 @@ import {
 // ---------------------------------------------------------------------------
 
 export type { Path, RawSegment, Segment } from "./path.js"
-export { RawPath, rawIndex, rawKey } from "./path.js"
+export { RawPath, rawEntry, rawField, rawIndex } from "./path.js"
+
+// ---------------------------------------------------------------------------
+// FlatTreeNode — the algebra arg shape for `Schema.tree`
+// ---------------------------------------------------------------------------
+
+/**
+ * One node of the flat-forest catamorphism arg for `Schema.tree`. The
+ * shape (`{id, parent, index, data}`) is shared across storage, change
+ * vocabulary, shadow, and algebra arg — four layers agreeing on one
+ * shape is the core invariant of `Schema.tree`'s design. The recursive
+ * `ForestNode<A>` projection lives in `forest.ts` and is built lazily
+ * at the read layer; it is not the canonical algebra shape.
+ */
+export interface FlatTreeNode<A> {
+  readonly id: string
+  readonly parent: string | null
+  readonly index: number
+  readonly data: A
+}
 
 // ---------------------------------------------------------------------------
 // Interpreter interface
@@ -79,8 +98,12 @@ export { RawPath, rawIndex, rawKey } from "./path.js"
  * ### First-class CRDT types
  *
  * `text` and `counter` are leaves — no child thunks. `set` and `movable`
- * take item closures (keyed by string / indexed by number). `tree` takes
- * a single `nodeData` thunk for its recursive node schema.
+ * take item closures (keyed by string / indexed by number). `tree` gets
+ * two views over the same flat forest: `nodes()` for whole-forest
+ * snapshots (matches the shadow / Loro `toArray()` / `TreeChange` shape)
+ * and `node(id)` for per-id lookup (the keyed-helper pattern map uses).
+ * Helpers like `installTreeReadable` use the latter to expose `.node(id)`
+ * on the user-facing ref.
  */
 export interface Interpreter<Ctx, A> {
   scalar(ctx: Ctx, path: Path, schema: ScalarSchema): A
@@ -109,7 +132,13 @@ export interface Interpreter<Ctx, A> {
 
   set(ctx: Ctx, path: Path, schema: SetSchema, item: (key: string) => A): A
 
-  tree(ctx: Ctx, path: Path, schema: TreeSchema, nodeData: () => A): A
+  tree(
+    ctx: Ctx,
+    path: Path,
+    schema: TreeSchema,
+    nodes: () => readonly FlatTreeNode<A>[],
+    node: (id: string) => A,
+  ): A
 
   movable(
     ctx: Ctx,
@@ -656,8 +685,9 @@ function interpretImpl<Ctx, A>(
 
     case "map": {
       // Item closure: caller provides a key, gets back an interpreted child.
+      // Map keys are runtime entries — `.entry(key)`, not `.field(key)`.
       const itemFn = (key: string): A => {
-        const childPath = effectivePath().field(key)
+        const childPath = effectivePath().entry(key)
         const result = interpretImpl(schema.item, interp, ctx, childPath)
         getOnRefCreated()?.(childPath, result)
         return result
@@ -718,8 +748,9 @@ function interpretImpl<Ctx, A>(
     }
 
     case "set": {
+      // Set members are runtime entries (value-addressed via hash key).
       const itemFn = (key: string): A => {
-        const childPath = effectivePath().field(key)
+        const childPath = effectivePath().entry(key)
         const result = interpretImpl(schema.item, interp, ctx, childPath)
         getOnRefCreated()?.(childPath, result)
         return result
@@ -730,13 +761,43 @@ function interpretImpl<Ctx, A>(
     }
 
     case "tree": {
-      const nodeDataThunk = (): A => {
-        const innerPath = effectivePath()
-        const result = interpretImpl(schema.nodeData, interp, ctx, innerPath)
-        getOnRefCreated()?.(innerPath, result)
-        return result
+      // `nodeFn(id)` and `nodesThunk()` are two views over the same per-node
+      // interpretation. Splitting them lets per-id consumers (e.g. the
+      // `.node(id)` lookup) avoid materializing the whole forest, while
+      // whole-forest consumers (snapshot, plain shadow) still get one
+      // function call. Topology comes from `reader.forestTopology` so
+      // substrates without a Reader.forestTopology hook (defensive `?.`)
+      // emit an empty forest rather than throwing.
+      const nodeFn = (id: string): A => {
+        const nodePath = effectivePath().node(id)
+        const data = interpretImpl(schema.item, interp, ctx, nodePath)
+        getOnRefCreated()?.(nodePath, data)
+        return data
       }
-      const treeResult = interp.tree(ctx, resolvedPath, schema, nodeDataThunk)
+      const nodesThunk = (): readonly FlatTreeNode<A>[] => {
+        const treePath = effectivePath()
+        const topology = (
+          ctx as unknown as { reader?: import("./reader.js").Reader }
+        ).reader?.forestTopology(treePath)
+        if (!topology) return []
+        const out: FlatTreeNode<A>[] = []
+        for (const n of topology) {
+          out.push({
+            id: n.id,
+            parent: n.parent,
+            index: n.index,
+            data: nodeFn(n.id),
+          })
+        }
+        return out
+      }
+      const treeResult = interp.tree(
+        ctx,
+        resolvedPath,
+        schema,
+        nodesThunk,
+        nodeFn,
+      )
       attachNative(treeResult, ctx, schema, resolvedPath)
       return treeResult
     }
@@ -808,7 +869,7 @@ export function createInterpreter<Ctx, A>(
       ((ctx, path, schema, _item) => fallback(ctx, path, schema)),
     tree:
       overrides.tree ??
-      ((ctx, path, schema, _nodeData) => fallback(ctx, path, schema)),
+      ((ctx, path, schema, _nodes, _node) => fallback(ctx, path, schema)),
     movable:
       overrides.movable ??
       ((ctx, path, schema, _item) => fallback(ctx, path, schema)),

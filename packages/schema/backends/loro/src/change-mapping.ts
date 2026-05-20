@@ -195,9 +195,62 @@ export function changeToDiff(
           "(Schema.set requires 'add-wins-per-key' which is not in LoroLaws).",
       )
 
+    case "tree":
+      return treeChangeToDiff(targetCID, change as TreeChange)
+
     default:
       throw new Error(`changeToDiff: unsupported change type "${change.type}"`)
   }
+}
+
+/**
+ * TreeChange → TreeDiff.
+ *
+ * Loro's `TreeDiffItem` carries fields we don't track in `TreeInstruction`
+ * (`fractionalIndex`, `oldParent`, `oldIndex`) — Loro derives the real
+ * values from its own state at `applyDiff` time, so placeholders are
+ * safe to pass.
+ *
+ * For `create`, the node already exists in Loro because the substrate's
+ * `[TREE_NODE_ALLOCATE]` runs `doc.getTree(...).createNode()` during
+ * prepare to mint the id. The subsequent `applyDiff` create with that
+ * same TreeID is idempotent on Loro's side, so we can record + emit
+ * uniformly without a "skip create for already-allocated" branch.
+ */
+function treeChangeToDiff(
+  targetCID: ContainerID,
+  change: TreeChange,
+): [ContainerID, Diff | JsonDiff][] {
+  const items: any[] = []
+  for (const inst of change.instructions) {
+    if (inst.action === "create") {
+      items.push({
+        target: inst.target,
+        action: "create",
+        parent: inst.parent ?? undefined,
+        index: inst.index,
+        fractionalIndex: "",
+      })
+    } else if (inst.action === "delete") {
+      items.push({
+        target: inst.target,
+        action: "delete",
+        oldParent: undefined,
+        oldIndex: 0,
+      })
+    } else if (inst.action === "move") {
+      items.push({
+        target: inst.target,
+        action: "move",
+        parent: inst.parent ?? undefined,
+        index: inst.index,
+        fractionalIndex: "",
+        oldParent: undefined,
+        oldIndex: 0,
+      })
+    }
+  }
+  return [[targetCID, { type: "tree", diff: items } as TreeDiff]]
 }
 
 // ---------------------------------------------------------------------------
@@ -400,9 +453,13 @@ function replaceChangeToDiff(
   if (!isLoroContainer(parentResolved)) {
     // Parent is the LoroDoc — this is a root-level replace.
     // Scalars at root are stored in _props.
-    if (lastSeg.role === "key") {
+    if (lastSeg.role === "field" || lastSeg.role === "entry") {
       const fieldName = lastSeg.resolve() as string
-      const identity = binding?.forward.get(fieldName) as string | undefined
+      // Identity-keying applies only at product-field boundaries.
+      const identity =
+        lastSeg.role === "field"
+          ? (binding?.forward.get(fieldName) as string | undefined)
+          : undefined
       const key = identity ?? fieldName
       const propsMap = (parentResolved as any).getMap(PROPS_KEY)
       const propsCID = propsMap.id as ContainerID
@@ -412,21 +469,26 @@ function replaceChangeToDiff(
       return [[propsCID, { type: "map", updated } as MapDiff]]
     }
     throw new Error(
-      "replaceChangeToDiff: root-level replace requires a key segment",
+      "replaceChangeToDiff: root-level replace requires a key-style segment",
     )
   }
 
   const parentCID = parentResolved.id
   const resolved = lastSeg.resolve()
 
-  if (lastSeg.role === "key") {
+  if (lastSeg.role === "field" || lastSeg.role === "entry") {
     // Compute the absolute schema path for nested identity lookup.
-    // Collect all key segments to form the absolute path.
+    // Only product-field segments contribute to the absolute schema path;
+    // entry segments (map/set/tree keys) are runtime keys and don't.
     const absPath = path.segments
-      .filter(s => s.role === "key")
+      .filter(s => s.role === "field")
       .map(s => s.resolve() as string)
       .join(".")
-    const identity = binding?.forward.get(absPath) as string | undefined
+    // Identity-keying applies only when the last segment is a product field.
+    const identity =
+      lastSeg.role === "field"
+        ? (binding?.forward.get(absPath) as string | undefined)
+        : undefined
     const key = identity ?? (resolved as string)
     const updated: Record<string, Value | undefined> = {
       [key]: change.value as Value,
@@ -708,7 +770,7 @@ export function batchToOps(
   const ops: Op[] = []
 
   for (const event of batch.events) {
-    const kynetaPath = loroPathToKynetaPath(event.path, binding)
+    const kynetaPath = loroPathToKynetaPath(event.path, schema, binding)
     // Resolve the leaf schema to distinguish text vs richtext diffs.
     let leafSchema: SchemaNode | undefined
     try {
@@ -735,18 +797,22 @@ export function batchToOps(
 // ---------------------------------------------------------------------------
 
 /**
- * Convert a Loro event path (array of string | number | TreeID) to a
- * kyneta RawPath.
+ * Convert a Loro event path to a kyneta `RawPath`, walking the schema
+ * alongside so each segment is classified as field / entry / index by
+ * the current schema kind — not by guessing from the segment shape.
  *
- * Root scalar fields are stored in the shared `_props` LoroMap (see
- * TECHNICAL.md §11). Loro fires events at path `["_props", ...]` for
- * these fields, but the kyneta schema tree treats them as direct
- * children of the root — `RawPath.empty.field("darkMode")`, not
- * `RawPath.empty.field("_props").field("darkMode")`. Strip the
- * `_props` prefix so changefeed paths match listener registration.
+ * Schema-aware walking is what makes deep records work: at a `record(struct)`
+ * position, the first segment is the record entry (not identity-keyed)
+ * and the next is a declared field of the inner struct; without the
+ * schema walk both would be misclassified by a uniform heuristic.
+ *
+ * The `_props` prefix at index 0 is stripped because root scalar fields
+ * live there in Loro's wire format but appear as direct root children
+ * in kyneta paths (see TECHNICAL.md §11).
  */
 function loroPathToKynetaPath(
   loroPath: (string | number | unknown)[],
+  rootSchema: SchemaNode,
   binding?: SchemaBinding,
 ): RawPath {
   // Strip _props prefix — root scalars live in _props but their
@@ -754,24 +820,57 @@ function loroPathToKynetaPath(
   const startIndex = loroPath.length > 0 && loroPath[0] === PROPS_KEY ? 1 : 0
 
   let path = RawPath.empty
+  let schema: SchemaNode | undefined = rootSchema
   for (let i = startIndex; i < loroPath.length; i++) {
     const segment = loroPath[i]
     if (typeof segment === "string") {
-      // Reverse-map identity hash → absolute schema path → leaf field name.
-      // Loro events emit identity-keyed strings; we need to recover the
-      // original field name for kyneta schema paths.
+      // At a tree position, a Loro `TreeID` (`${counter}@${peerId}`) is
+      // a runtime node id, not an identity hash — short-circuit before
+      // the inverse-lookup branch below.
+      if (schema?.[KIND] === "tree") {
+        path = path.entry(segment)
+        schema = (schema as any).item
+        continue
+      }
+      // Inverse-lookup recovers the original declared field name when
+      // the segment IS an identity hash; otherwise we keep the string.
+      let leaf = segment
       const absPath = binding?.inverse.get(segment as any)
       if (absPath) {
         const lastDot = absPath.lastIndexOf(".")
-        const leaf = lastDot >= 0 ? absPath.slice(lastDot + 1) : absPath
+        leaf = lastDot >= 0 ? absPath.slice(lastDot + 1) : absPath
+      }
+      const kind = schema?.[KIND]
+      if (kind === "product") {
         path = path.field(leaf)
+        schema = (schema as any).fields[leaf]
+      } else if (kind === "map" || kind === "set") {
+        path = path.entry(leaf)
+        schema = (schema as any).item
       } else {
-        path = path.field(segment)
+        path = path.entry(leaf)
+        schema = undefined
       }
     } else if (typeof segment === "number") {
       path = path.item(segment)
+      const kind = schema?.[KIND]
+      if (kind === "sequence" || kind === "movable") {
+        schema = (schema as any).item
+      } else {
+        schema = undefined
+      }
+    } else if (typeof segment === "object" && segment !== null) {
+      // Loro TreeID may arrive as an object `{ peer, counter }` in some
+      // wire forms — coerce to its canonical string repr.
+      const treeId =
+        typeof (segment as { toString?: () => string }).toString === "function"
+          ? String(segment)
+          : ""
+      if (treeId && schema?.[KIND] === "tree") {
+        path = path.entry(treeId)
+        schema = (schema as any).item
+      }
     }
-    // TreeID segments are skipped — tree path handling is future work
   }
   return path
 }

@@ -16,7 +16,12 @@
 //
 // See .plans/navigation-layer.md §Phase 2, Task 2.1.
 
-import type { Interpreter, Path, SumVariants } from "../interpret.js"
+import type {
+  FlatTreeNode,
+  Interpreter,
+  Path,
+  SumVariants,
+} from "../interpret.js"
 import { dispatchSum } from "../interpret.js"
 import type { RefContext } from "../interpreter-types.js"
 import type {
@@ -35,6 +40,7 @@ import type {
 import type { HasCall, HasNavigation } from "./bottom.js"
 import { installKeyedNavigation } from "./keyed-helpers.js"
 import { installSequenceNavigation } from "./sequence-helpers.js"
+import { installTreeNavigation } from "./tree-helpers.js"
 
 // ---------------------------------------------------------------------------
 // withNavigation — the coalgebraic structural addressing transformer
@@ -203,19 +209,19 @@ export function withNavigation<A extends HasCall>(
     },
 
     // --- Tree ------------------------------------------------------------------
-    // Delegate via nodeData() — tree navigation surfaces the inner
-    // product's fields. Like product delegation.
+    // Install `.node(id)`, `.has(id)`, `.ids()`, `.size` via the
+    // topology-aware twin of `installKeyedNavigation`.
     tree(
       ctx: RefContext,
       path: Path,
       schema: TreeSchema,
-      nodeData: () => A & HasNavigation,
+      nodes: () => readonly FlatTreeNode<A & HasNavigation>[],
+      node: (id: string) => A & HasNavigation,
     ): A & HasNavigation {
-      const baseNodeData = nodeData as () => A
-      const result = base.tree(ctx, path, schema, baseNodeData)
-      // The nodeData thunk was already interpreted by the catamorphism
-      // with the full interpreter stack, so the inner product already
-      // has navigation installed. We just return the tree's carrier.
+      const baseNodes = nodes as unknown as () => readonly FlatTreeNode<A>[]
+      const baseNode = node as unknown as (id: string) => A
+      const result = base.tree(ctx, path, schema, baseNodes, baseNode) as any
+      installTreeNavigation(result, ctx, path, node)
       return result as A & HasNavigation
     },
 

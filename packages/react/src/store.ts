@@ -8,8 +8,8 @@
 //
 // createChangefeedStore(ref) — subscribes to a ref's [CHANGEFEED],
 //   caches the snapshot for referential stability. Dispatches deep
-//   (subscribeTree) for schema-issued refs (every schema ref carries
-//   TreeChangefeedProtocol) and shallow (subscribe) for universal-protocol
+//   (subscribeDescendants) for schema-issued refs (every schema ref carries
+//   RecursiveChangefeedProtocol) and shallow (subscribe) for universal-protocol
 //   sources like ReactiveMap.
 //
 // createSyncStore(syncRef) — subscribes to SyncRef.onReadyStateChange(),
@@ -18,7 +18,7 @@
 import type { ChangeBase, ChangefeedProtocol } from "@kyneta/changefeed"
 import { CHANGEFEED } from "@kyneta/changefeed"
 import type { ReadyState, SyncRef } from "@kyneta/exchange"
-import { hasTreeChangefeed } from "@kyneta/schema"
+import { hasRecursiveChangefeed } from "@kyneta/schema"
 
 // ---------------------------------------------------------------------------
 // ExternalStore — the useSyncExternalStore contract
@@ -45,7 +45,7 @@ export interface ExternalStore<T> {
  * [CHANGEFEED]. Every Ref<S> from the standard interpreter stack
  * satisfies this constraint, as do primitive `@kyneta/changefeed`
  * sources like `createReactiveMap`. The store dispatches via
- * `subscribeTree` when available (schema refs) or `subscribe`
+ * `subscribeDescendants` when available (schema refs) or `subscribe`
  * otherwise (universal sources).
  *
  * The call signature `(...args: any[]) => any` allows ReturnType<R>
@@ -67,14 +67,14 @@ export type CallableRef = ((...args: any[]) => any) & {
  * - `getSnapshot()` returns the cached value — stable identity unless
  *   a real change occurred.
  * - For schema-issued refs (every schema ref carries
- *   `TreeChangefeedProtocol`), subscribes via `subscribeTree`
+ *   `RecursiveChangefeedProtocol`), subscribes via `subscribeDescendants`
  *   (deep — fires on own-path + descendants).
  * - For primitive universal-protocol sources (e.g. `createReactiveMap`
  *   from `@kyneta/changefeed`), subscribes via `subscribe`.
  *
  * The branch discriminates between these two genuinely different shapes
- * at runtime via `hasTreeChangefeed`, which also narrows statically so
- * `subscribeTree` is type-safe with no cast.
+ * at runtime via `hasRecursiveChangefeed`, which also narrows statically so
+ * `subscribeDescendants` is type-safe with no cast.
  *
  * @param ref - A callable ref with [CHANGEFEED] (any Ref<S> or
  *   primitive universal source).
@@ -91,10 +91,10 @@ export function createChangefeedStore<R extends CallableRef>(
       snapshot = ref()
       onStoreChange()
     }
-    return hasTreeChangefeed(ref)
+    return hasRecursiveChangefeed(ref)
       ? // Inside this branch, ref[CHANGEFEED] is statically
-        // TreeChangefeedProtocol, so subscribeTree is type-safe.
-        ref[CHANGEFEED].subscribeTree(tick)
+        // RecursiveChangefeedProtocol, so subscribeDescendants is type-safe.
+        ref[CHANGEFEED].subscribeDescendants(tick)
       : ref[CHANGEFEED].subscribe(tick)
   }
 

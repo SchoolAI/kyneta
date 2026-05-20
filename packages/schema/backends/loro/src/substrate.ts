@@ -43,6 +43,7 @@ import {
   type Substrate,
   type SubstrateFactory,
   type SubstratePayload,
+  TREE_NODE_ALLOCATE,
   type Version,
   type WritableContext,
 } from "@kyneta/schema"
@@ -328,6 +329,25 @@ export function createLoroSubstrate(
               return new LoroPosition(cursor, doc)
             },
           } satisfies PositionCapable
+        }
+        // Create-then-record. Tree node ids must be peer-stamped for
+        // Loro's `tree-move` merge to work, so we materialize the node
+        // in Loro state here (during prepare) and let the recorded
+        // `TreeInstruction.create` ride through `applyDiff` as a no-op
+        // duplicate against the same TreeID.
+        ;(cachedCtx as any)[TREE_NODE_ALLOCATE] = (treePath: Path): string => {
+          const { container } = resolveContainer(doc, schema, treePath, binding)
+          if (
+            !container ||
+            typeof (container as any).kind !== "function" ||
+            (container as any).kind() !== "Tree"
+          ) {
+            throw new Error(
+              "TREE_NODE_ALLOCATE: path does not resolve to a LoroTree container",
+            )
+          }
+          const node = (container as any).createNode() as { id: string }
+          return node.id
         }
       }
       return cachedCtx
@@ -640,7 +660,7 @@ function collectMarkConfigs(schema: SchemaNode): MarkConfig {
     } else if (s[KIND] === "map" || s[KIND] === "set") {
       walk((s as any).item)
     } else if (s[KIND] === "tree") {
-      walk((s as any).nodeData)
+      walk((s as any).item)
     }
     // scalar, text, counter, sum — no recursion needed (leaves or no richtext children in sums)
   }

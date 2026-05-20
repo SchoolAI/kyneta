@@ -29,7 +29,7 @@ import {
  * returns the same object reference until a real change occurs.
  *
  * For composite refs (products, sequences, maps), subscribes deep
- * (via `subscribeTree`) — re-renders on any descendant change.
+ * (via `subscribeDescendants`) — re-renders on any descendant change.
  * For leaf refs (scalars, text, counters), subscribes at node level.
  *
  * Accepts `null` or `undefined` and returns them unchanged, with

@@ -214,8 +214,16 @@ function walk(
 
     // --- Tree: first-class container -----------------------------------------
     case "tree": {
-      lines.push(`${prefix}${lbl}tree`)
-      walkChildren(schema.nodeData, lines, depth + 1)
+      // `Schema.tree` is a forest of nodes; render as "tree of <item>"
+      // mirroring `set`/`movable-list` shorthand. Per-node breakdown
+      // belongs in runtime visualizations, not the schema description.
+      const itemDesc = inlineOrNull(schema.item)
+      if (itemDesc !== null) {
+        lines.push(`${prefix}${lbl}tree of ${itemDesc}`)
+      } else {
+        lines.push(`${prefix}${lbl}tree of`)
+        walkChildren(schema.item, lines, depth + 1)
+      }
       return
     }
 

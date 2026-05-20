@@ -625,9 +625,43 @@ describe("validate: first-class types", () => {
     }
   })
 
-  it("tree — delegates to inner", () => {
+  it("tree — accepts an empty forest", () => {
     const s = Schema.tree(Schema.struct({ label: Schema.string() }))
-    expect(validate(s, { label: "root" })).toEqual({ label: "root" })
+    expect(validate(s, [])).toEqual([])
+  })
+
+  it("tree — accepts a single-node forest with valid data", () => {
+    const s = Schema.tree(Schema.struct({ label: Schema.string() }))
+    const forest = [
+      { id: "n1", parent: null, index: 0, data: { label: "root" } },
+    ]
+    expect(validate(s, forest)).toEqual(forest)
+  })
+
+  it("tree — rejects a forest with duplicate ids", () => {
+    const s = Schema.tree(Schema.struct({ label: Schema.string() }))
+    const dup = [
+      { id: "n", parent: null, index: 0, data: { label: "a" } },
+      { id: "n", parent: null, index: 1, data: { label: "b" } },
+    ]
+    expect(() => validate(s, dup)).toThrow(/duplicate node id/)
+  })
+
+  it("tree — rejects a forest containing a parent cycle", () => {
+    const s = Schema.tree(Schema.struct({ label: Schema.string() }))
+    const cycle = [
+      { id: "a", parent: "b", index: 0, data: { label: "A" } },
+      { id: "b", parent: "a", index: 0, data: { label: "B" } },
+    ]
+    expect(() => validate(s, cycle)).toThrow(/parent cycle/)
+  })
+
+  it("tree — rejects a forest with a missing parent reference", () => {
+    const s = Schema.tree(Schema.struct({ label: Schema.string() }))
+    const orphan = [
+      { id: "a", parent: "ghost", index: 0, data: { label: "A" } },
+    ]
+    expect(() => validate(s, orphan)).toThrow(/does not exist/)
   })
 })
 

@@ -3,8 +3,9 @@ import {
   advanceSchema,
   KIND,
   type RawSegment,
+  rawEntry,
+  rawField,
   rawIndex,
-  rawKey,
   Schema,
 } from "../index.js"
 
@@ -12,7 +13,8 @@ import {
 // advanceSchema — pure schema descent for a single path segment
 // ===========================================================================
 
-const key = (k: string): RawSegment => rawKey(k)
+const field = (k: string): RawSegment => rawField(k)
+const entry = (k: string): RawSegment => rawEntry(k)
 const index = (i: number): RawSegment => rawIndex(i)
 
 describe("advanceSchema", () => {
@@ -30,26 +32,32 @@ describe("advanceSchema", () => {
     })
 
     it("key segment returns the field schema", () => {
-      const result = advanceSchema(schema, key("title"))
+      const result = advanceSchema(schema, field("title"))
       expect(result[KIND]).toBe("scalar")
       expect((result as any).scalarKind).toBe("string")
     })
 
     it("key segment returns a nested product schema", () => {
-      const result = advanceSchema(schema, key("nested"))
+      const result = advanceSchema(schema, field("nested"))
       expect(result[KIND]).toBe("product")
       expect(Object.keys((result as any).fields)).toEqual(["flag"])
     })
 
     it("throws on unknown field", () => {
-      expect(() => advanceSchema(schema, key("missing"))).toThrow(
+      expect(() => advanceSchema(schema, field("missing"))).toThrow(
         'product has no field "missing"',
       )
     })
 
     it("throws on index segment", () => {
       expect(() => advanceSchema(schema, index(0))).toThrow(
-        "product expects a key segment",
+        "product expects a field segment",
+      )
+    })
+
+    it("throws on entry segment", () => {
+      expect(() => advanceSchema(schema, entry("title"))).toThrow(
+        "product expects a field segment",
       )
     })
   })
@@ -76,7 +84,7 @@ describe("advanceSchema", () => {
     })
 
     it("throws on key segment", () => {
-      expect(() => advanceSchema(schema, key("foo"))).toThrow(
+      expect(() => advanceSchema(schema, field("foo"))).toThrow(
         "sequence expects an index segment",
       )
     })
@@ -89,21 +97,27 @@ describe("advanceSchema", () => {
   describe("map", () => {
     const schema = Schema.record(Schema.number())
 
-    it("key segment returns the item schema", () => {
-      const result = advanceSchema(schema, key("anything"))
+    it("entry segment returns the item schema", () => {
+      const result = advanceSchema(schema, entry("anything"))
       expect(result[KIND]).toBe("scalar")
       expect((result as any).scalarKind).toBe("number")
     })
 
-    it("any key returns the same item schema", () => {
-      const r1 = advanceSchema(schema, key("a"))
-      const r2 = advanceSchema(schema, key("z"))
+    it("any entry returns the same item schema", () => {
+      const r1 = advanceSchema(schema, entry("a"))
+      const r2 = advanceSchema(schema, entry("z"))
       expect(r1).toBe(r2) // referentially identical
     })
 
     it("throws on index segment", () => {
       expect(() => advanceSchema(schema, index(0))).toThrow(
-        "map expects a key segment",
+        "map expects an entry segment",
+      )
+    })
+
+    it("throws on field segment", () => {
+      expect(() => advanceSchema(schema, field("anything"))).toThrow(
+        "map expects an entry segment",
       )
     })
   })
@@ -119,13 +133,13 @@ describe("advanceSchema", () => {
     })
 
     it("returns field schema for key segment", () => {
-      const result = advanceSchema(schema, key("title"))
+      const result = advanceSchema(schema, field("title"))
       expect(result[KIND]).toBe("scalar")
       expect((result as any).scalarKind).toBe("string")
     })
 
     it("returns field schema for all fields", () => {
-      const result = advanceSchema(schema, key("count"))
+      const result = advanceSchema(schema, field("count"))
       expect(result[KIND]).toBe("scalar")
       expect((result as any).scalarKind).toBe("number")
     })
@@ -152,7 +166,7 @@ describe("advanceSchema", () => {
   describe("leaf types", () => {
     it("throws when advancing into text (leaf type, no inner schema)", () => {
       const schema = Schema.text()
-      expect(() => advanceSchema(schema, key("anything"))).toThrow(
+      expect(() => advanceSchema(schema, field("anything"))).toThrow(
         "cannot advance into text",
       )
     })
@@ -166,16 +180,28 @@ describe("advanceSchema", () => {
   })
 
   // -------------------------------------------------------------------------
-  // Tree — delegates to nodeData
+  // Tree — entry segments (node ids) advance into per-node data schema
   // -------------------------------------------------------------------------
 
   describe("tree", () => {
     const schema = Schema.tree(Schema.struct({ label: Schema.string() }))
 
-    it("delegates to nodeData and returns field schema", () => {
-      const result = advanceSchema(schema, key("label"))
-      expect(result[KIND]).toBe("scalar")
-      expect((result as any).scalarKind).toBe("string")
+    it("entry segment (node id) returns the item schema", () => {
+      const result = advanceSchema(schema, entry("node-1"))
+      expect(result[KIND]).toBe("product")
+      expect(Object.keys((result as any).fields)).toContain("label")
+    })
+
+    it("throws on field segment", () => {
+      expect(() => advanceSchema(schema, field("label"))).toThrow(
+        "tree expects an entry segment",
+      )
+    })
+
+    it("throws on index segment", () => {
+      expect(() => advanceSchema(schema, index(0))).toThrow(
+        "tree expects an entry segment",
+      )
     })
   })
 
@@ -185,7 +211,7 @@ describe("advanceSchema", () => {
 
   describe("scalar", () => {
     it("throws when advancing into a scalar", () => {
-      expect(() => advanceSchema(Schema.string(), key("x"))).toThrow(
+      expect(() => advanceSchema(Schema.string(), field("x"))).toThrow(
         "cannot advance into a scalar",
       )
     })
@@ -198,7 +224,7 @@ describe("advanceSchema", () => {
   describe("sum", () => {
     it("throws when advancing through a sum", () => {
       const schema = Schema.string().nullable()
-      expect(() => advanceSchema(schema, key("x"))).toThrow(
+      expect(() => advanceSchema(schema, field("x"))).toThrow(
         "cannot advance through a sum",
       )
     })
@@ -222,21 +248,21 @@ describe("advanceSchema", () => {
     })
 
     it("product → sequence → product → scalar", () => {
-      const step1 = advanceSchema(schema, key("items")) // → sequence
+      const step1 = advanceSchema(schema, field("items")) // → sequence
       expect(step1[KIND]).toBe("sequence")
 
       const step2 = advanceSchema(step1, index(0)) // → product (item)
       expect(step2[KIND]).toBe("product")
 
-      const step3 = advanceSchema(step2, key("name")) // → scalar
+      const step3 = advanceSchema(step2, field("name")) // → scalar
       expect(step3[KIND]).toBe("scalar")
       expect((step3 as any).scalarKind).toBe("string")
     })
 
     it("product → sequence → product → sequence → scalar", () => {
-      const step1 = advanceSchema(schema, key("items"))
+      const step1 = advanceSchema(schema, field("items"))
       const step2 = advanceSchema(step1, index(0))
-      const step3 = advanceSchema(step2, key("tags"))
+      const step3 = advanceSchema(step2, field("tags"))
       expect(step3[KIND]).toBe("sequence")
 
       const step4 = advanceSchema(step3, index(0))
@@ -245,10 +271,10 @@ describe("advanceSchema", () => {
     })
 
     it("product → product → scalar", () => {
-      const step1 = advanceSchema(schema, key("settings"))
+      const step1 = advanceSchema(schema, field("settings"))
       expect(step1[KIND]).toBe("product")
 
-      const step2 = advanceSchema(step1, key("darkMode"))
+      const step2 = advanceSchema(step1, field("darkMode"))
       expect(step2[KIND]).toBe("scalar")
       expect((step2 as any).scalarKind).toBe("boolean")
     })
@@ -264,7 +290,7 @@ describe("advanceSchema", () => {
     })
 
     it("product field returning a sum returns the sum node", () => {
-      const result = advanceSchema(schema, key("bio"))
+      const result = advanceSchema(schema, field("bio"))
       expect(result[KIND]).toBe("sum")
     })
   })
@@ -286,22 +312,22 @@ describe("advanceSchema", () => {
     })
 
     it("returns text schema for text field", () => {
-      const result = advanceSchema(schema, key("title"))
+      const result = advanceSchema(schema, field("title"))
       expect(result[KIND]).toBe("text")
     })
 
     it("returns counter schema for counter field", () => {
-      const result = advanceSchema(schema, key("count"))
+      const result = advanceSchema(schema, field("count"))
       expect(result[KIND]).toBe("counter")
     })
 
     it("returns movable schema for movableList field", () => {
-      const result = advanceSchema(schema, key("tasks"))
+      const result = advanceSchema(schema, field("tasks"))
       expect(result[KIND]).toBe("movable")
     })
 
     it("can descend through movableList into item struct", () => {
-      const step1 = advanceSchema(schema, key("tasks")) // → movable sequence
+      const step1 = advanceSchema(schema, field("tasks")) // → movable sequence
       const step2 = advanceSchema(step1, index(0)) // → product (struct)
       expect(step2[KIND]).toBe("product")
       expect(Object.keys((step2 as any).fields)).toContain("name")

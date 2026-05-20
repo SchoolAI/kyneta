@@ -11,6 +11,24 @@ import type { Path } from "./path.js"
 import { step } from "./step.js"
 
 // ---------------------------------------------------------------------------
+// FlatTreeNodeTopology — topology projection without per-node data
+// ---------------------------------------------------------------------------
+
+/**
+ * Tree topology without per-node data — what `Reader.forestTopology`
+ * returns. The catamorphism iterates topology and walks each node's data
+ * lazily; interpreters that only need shape (addressing prepare-time
+ * tombstoning) can iterate this without forcing per-node interpretation.
+ *
+ * Re-exported from `forest.ts` for proximity to its sibling types.
+ */
+export interface FlatTreeNodeTopology {
+  readonly id: string
+  readonly parent: string | null
+  readonly index: number
+}
+
+// ---------------------------------------------------------------------------
 // PlainState type
 // ---------------------------------------------------------------------------
 
@@ -42,6 +60,13 @@ export interface Reader {
   keys(path: Path): string[]
   /** Whether the map/product at the given path contains the key. */
   hasKey(path: Path, key: string): boolean
+  /**
+   * Topology at a `Schema.tree` path — substrate-blind. The third reader
+   * family (after value reads and length/keys) — kept here so the
+   * catamorphism's `tree` case has a uniform topology source across
+   * substrates. Returns `[]` for substrates that don't support trees.
+   */
+  forestTopology(path: Path): readonly FlatTreeNodeTopology[]
 }
 
 /**
@@ -60,7 +85,32 @@ export function plainReader(state: Record<string, unknown>): Reader {
     arrayLength: path => readArrayLength(state, path),
     keys: path => readKeys(state, path),
     hasKey: (path, key) => readHasKey(state, path, key),
+    forestTopology: path => readForestTopology(state, path),
   }
+}
+
+/**
+ * Project topology from the `stepTree` shadow shape. Defensive `[]`
+ * fallback covers callers that hit a non-tree path with a tree-typed
+ * reader (e.g. ill-formed test fixtures).
+ */
+function readForestTopology(
+  state: unknown,
+  path: Path,
+): readonly FlatTreeNodeTopology[] {
+  const value = path.read(state)
+  if (!Array.isArray(value)) return []
+  const result: FlatTreeNodeTopology[] = []
+  for (const n of value) {
+    if (isNonNullObject(n) && typeof n.id === "string") {
+      result.push({
+        id: n.id as string,
+        parent: (n.parent as string | null) ?? null,
+        index: (n.index as number) ?? 0,
+      })
+    }
+  }
+  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -96,10 +146,8 @@ function readHasKey(state: unknown, path: Path, key: string): boolean {
 
 /**
  * Writes a value into a nested plain object at the given Path.
- * Creates intermediate objects as needed.
- *
- * Uses `seg.resolve()` for each segment — for dead addresses this
- * throws, which is the correct behavior (writes to dead refs should fail).
+ * Creates intermediate objects as needed. `seg.resolve()` throws on a
+ * dead address — writes to deleted refs should fail.
  */
 export function writeByPath(
   state: PlainState,
@@ -110,13 +158,65 @@ export function writeByPath(
   const segments = path.segments
   let current: Record<string | number, unknown> = state
   for (let i = 0; i < segments.length - 1; i++) {
-    const k = segments[i]?.resolve()
+    const seg = segments[i]!
+    const k = seg.resolve()
+    // Symmetric to `AbstractPath.read`: `entry` traversal over the flat-
+    // forest shadow looks up by id and steps into the node's `.data` so
+    // writes target the per-node data, not array-by-index.
+    if (
+      seg.role === "entry" &&
+      Array.isArray(current) &&
+      isFlatForestArray(current)
+    ) {
+      const node = (current as Array<{ id: string; data: unknown }>).find(
+        n => n != null && n.id === k,
+      )
+      if (!node) return
+      if (
+        node.data === null ||
+        node.data === undefined ||
+        typeof node.data !== "object"
+      ) {
+        node.data = {}
+      }
+      current = node.data as Record<string | number, unknown>
+      continue
+    }
     if (!isNonNullObject(current[k])) {
       current[k] = {}
     }
     current = current[k] as Record<string | number, unknown>
   }
-  current[segments[segments.length - 1]?.resolve()] = value
+  // Terminal segment — same flat-forest discrimination as the loop above.
+  const last = segments[segments.length - 1]!
+  const lastKey = last.resolve()
+  if (
+    last.role === "entry" &&
+    Array.isArray(current) &&
+    isFlatForestArray(current)
+  ) {
+    const node = (current as Array<{ id: string; data: unknown }>).find(
+      n => n != null && n.id === lastKey,
+    )
+    if (node) node.data = value
+    return
+  }
+  current[lastKey] = value
+}
+
+/**
+ * Mirrors `isFlatForestArray` in `path.ts`. Duplicated to avoid pulling
+ * the reader module into `path.ts`'s dependency graph.
+ */
+function isFlatForestArray(arr: readonly unknown[]): boolean {
+  if (arr.length === 0) return false
+  const first = arr[0]
+  return (
+    typeof first === "object" &&
+    first !== null &&
+    typeof (first as { id?: unknown }).id === "string" &&
+    "data" in (first as object)
+  )
 }
 
 // ---------------------------------------------------------------------------

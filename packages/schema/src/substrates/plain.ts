@@ -58,7 +58,7 @@ import type {
   SubstratePayload,
   Version,
 } from "../substrate.js"
-import { BACKING_DOC } from "../substrate.js"
+import { BACKING_DOC, TREE_NODE_ALLOCATE } from "../substrate.js"
 import { Zero } from "../zero.js"
 
 // ---------------------------------------------------------------------------
@@ -228,6 +228,12 @@ export function createPlainSubstrate<V extends Version>(
             },
           } satisfies PositionCapable
         }
+        // Tree node id allocation — per-doc monotonic counter keyed by
+        // the tree's path. Plain substrate offers no concurrent-move
+        // correctness guarantee (the price of being plain).
+        let nextTreeNodeCounter = 1
+        ;(cachedCtx as any)[TREE_NODE_ALLOCATE] = (treePath: { key: string }) =>
+          `tree-${treePath.key || "root"}-${nextTreeNodeCounter++}`
       }
       return cachedCtx
     },
@@ -868,7 +874,8 @@ export const plainSubstrateFactory: SubstrateFactory<PlainVersion> = {
 
 /** A JSON-safe representation of a path segment. */
 type SerializedSegment =
-  | { type: "key"; key: string }
+  | { type: "field"; field: string }
+  | { type: "entry"; entry: string }
   | { type: "index"; index: number }
 
 /** A JSON-safe representation of an Op. */
@@ -879,22 +886,26 @@ interface SerializedOp {
 
 /**
  * Convert Ops with Path objects into JSON-safe form for serialization.
- * Extracts segments and produces plain `{ type, key/index }` objects.
+ * Extracts segments and produces plain `{ type, field/entry/index }` objects.
  */
 function serializeOps(ops: readonly Op[]): SerializedOp[] {
   return ops.map(op => ({
-    path: op.path.segments.map(seg =>
-      seg.role === "key"
-        ? { type: "key" as const, key: seg.resolve() as string }
-        : { type: "index" as const, index: seg.resolve() as number },
-    ),
+    path: op.path.segments.map(seg => {
+      if (seg.role === "field") {
+        return { type: "field" as const, field: seg.resolve() as string }
+      }
+      if (seg.role === "entry") {
+        return { type: "entry" as const, entry: seg.resolve() as string }
+      }
+      return { type: "index" as const, index: seg.resolve() as number }
+    }),
     change: op.change,
   }))
 }
 
 /**
  * Reconstruct Ops with RawPath objects from JSON-parsed data.
- * Converts plain `{ type, key/index }` arrays back into RawPath instances.
+ * Converts plain `{ type, field/entry/index }` arrays back into RawPath instances.
  */
 function deserializeOps(raw: SerializedOp[]): Op[] {
   return raw.map(op => ({
@@ -906,8 +917,10 @@ function deserializeOps(raw: SerializedOp[]): Op[] {
 function deserializePath(segments: SerializedSegment[]): RawPath {
   let path = RawPath.empty
   for (const seg of segments) {
-    if (seg.type === "key") {
-      path = path.field(seg.key)
+    if (seg.type === "field") {
+      path = path.field(seg.field)
+    } else if (seg.type === "entry") {
+      path = path.entry(seg.entry)
     } else {
       path = path.item(seg.index)
     }

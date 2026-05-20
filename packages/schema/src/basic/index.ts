@@ -142,7 +142,12 @@ export function delta(doc: object, fromVersion: number): Op[] {
   // Flatten to a single Op[] for the basic API consumer.
   const batches = JSON.parse(payload.data as string) as Array<
     Array<{
-      path: Array<{ type: string; key?: string; index?: number }>
+      path: Array<{
+        type: string
+        field?: string
+        entry?: string
+        index?: number
+      }>
       change: Op["change"]
     }>
   >
@@ -150,7 +155,11 @@ export function delta(doc: object, fromVersion: number): Op[] {
   return raw.map((op: (typeof raw)[number]) => ({
     path: op.path.reduce(
       (p: RawPath, seg) =>
-        seg.type === "key" ? p.field(seg.key!) : p.item(seg.index!),
+        seg.type === "field"
+          ? p.field(seg.field!)
+          : seg.type === "entry"
+            ? p.entry(seg.entry!)
+            : p.item(seg.index!),
       RawPath.empty,
     ),
     change: op.change,
