@@ -353,6 +353,12 @@ Pre-1.6.x the filter checked `changeset.origin === "sync"` — fragile because `
 
 The `replay` propagation is the substrate's responsibility (every substrate in `@kyneta/schema` correctly threads it through `executeBatch` and `deliverNotifications`). The sync-side check is *this* package's responsibility.
 
+#### Line: no inbox echo filter needed
+
+`Line` (`packages/exchange/src/line.ts`) subscribes to its inbox doc's changefeed to dispatch incoming messages. There is **no echo filter** on this subscription — by design, the Line only writes locally to its `outbox`, never to its own `inbox`. Inbox changes are delivered exclusively by the substrate event bridge (the replay path that surfaces remote peer writes). A previous `changeset.origin === "local"` filter (pre-jj:wpvtoxmw) was dead code — the convention it pinned had no writer in the exchange package — and was removed.
+
+The "exchange never branches on `origin`'s value" invariant is now globally true: every echo-discrimination decision in this package reads `replay` (structural) or relies on the absence of local inbox writes (Line). No code path inspects `origin`.
+
 ### Same-doc re-entry inside subscribers (post-1.6.0)
 
 `change(doc, fn)` called from inside a `subscribe(doc, ...)` / `subscribeNode(doc.field, ...)` callback no longer requires `queueMicrotask` (`jj:yksllknw`). The per-doc changefeed dispatcher in `@kyneta/schema` shares the Exchange's `Lease` (`jj:qlvnvxox` extended this slice), so re-entrant doc-layer mutations drain in a fresh sub-tick of the same outer dispatch call, while the cascade is budget-bounded.

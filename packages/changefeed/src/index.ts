@@ -10,6 +10,7 @@ export { createCallable } from "./callable.js"
 export type { ChangeBase } from "./change.js"
 // Changefeed — symbol, types, type guards, factories, projector
 export type {
+  BatchMetadata,
   Changefeed,
   ChangefeedProtocol,
   Changeset,

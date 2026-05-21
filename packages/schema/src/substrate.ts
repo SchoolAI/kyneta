@@ -35,6 +35,7 @@
 //
 // Context: jj:wmyomqzw (SubstratePrepare), jj:wqoqzzpp (Substrate)
 
+import type { BatchMetadata } from "@kyneta/changefeed"
 import type { ChangeBase } from "./change.js"
 import type { Path } from "./interpret.js"
 import type { WritableContext } from "./interpreters/writable.js"
@@ -351,76 +352,43 @@ export interface Replica<V extends Version = Version> extends ReplicaLike {
 }
 
 // ---------------------------------------------------------------------------
-// BatchOptions — provenance + replay directive for an executeBatch call
+// BatchOptions — BatchMetadata + the upstream-only `compensating` directive
 // ---------------------------------------------------------------------------
 
 /**
  * Batch-level metadata threaded through the prepare/flush pipeline.
  *
- * Four fields, two app-visible (origin, aborted) and two kyneta-internal
- * (replay, compensating):
- *
- * - `origin` — opaque application-level label. Propagates to
- *   `Changeset.origin` so subscribers can distinguish where a batch
- *   came from (e.g. `"sync"`, `"undo"`, `"local"`). The schema package
- *   and the exchange never branch on its value; it is *free vocabulary*
- *   for app code.
- *
- * - `replay` — kyneta-internal structural directive. `true` iff this
- *   batch represents state authored elsewhere (substrate event bridge,
- *   `merge()`, version travel). Substrates with external mutation paths
- *   (Loro, Yjs) skip native-side work when `replay: true` — the native
- *   state already absorbed the change. The exchange's auto-subscribe
- *   uses `replay` to discriminate "echo from sync" from "local write."
- *   User-facing APIs (`change`, `applyChanges`) never construct
- *   `replay: true`.
+ * Extends {@link BatchMetadata} (the four user/kyneta-visible fields that
+ * also surface on `Changeset`) with one upstream-only directive:
  *
  * - `compensating` — kyneta-internal directive set when the prepare is
  *   running under the **undo-replay handler** of the bracket primitive
- *   (see Background §"Algebraic framing" in the plan: `ctx.runBatch`
- *   is one bracket primitive with three handlers — substrate, flush,
- *   inverse stack — and `compensating: true` signals "this prepare is
- *   replaying an inverse, not applying a new forward change"). Substrates
- *   skip inverse recording when set; recording an inverse of an inverse
- *   would re-emit the original forward change and loop. Conceptually
- *   it's not a property of the change but a "which handler am I under?"
- *   signal. User-facing APIs never set it; only the abort path inside
- *   `WritableContext.runBatch` sets it on the prepares it issues during
- *   inverse replay.
- *
- * - `aborted` — kyneta-internal directive set by the outermost
- *   `runBatch` catch path on its terminal `ctx.flush` call. Propagates
- *   through `wrappedFlush` → `deliverNotifications` → `Changeset.aborted`.
- *   `true` iff the outermost `change(doc, fn)` block threw and was wholly
- *   compensated via inverse replay. Inner caught aborts produce a
- *   NON-aborted outermost Changeset with mixed forward+inverse ops.
- *   User-facing APIs never set it; only the outermost-catch path inside
- *   `WritableContext.runBatch` sets it.
+ *   (`ctx.runBatch` is one bracket primitive with three handlers —
+ *   substrate, flush, inverse stack). `compensating: true` signals "this
+ *   prepare is replaying an inverse, not applying a new forward change."
+ *   Substrates skip inverse recording when set; recording an inverse of
+ *   an inverse would re-emit the original forward change and loop.
+ *   Conceptually not a property of the change but a "which handler am I
+ *   under?" signal. User-facing APIs never set it; only the abort path
+ *   inside `WritableContext.runBatch` sets it on the prepares it issues
+ *   during inverse replay. Lives upstream-only — never surfaces on the
+ *   delivered Changeset.
  *
  * `compensating` is the directive flag on the *prepare* of an inverse op;
- * `aborted` is the directive flag on the *flush* that delivers the
- * resulting Changeset. They are siblings, not synonyms — both end up
- * `true` on a fully-aborted outermost batch, but a `compensating` op
- * without an `aborted` flush is what an *inner* caught abort looks like
- * from the outermost frame.
+ * `aborted` (inherited from `BatchMetadata`) is the directive flag on the
+ * *flush* that delivers the resulting Changeset. They are siblings, not
+ * synonyms — both end up `true` on a fully-aborted outermost batch, but a
+ * `compensating` op without an `aborted` flush is what an *inner* caught
+ * abort looks like from the outermost frame.
  *
- * Context: jj:qpultxsw (origin/replay), jj:ryquprut (compensating/aborted).
+ * Context: jj:qpultxsw (origin/replay), jj:ryquprut (compensating/aborted),
+ * jj:wpvtoxmw (source).
  */
-export interface BatchOptions {
-  /** App-level provenance label. Propagates to `Changeset.origin`. */
-  readonly origin?: string
-  /** Kyneta-internal directive: this batch is replaying state authored
-   *  elsewhere. Set by substrate event bridges and `merge` paths. */
-  readonly replay?: boolean
+export interface BatchOptions extends BatchMetadata {
   /** Kyneta-internal directive: this prepare is running under the
    *  undo-replay handler of `WritableContext.runBatch`. Substrates skip
    *  inverse recording. Set only by the abort path inside `runBatch`. */
   readonly compensating?: boolean
-  /** Kyneta-internal directive: this flush delivers a Changeset whose
-   *  ops net to identity (forward + inverse pairs from a thrown outermost
-   *  `change(doc, fn)` block). Propagates to `Changeset.aborted`. Set
-   *  only by the outermost-catch path inside `runBatch`. */
-  readonly aborted?: boolean
 }
 
 // ---------------------------------------------------------------------------

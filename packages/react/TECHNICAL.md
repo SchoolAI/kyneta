@@ -413,9 +413,15 @@ attach(
 
 Three responsibilities:
 
-1. **Local edits → CRDT.** Register an `input` event listener. On each event, call `diffText(oldText, newText, selectionStart)` → feed the `TextChange` into `change(() => textRef.insert/delete/update(...))`.
-2. **Remote edits → DOM.** Subscribe to `textRef[CHANGEFEED]`. On each `TextChange` with `origin !== "local"`, apply it surgically via `element.setRangeText(...)` and rebase the selection via `transformSelection`.
+1. **Local edits → CRDT.** Register an `input` event listener. On each event, call `diffText(oldText, newText, selectionStart)` → feed the `TextChange` into `change(textRef, fn, { source: ownSource })`, where `ownSource` is a per-`attach()` `Symbol("text-adapter:echo")` minted in the closure.
+2. **Remote edits → DOM.** Subscribe to `textRef[CHANGEFEED]`. Skip changesets whose `cs.source === ownSource` (echoes of our own writes). For all other changesets, apply each `TextChange` surgically via `element.setRangeText(...)` and rebase the selection via `transformSelection`.
 3. **Edge cases.** Handle IME composition (`compositionstart` / `compositionend`), intercept `keydown` for undo when `undo: "prevent"`.
+
+### Echo suppression — identity-typed `source` token
+
+Each `attach()` call mints a private `Symbol` and uses it for both the writer side (passed to `change()` as `options.source`) and the reader side (compared against `cs.source` to skip echoes). The token is private to the closure — composed adapters or multiple textareas on the same ref mint independent tokens, so their writes don't echo-suppress each other.
+
+This replaces the pre-jj:wpvtoxmw convention `origin === "local"`, which required writer and reader to share an exact string and stole `origin` namespace from app code. The identity-typed mechanism cannot collide with app vocabulary, type-checks at the call site, and composes naturally across nested subscribers.
 
 `AttachOptions` is `UseTextOptions` — same shape, direct import from `text-adapter.ts` as the canonical definition.
 

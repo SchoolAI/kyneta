@@ -170,6 +170,7 @@ export function deliverNotifications(
         origin: options?.origin,
         replay: options?.replay,
         aborted: options?.aborted,
+        source: options?.source,
       }
       for (const cb of set) cb(changeset)
     }
@@ -199,6 +200,7 @@ export function liftToOps<C extends ChangeBase>(
     origin: cs.origin,
     replay: cs.replay,
     aborted: cs.aborted,
+    source: cs.source,
   }
 }
 
@@ -225,6 +227,7 @@ export function prefixOps<C extends ChangeBase>(
     origin: cs.origin,
     replay: cs.replay,
     aborted: cs.aborted,
+    source: cs.source,
   }
 }
 

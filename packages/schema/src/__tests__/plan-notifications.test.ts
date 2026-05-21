@@ -201,6 +201,19 @@ describe("liftToOps: wraps each change with the given path", () => {
     const lifted = liftToOps(cs, RawPath.empty.field("x"))
     expect(lifted.replay).toBe(true)
   })
+
+  // Echo-token discriminator (jj:wpvtoxmw): if the lift strips source,
+  // subscribers that own a tree-level view of a leaf can't recognize
+  // their own writes.
+  it("source identity is preserved across the lift", () => {
+    const tok = Symbol("test-source")
+    const cs: Changeset<ChangeBase> = {
+      changes: [{ type: "replace" }],
+      source: tok,
+    }
+    const lifted = liftToOps(cs, RawPath.empty.field("x"))
+    expect(lifted.source).toBe(tok)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -281,6 +294,19 @@ describe("prefixOps: re-prefixes each event's path", () => {
     }
     const prefixed = prefixOps(cs, RawPath.empty.field("x"))
     expect(prefixed.replay).toBe(true)
+  })
+
+  // Echo-token discriminator (jj:wpvtoxmw): composite propagation
+  // through `prefixOps` must preserve `source` identity so subscribers
+  // higher up the tree can recognize their own writes.
+  it("source identity is preserved across the re-prefix", () => {
+    const tok = Symbol("test-source")
+    const cs: Changeset<Op> = {
+      changes: [{ path: RawPath.empty, change: { type: "replace" } }],
+      source: tok,
+    }
+    const prefixed = prefixOps(cs, RawPath.empty.field("x"))
+    expect(prefixed.source).toBe(tok)
   })
 })
 

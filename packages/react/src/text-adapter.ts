@@ -176,11 +176,12 @@ export interface AttachOptions {
  * Establishes a bidirectional binding:
  *
  * **Local → CRDT**: On `input` events, diffs the element's value against
- * the ref's current string and applies the delta via `change()` with
- * `{ origin: "local" }` for echo suppression.
+ * the ref's current string and applies the delta via `change()`, tagged
+ * with a per-`attach()` identity-typed source token for echo suppression.
  *
- * **CRDT → Element**: Subscribes to the ref's changefeed. Remote changes
- * (those without `origin === "local"`) are applied surgically via
+ * **CRDT → Element**: Subscribes to the ref's changefeed. Changesets whose
+ * `source` matches this binding's own token are skipped (they're echoes of
+ * our own writes). All other changesets are applied surgically via
  * `setRangeText()`, preserving the user's selection. The selection is
  * rebased through the remote instructions to maintain cursor position.
  *
@@ -204,6 +205,10 @@ export function attach(
   const undoMode = options?.undo ?? "prevent"
   let composing = false
 
+  // Per-attach() identity-typed echo token. Minted fresh per binding so
+  // composed adapters / multiple textareas on the same ref don't collide.
+  const ownSource = Symbol("text-adapter:echo")
+
   // -----------------------------------------------------------------------
   // 1. Initial state projection
   // -----------------------------------------------------------------------
@@ -217,7 +222,7 @@ export function attach(
   const cf = textRef[CHANGEFEED]
   const unsubscribe = cf.subscribe((changeset: Changeset) => {
     // Echo suppression — skip changesets we produced.
-    if (changeset.origin === "local") return
+    if (changeset.source === ownSource) return
 
     for (const c of changeset.changes) {
       if (isTextChange(c)) {
@@ -283,14 +288,15 @@ export function attach(
       else if ("insert" in op) insertText = op.insert
     }
 
-    // Apply via change() with origin for echo suppression.
+    // Apply via change() tagged with our source token so the resulting
+    // echo through cf.subscribe() can be identified and skipped.
     change(
       textRef as any,
       (ref: any) => {
         if (deleteCount > 0) ref.delete(offset, deleteCount)
         if (insertText) ref.insert(offset, insertText)
       },
-      { origin: "local" },
+      { source: ownSource },
     )
   }
 

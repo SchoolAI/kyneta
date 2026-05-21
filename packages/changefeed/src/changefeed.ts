@@ -32,6 +32,90 @@ import type { ChangeBase } from "./change.js"
 export const CHANGEFEED: unique symbol = Symbol.for("kyneta:changefeed") as any
 
 // ---------------------------------------------------------------------------
+// BatchMetadata — the four orthogonal channels riding on every batch
+// ---------------------------------------------------------------------------
+
+/**
+ * Batch-level metadata that rides on each Changeset (and its upstream
+ * `BatchOptions` in `@kyneta/schema`). The four fields sit on a two-axis
+ * classification:
+ *
+ *                | provenance       | outcome
+ *     -----------|------------------|----------
+ *     app-set    | origin           | (none)
+ *     subscr-set | source           | (none)
+ *     kyneta-set | replay           | aborted
+ *
+ * - **Provenance** answers "where did this come from?" — `origin` is the
+ *   app-level label, `source` is the originating caller's identity token,
+ *   `replay` is the kyneta-internal "from elsewhere" flag.
+ * - **Outcome** answers "what happened?" — only kyneta sets it, and only
+ *   to signal the abort-compensation case.
+ *
+ * The fields are *orthogonal* — none subsumes another. (For example,
+ * a tagged local write that throws produces `{ source: T, aborted: true }`
+ * simultaneously.) Each field has its own consumer with its own typed
+ * read; no string-convention discrimination is required.
+ *
+ * `Changeset<C>` extends this with `changes`. `BatchOptions` (in
+ * `@kyneta/schema`) extends this with `compensating`, the only field
+ * that lives upstream-only — substrate inverse-replay never reaches
+ * subscribers, so it has no Changeset counterpart.
+ *
+ * Context: jj:qpultxsw (origin/replay), jj:ryquprut (aborted),
+ * jj:wpvtoxmw (source).
+ */
+export interface BatchMetadata {
+  /**
+   * App-level provenance label. Subscribers MAY read this for routing
+   * or display, but kyneta itself never branches on its value. For
+   * kyneta-internal echo suppression use `source` instead.
+   *
+   * Example values: `"sync"`, `"undo"`, `"migration"`.
+   */
+  readonly origin?: string
+  /**
+   * Kyneta-internal structural directive — true iff this batch represents
+   * state authored elsewhere (substrate event bridge, `merge` payload,
+   * version travel). User-facing entry points (`change`, `applyChanges`)
+   * never set this; only substrate event bridges and `merge` paths do.
+   * Layered consumers (e.g. the exchange's auto-subscribe filter) read
+   * this to discriminate "echo from sync" from "local write."
+   */
+  readonly replay?: boolean
+  /**
+   * Kyneta-internal structural directive — true iff the outermost
+   * `change(doc, fn)` block threw and was wholly compensated via inverse
+   * replay. The op list contains forward + inverse pairs that net to
+   * identity at every path. Inner `change()`s that threw and were caught
+   * by an outer `change()`'s try/catch produce a NON-aborted outermost
+   * Changeset; the absorbed forward + inverse pair sits in the op list
+   * alongside surviving outer ops. Default `undefined` (== falsy) for
+   * successful batches and replay batches.
+   */
+  readonly aborted?: boolean
+  /**
+   * Identity-typed token supplied by the originating `change()` call.
+   * Compared with `===` only — never inspected or serialized.
+   *
+   * Subscribers that issued the change set this token on their own
+   * `change()` call and compare against `cs.source` to suppress echoes
+   * (the changefeed will deliver the changeset back to the subscriber
+   * that produced it; without the token, the subscriber cannot tell
+   * its own writes from someone else's).
+   *
+   * Substrate replay paths explicitly drop `source` — any value reaching
+   * a subscriber is therefore from a local `change()` on this peer.
+   *
+   * @example
+   * const mySource = Symbol("my-binding")
+   * change(ref, fn, { source: mySource })
+   * cf.subscribe(cs => { if (cs.source === mySource) return; / apply / })
+   */
+  readonly source?: unknown
+}
+
+// ---------------------------------------------------------------------------
 // Changeset — the unit of batch delivery
 // ---------------------------------------------------------------------------
 
@@ -41,40 +125,16 @@ export const CHANGEFEED: unique symbol = Symbol.for("kyneta:changefeed") as any
  *
  * - Auto-commit produces a degenerate changeset of one change.
  * - `change(doc, fn)` and `applyChanges` produce multi-change batches.
- * - `origin` is an *application-level label* — opaque to the framework.
- *   Apps may use it freely (`"sync"`, `"undo"`, `"local"`, anything).
- *   The schema package and the exchange never branch on its value.
- * - `replay` is a *structural directive* set by kyneta-internal layers.
- *   `true` iff the batch represents state authored elsewhere (substrate
- *   event bridge, `merge` payload, version travel). Layered consumers
- *   (e.g. the exchange's echo filter) use `replay` to discriminate
- *   "echo from sync" from "local write" without piggy-backing on origin.
- * - `aborted` is a *structural directive* set by the bracket primitive
- *   when an outermost `change(doc, fn)` block threw and was wholly
- *   compensated via inverse replay. The Changeset's op list contains
- *   forward + inverse pairs that net to identity at every path. Inner
- *   `change()`s that threw and were caught by an outer `change()`'s
- *   try/catch produce a NON-aborted outermost Changeset — the absorbed
- *   forward + inverse pair sits in the op list alongside surviving outer
- *   ops, and consumers needing to identify absorbed inner aborts pair
- *   the ops semantically. Default `undefined` (== falsy) for successful
- *   batches and replay batches.
+ * - The four metadata fields (`origin`, `replay`, `aborted`, `source`)
+ *   come from {@link BatchMetadata}; see that type for the orthogonal
+ *   two-axis classification.
  *
  * The subscriber API always receives a `Changeset`, making it uniform
  * regardless of how the changes were produced.
  */
-export interface Changeset<C = ChangeBase> {
+export interface Changeset<C = ChangeBase> extends BatchMetadata {
   /** The individual changes in this batch. */
   readonly changes: readonly C[]
-  /** App-level provenance label (e.g. "sync", "undo", "local"). */
-  readonly origin?: string
-  /** Structural: true iff this batch is replaying state authored
-   *  elsewhere (substrate event bridge, merge payload). */
-  readonly replay?: boolean
-  /** Structural: true iff the outermost `change(doc, fn)` block threw
-   *  and was wholly compensated via inverse replay. The op list contains
-   *  forward + inverse pairs that net to identity. */
-  readonly aborted?: boolean
 }
 
 // ---------------------------------------------------------------------------

@@ -33,11 +33,11 @@ describe("change: CommitOptions.origin propagation", () => {
       d => {
         d.title.insert(0, "Hello")
       },
-      { origin: "local" },
+      { origin: "my-tag" },
     )
 
     expect(changesets).toHaveLength(1)
-    expect(changesets[0]?.origin).toBe("local")
+    expect(changesets[0]?.origin).toBe("my-tag")
   })
 
   it("change() without options produces origin === undefined", () => {
@@ -52,5 +52,68 @@ describe("change: CommitOptions.origin propagation", () => {
 
     expect(changesets).toHaveLength(1)
     expect(changesets[0]?.origin).toBeUndefined()
+  })
+})
+
+// ===========================================================================
+// change(): CommitOptions.source propagation (Task 2.1 — source round-trip)
+// ===========================================================================
+
+describe("change: CommitOptions.source propagation", () => {
+  it("change() with { source } propagates the identity-typed token to Changeset.source", () => {
+    const doc = createDoc(json.bind(TextDocSchema))
+
+    const changesets: Changeset[] = []
+    subscribeNode(doc.title, cs => changesets.push(cs))
+
+    const tok = {}
+    change(
+      doc,
+      d => {
+        d.title.insert(0, "Hello")
+      },
+      { source: tok },
+    )
+
+    expect(changesets).toHaveLength(1)
+    // Identity, not value equality: the SAME reference round-trips.
+    expect(changesets[0]?.source).toBe(tok)
+    // A freshly-minted empty object would have the same structural value
+    // but a different identity — must NOT match.
+    const otherEmpty = {}
+    expect(changesets[0]?.source).not.toBe(otherEmpty)
+  })
+
+  it("change() without options produces source === undefined", () => {
+    const doc = createDoc(json.bind(TextDocSchema))
+
+    const changesets: Changeset[] = []
+    subscribeNode(doc.title, cs => changesets.push(cs))
+
+    change(doc, d => {
+      d.title.insert(0, "World")
+    })
+
+    expect(changesets).toHaveLength(1)
+    expect(changesets[0]?.source).toBeUndefined()
+  })
+
+  it("Symbol-typed source tokens round-trip with identity preserved", () => {
+    const doc = createDoc(json.bind(TextDocSchema))
+
+    const changesets: Changeset[] = []
+    subscribeNode(doc.title, cs => changesets.push(cs))
+
+    const sym = Symbol("test-binding")
+    change(
+      doc,
+      d => {
+        d.title.insert(0, "Sym")
+      },
+      { source: sym },
+    )
+
+    expect(changesets).toHaveLength(1)
+    expect(changesets[0]?.source).toBe(sym)
   })
 })

@@ -96,15 +96,26 @@ ref's raw value. `CHANGEFEED.current` returns the ref's own value without
 transformation. The two serve different purposes. The plan correctly identified
 this and we preserved the closure pattern.
 
-### `origin` on `ChangeBase` is a one-line schema change with outsized impact
+### Cursor-mode dispatch keys on `changeset.source` (post-jj:wpvtoxmw)
 
-`inputTextRegion` dispatches `setRangeText` selectMode based on
-`change.origin === "local"` (cursor follows edit) vs everything else (cursor
-preserves position). Without the `origin` field on `ChangeBase`, all edits
-would use `"preserve"` mode, causing the cursor to stay at position 0 during
-local typing — a showstopper UX bug. Adding `origin?: string` to `ChangeBase`
-was a one-line, backward-compatible change in schema, but it was load-bearing
-for the entire input text region feature.
+`inputTextRegion` dispatches `setRangeText` selectMode based on whether the
+delivered Changeset carries a `source` token: `cs.source !== undefined` →
+`"end"` mode (cursor follows local edits like typing, undo, redo);
+`cs.source === undefined` → `"preserve"` mode (cursor stays relative to
+remote edits). Without this dispatch, all edits would use `"preserve"`,
+causing the cursor to stay at position 0 during local typing — a showstopper
+UX bug.
+
+The earlier mechanism keyed on `changeset.origin === "local"` (a string
+convention). jj:wpvtoxmw replaced this with the identity-typed `source`
+channel that lives on `BatchMetadata` in `@kyneta/changefeed`: every
+originating `change()` caller mints its own token, the substrate replay
+path explicitly drops `source` so any token reaching a subscriber is from
+a local write on this peer, and the discriminator is "is `source` present?"
+rather than "does this string match?" Cast has no paired writer helper yet,
+so its discriminator is *source presence* rather than identity-match — a
+transitional shape that a future plan can tighten if/when cast adds a
+`bindInput()` writer that mints its own token.
 
 ### `getOrCreateChangefeed` is the right caching pattern for `LocalRef`
 

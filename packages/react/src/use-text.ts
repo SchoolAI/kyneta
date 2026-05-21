@@ -41,9 +41,11 @@ export interface UseTextOptions {
  *
  * The binding is model-as-source-of-truth:
  * - Local edits are captured on `input` events, diffed against the model,
- *   and applied via `change(textRef, fn, { origin: "local" })`.
+ *   and applied via `change(textRef, fn, { source: ownToken })` where
+ *   `ownToken` is a per-binding identity-typed echo token.
  * - Remote changes are applied surgically via `setRangeText` with cursor
- *   preservation. Echo suppression filters local-origin changesets.
+ *   preservation. Echo suppression skips changesets whose `source`
+ *   matches the binding's own token.
  * - IME composition is handled safely (deferred to `compositionend`).
  * - Browser undo is intercepted by default (overridable via `options.undo`).
  *

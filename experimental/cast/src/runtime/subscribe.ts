@@ -79,13 +79,15 @@ export function getActiveSubscriptionCount(): number {
  * - Custom reactive types with [CHANGEFEED]
  *
  * @param ref - A reactive value (must have [CHANGEFEED] property)
- * @param handler - Called when the ref changes, with a change describing what happened
+ * @param handler - Called for each change in a batch, with the parent
+ *   `Changeset` as the second argument so handlers can read batch-level
+ *   metadata (`source`, `origin`, `replay`, `aborted`).
  * @param scope - The scope that owns this subscription
  * @returns Subscription ID for manual unsubscription (rarely needed)
  */
 export function subscribe(
   ref: unknown,
-  handler: (change: ChangeBase, origin?: string) => void,
+  handler: (change: ChangeBase, changeset: Changeset) => void,
   scope: Scope,
 ): SubscriptionId {
   const id = ++subscriptionIdCounter
@@ -100,10 +102,11 @@ export function subscribe(
 
   // Subscribe via the [CHANGEFEED] symbol.
   // The changefeed protocol delivers Changeset batches; unwrap them
-  // so callers receive individual ChangeBase objects.
+  // so callers receive individual ChangeBase objects, with the parent
+  // Changeset passed through for batch-level metadata access.
   const unsubscribeFn = ref[CHANGEFEED].subscribe((changeset: Changeset) => {
     for (const change of changeset.changes) {
-      handler(change, changeset.origin)
+      handler(change, changeset)
     }
   })
 

@@ -143,11 +143,11 @@ Browser Tab A                          Browser Tab B
 ```
 
 When Alice types in Tab A:
-1. `input` event fires → `diffText` computes the delta → `change(ref, fn, { origin: "local" })` applies it to Yjs
-2. Yjs changefeed fires with `origin: "local"` → `attach()` skips it (echo suppression)
+1. `input` event fires → `diffText` computes the delta → `change(ref, fn, { source: ownToken })` applies it to Yjs. `ownToken` is an identity-typed `Symbol` minted per `attach()` call.
+2. Yjs changefeed fires with the same `source` identity → `attach()` skips it (echo suppression via `cs.source === ownToken`)
 3. Exchange sends the Yjs update to the server via WebSocket
 4. Server relays to Tab B's Exchange
-5. Tab B's Yjs applies the remote update → changefeed fires (no origin)
+5. Tab B's Yjs applies the remote update → changefeed fires; substrate replay path drops `source`, so Tab B's `attach()` sees `cs.source === undefined`
 6. `attach()` applies surgical `setRangeText` patches → Bob's cursor stays in place
 
 ## What Changed From `Schema.string()`

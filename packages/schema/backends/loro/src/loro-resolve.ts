@@ -131,6 +131,9 @@ function stepFromContainer(
     case "MovableList":
       return (container as LoroMovableList).get(resolved as number)
 
+    case "Tree":
+      return (container as any).getNodeByID(identity ?? (resolved as string))
+
     default:
       throw new Error(
         `loro-resolve: cannot step into container of kind "${kind}"`,

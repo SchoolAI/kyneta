@@ -264,9 +264,11 @@ export class Line<SendMsg, RecvMsg> {
     // Scan for any existing messages (handles reconnection / late open)
     this.#processInbox()
 
-    // Subscribe to inbox changes — dispatch to callbacks and queue
-    this.#unsubscribeInbox = subscribe(inbox, (changeset: any) => {
-      if (changeset.origin === "local") return // skip our own ack writes
+    // Subscribe to inbox changes — dispatch to callbacks and queue.
+    // The Line never writes to its own inbox locally; inbox changes are
+    // delivered exclusively by the substrate event bridge (replay path).
+    // No echo-suppression filter is needed here.
+    this.#unsubscribeInbox = subscribe(inbox, () => {
       this.#processInbox()
     })
   }

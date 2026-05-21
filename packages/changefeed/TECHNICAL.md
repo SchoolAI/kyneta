@@ -30,9 +30,11 @@ Imported by schema, exchange, index, react, compiler, cast, and both CRDT substr
 | `ChangefeedProtocol<S, C>` | `{ current: S, subscribe(cb) → unsubscribe }` — the minimal coalgebra sitting behind the symbol. | `Changefeed<S, C>`, which also exposes `.current`/`.subscribe` at the top level |
 | `Changefeed<S, C>` | The developer-facing type: `[CHANGEFEED]` + direct `.current` + `.subscribe` in one object. | `ChangefeedProtocol<S, C>` (the protocol alone, without developer conveniences) |
 | `HasChangefeed<S, C>` | Any object that carries `[CHANGEFEED]`. Weaker than `Changefeed` — does not require the convenience accessors. | A type guard — use `hasChangefeed(value)` for that |
-| `Changeset<C>` | `{ changes: readonly C[], origin?: string }` — the unit of delivery through `subscribe`. | A single change — a changeset *contains* changes |
+| `BatchMetadata` | `{ origin?, replay?, aborted?, source? }` — the four orthogonal channels that ride on every Changeset. | Any individual field — `BatchMetadata` is the named tuple |
+| `Changeset<C>` | `BatchMetadata & { changes: readonly C[] }` — the unit of delivery through `subscribe`. | A single change — a changeset *contains* changes |
 | `ChangeBase` | `{ type: string }` — the open base protocol that every change type extends. | A specific change type like `TextChange` (those live in `@kyneta/schema`) |
-| `origin` | Batch-level provenance metadata (e.g. `"local"`, `"sync"`, `"undo"`). Lives on the `Changeset`, not on individual changes. | A change's `type` field |
+| `origin` | App-level batch provenance label (e.g. `"sync"`, `"undo"`, `"migration"`). Free vocabulary for app code. | `source` — `origin` is app-level, `source` is kyneta-managed identity |
+| `source` | Identity-typed echo-suppression token compared with `===`. Set by originating `change()` caller. | `origin` — `source` cannot collide with app vocabulary |
 | `CallableChangefeed<S, C>` | A `Changefeed<S, C>` that is also callable — `feed()` returns `feed.current`. | A function that returns a changefeed |
 | `ReactiveMap<K, V, C>` | A `CallableChangefeed` over a `ReadonlyMap<K, V>`, with `.get`, `.has`, `.keys`, `.size`, iteration lifted to the top level. | A Signal, an Observable, or a MobX map |
 | `ReactiveMapHandle<K, V, C>` | The producer-side split of `ReactiveMap` — `set`, `delete`, `clear`, `emit`. | Any interface a consumer should hold |
@@ -100,21 +102,51 @@ The split between `ChangefeedProtocol` and `Changefeed` exists so that producers
 Every callback receives a `Changeset<C>`, never a bare change (source: `packages/changefeed/src/changefeed.ts` → `Changeset`, `ChangefeedProtocol.subscribe`). A changeset is:
 
 ```
-{ changes: readonly C[], origin?: string, replay?: boolean }
+{ changes: readonly C[], ...BatchMetadata }
 ```
 
 Auto-commit produces a degenerate changeset of one. Transactions and `applyChanges` in `@kyneta/schema` produce multi-change batches. The subscriber API is uniform across both cases.
 
+### `BatchMetadata` — four orthogonal channels on every batch
+
+The metadata fields sit on a two-axis classification:
+
+|                  | provenance       | outcome  |
+|------------------|------------------|----------|
+| **app-set**      | `origin`         | (none)   |
+| **subscriber-set** | `source`       | (none)   |
+| **kyneta-set**   | `replay`         | `aborted` |
+
+- **Provenance** answers "where did this come from?" — `origin` is the app-level label, `source` is the originating caller's identity token, `replay` is the kyneta-internal "from elsewhere" flag.
+- **Outcome** answers "what happened?" — only kyneta sets it, and only to signal the abort-compensation case.
+
+The fields are **orthogonal**: a tagged local write that throws can simultaneously produce `{ source: T, aborted: true }`. Each field has its own consumer with its own typed read; no string-convention discrimination is required.
+
+`Changeset<C>` extends `BatchMetadata` with `changes`. `BatchOptions` (in `@kyneta/schema`) extends it with `compensating`, the only field that lives upstream-only — substrate inverse-replay never reaches subscribers, so it has no Changeset counterpart.
+
+### `origin` — app-level free vocabulary
+
 `origin` carries the **app-level provenance label** for the whole batch — pure free vocabulary for application code. Individual changes carry only their `type` discriminant. The schema layer and the exchange never branch on `origin`'s value; if a label like `"sync"` arrives, it surfaces to subscribers unchanged.
+
+### `replay` — structural directive for state-from-elsewhere
 
 `replay` is the **structural directive** set by kyneta-internal layers — true iff this batch represents state authored elsewhere (substrate event bridge, `merge` payload, version travel). Layered consumers that need to discriminate "echo from sync" from "local write" (e.g. the exchange's auto-subscribe filter at `packages/exchange/src/exchange.ts`) read `replay` rather than parsing the `origin` string. User-facing entry points (`change`, `applyChanges`) never set `replay: true` — only substrate event bridges and `merge` paths do. Context: jj:qpultxsw.
 
+### `Changeset.source` — identity-typed echo token
+
+An `unknown` value compared with `===`. Supplied by the originating `change()` via `options.source`, propagated unchanged to the delivered `Changeset.source`. Used by subscribers (notably `@kyneta/react`'s `text-adapter`) that need to recognize their own writes — string-based discrimination via `origin` is unreliable because `origin` is app-level free vocabulary that callers may set to anything (or omit). The identity-typed token gives writer and reader a kyneta-managed handshake that cannot collide with app-level vocabulary.
+
+Substrate replay paths explicitly drop `source` — any value reaching a subscriber is therefore from a local `change()` call on this peer.
+
+Context: jj:wpvtoxmw.
+
 ### What `Changeset.origin` is NOT
 
-- **Not a peer ID.** Origin is a categorical provenance label (`"local"`, `"sync"`, `"undo"`, `"migration"`), not a sender identity.
+- **Not a peer ID.** Origin is a categorical provenance label (`"sync"`, `"undo"`, `"migration"`), not a sender identity.
 - **Not required.** Many changesets emit without origin. Subscribers that filter on origin must handle `undefined`.
 - **Not per-change.** Each change in the batch shares the same origin. If a mixed-origin batch were needed, it would have to be split into multiple emits.
 - **Not a structural discriminator.** Origin is for app-facing UI/logging. The framework's "is this a replay" decision is on `replay`, not on origin-string-matching.
+- **Not an echo-suppression mechanism.** Use `Changeset.source` — see above. Before jj:wpvtoxmw, callers used the convention `origin: "local"` to mark "my own write" for echo suppression; this required all writers and readers to share the exact string, stole vocabulary from app code, and contradicted the "schema layer never branches on origin's value" invariant. The identity-typed `source` field replaces this convention with a kyneta-managed handshake.
 
 ---
 

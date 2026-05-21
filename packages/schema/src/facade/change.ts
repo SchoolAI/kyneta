@@ -35,15 +35,28 @@ import {
  */
 export interface CommitOptions {
   /**
-   * Provenance tag attached to the emitted `Changeset`.
+   * App-level provenance label attached to the emitted `Changeset`.
    *
    * Subscribers receive this as `changeset.origin` — useful for
-   * distinguishing local vs. sync vs. undo changes.
+   * categorizing batches (`"sync"`, `"undo"`, `"migration"`, etc.).
+   * The schema layer and the exchange never branch on its value.
+   * For kyneta-internal echo suppression use {@link CommitOptions.source}.
    *
    * @example
    * applyChanges(doc, ops, { origin: "sync" })
    */
   origin?: string
+  /**
+   * Identity-typed echo-suppression token. Propagates to
+   * `Changeset.source`. Compared with `===` by subscribers that issued
+   * the change.
+   *
+   * @example
+   * const mySource = Symbol("my-binding")
+   * change(ref, fn, { source: mySource })
+   * cf.subscribe(cs => { if (cs.source === mySource) return; / apply / })
+   */
+  source?: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +111,9 @@ export function change<D extends object>(
     )
   }
   const ctx: WritableContext = (ref as any)[TRANSACT]
-  const opts = options ? { origin: options.origin } : undefined
+  const opts = options
+    ? { origin: options.origin, source: options.source }
+    : undefined
   let captured: Op[] = []
   ctx.runBatch(() => {
     const marker = ctx[FORWARD_OPS_MARKER]()
@@ -157,8 +172,13 @@ export function applyChanges(
   // Empty ops → no-op. No prepare, no flush, no notification.
   if (ops.length === 0) return ops
 
-  // User-facing entry: never set `replay`. Origin propagates as a label.
-  executeBatch(ctx, ops, options ? { origin: options.origin } : undefined)
+  // User-facing entry: never set `replay`. Origin propagates as a label;
+  // source propagates as an identity-typed echo token.
+  executeBatch(
+    ctx,
+    ops,
+    options ? { origin: options.origin, source: options.source } : undefined,
+  )
   return ops
 }
 

@@ -49,7 +49,10 @@ global.HTMLTextAreaElement = dom.window.HTMLTextAreaElement
  */
 function createMockTextRef(initialValue: string): {
   ref: { [CHANGEFEED]: ChangefeedProtocol<string, TextChange> }
-  emit: <C extends ChangeBase>(change: C, origin?: string) => void
+  emit: <C extends ChangeBase>(
+    change: C,
+    metadata?: { source?: unknown },
+  ) => void
   setValue: (value: string) => void
 } {
   let currentValue = initialValue
@@ -71,12 +74,15 @@ function createMockTextRef(initialValue: string): {
 
   return {
     ref,
-    emit: <C extends ChangeBase>(change: C, origin?: string) => {
+    emit: <C extends ChangeBase>(
+      change: C,
+      metadata?: { source?: unknown },
+    ) => {
       // Cast: emit is a test harness escape hatch that intentionally pushes
       // non-TextChange values (e.g. { type: "replace" }) to test fallback paths.
       callback?.({
         changes: [change] as unknown as readonly TextChange[],
-        origin,
+        source: metadata?.source,
       })
     },
     setValue: (value: string) => {
@@ -806,15 +812,12 @@ describe("inputTextRegion", () => {
         // Place cursor at end
         input.setSelectionRange(5, 5)
 
-        // Remote insert at start (origin not "local" → "preserve" mode)
+        // Remote insert at start (no source → "preserve" mode)
         setValue("XXXHello")
-        emit(
-          {
-            type: "text",
-            instructions: [{ insert: "XXX" }],
-          } as TextChange,
-          "import",
-        )
+        emit({
+          type: "text",
+          instructions: [{ insert: "XXX" }],
+        } as TextChange)
 
         // With preserve mode, cursor shifts right by the insert length
         expect(input.value).toBe("XXXHello")
@@ -830,15 +833,12 @@ describe("inputTextRegion", () => {
         inputTextRegion(input, ref, scope)
         input.setSelectionRange(0, 0)
 
-        // Remote insert at end
+        // Remote insert at end (no source → "preserve" mode)
         setValue("Hello World")
-        emit(
-          {
-            type: "text",
-            instructions: [{ retain: 5 }, { insert: " World" }],
-          } as TextChange,
-          "import",
-        )
+        emit({
+          type: "text",
+          instructions: [{ retain: 5 }, { insert: " World" }],
+        } as TextChange)
 
         expect(input.value).toBe("Hello World")
 
@@ -853,22 +853,19 @@ describe("inputTextRegion", () => {
         inputTextRegion(input, ref, scope)
         input.setSelectionRange(11, 11)
 
-        // Remote delete at start
+        // Remote delete at start (no source → "preserve" mode)
         setValue("World")
-        emit(
-          {
-            type: "text",
-            instructions: [{ delete: 6 }],
-          } as TextChange,
-          "import",
-        )
+        emit({
+          type: "text",
+          instructions: [{ delete: 6 }],
+        } as TextChange)
 
         expect(input.value).toBe("World")
 
         scope.dispose()
       })
 
-      it("local edit uses 'end' selectMode (cursor follows edit)", () => {
+      it("local edit (source present) uses 'end' selectMode (cursor follows edit)", () => {
         const { ref, emit, setValue } = createMockTextRef("")
         const scope = new Scope()
         const input = document.createElement("input")
@@ -876,14 +873,15 @@ describe("inputTextRegion", () => {
         inputTextRegion(input, ref, scope)
         input.setSelectionRange(0, 0)
 
-        // Local insert (origin === "local" → "end" mode)
+        // Local insert — any source token signals "this came from a
+        // local writer" → "end" mode (cursor follows the inserted text)
         setValue("Hi")
         emit(
           {
             type: "text",
             instructions: [{ insert: "Hi" }],
           } as TextChange,
-          "local",
+          { source: Symbol("test-local") },
         )
 
         expect(input.value).toBe("Hi")
@@ -891,7 +889,7 @@ describe("inputTextRegion", () => {
         scope.dispose()
       })
 
-      it("undefined origin uses 'preserve' selectMode (safe default)", () => {
+      it("no source uses 'preserve' selectMode (safe default)", () => {
         const { ref, emit, setValue } = createMockTextRef("")
         const scope = new Scope()
         const input = document.createElement("input")
@@ -899,7 +897,7 @@ describe("inputTextRegion", () => {
         inputTextRegion(input, ref, scope)
         input.setSelectionRange(0, 0)
 
-        // No origin → "preserve" (safe default for unknown provenance)
+        // No source → "preserve" (safe default for remote / untagged edits)
         setValue("Hi")
         emit({
           type: "text",

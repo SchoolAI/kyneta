@@ -19,7 +19,7 @@
  * @packageDocumentation
  */
 
-import type { ChangeBase, HasChangefeed } from "@kyneta/changefeed"
+import type { ChangeBase, Changeset, HasChangefeed } from "@kyneta/changefeed"
 import {
   isTextChange,
   type TextInstruction,
@@ -122,13 +122,18 @@ export function patchInputValue(
  * 3. Apply surgical patches for text deltas via `setRangeText`
  * 4. Fall back to full replacement for non-text deltas
  *
- * **Origin-driven selectMode dispatch:** The subscription dispatches
- * `setRangeText` selectMode based on `changeset.origin` (batch-level
- * provenance from the `Changeset` protocol):
- * - `origin === "local"` → `"end"` (cursor advances past inserts, stays at
- *   delete point). Correct for local typing, undo, and redo.
- * - anything else (`"import"`, `undefined`) → `"preserve"` (cursor shifts
- *   relative to remote edits). Correct for remote collaborator edits.
+ * **Source-driven selectMode dispatch:** The subscription dispatches
+ * `setRangeText` selectMode based on `changeset.source` presence:
+ * - `source !== undefined` → `"end"` (cursor advances past inserts, stays
+ *   at delete point). Correct for local typing, undo, and redo — any
+ *   writer that minted a source token is a local subscriber.
+ * - `source === undefined` → `"preserve"` (cursor shifts relative to
+ *   remote edits). Correct for remote collaborator edits, which arrive
+ *   via the substrate replay path that explicitly drops source.
+ *
+ * Cast has no paired write helper yet, so the discriminator is
+ * *source presence*, not identity-match. A future cast plan can tighten
+ * to identity-match once cast adds a `bindInput()` writer.
  *
  * @param input - The input or textarea element to manage
  * @param ref - The reactive text ref (must implement [CHANGEFEED])
@@ -156,15 +161,15 @@ export function inputTextRegion(
 
   // Subscribe to changes via the runtime subscribe() helper.
   // The helper unwraps Changeset batches and passes each individual
-  // change to the handler, with changeset.origin as the second arg.
+  // change to the handler, with the parent changeset as the second arg.
   subscribe(
     ref,
-    (change: ChangeBase, origin?: string) => {
+    (change: ChangeBase, changeset: Changeset) => {
       if (isTextChange(change)) {
-        // Origin-driven selectMode dispatch:
-        // - local edits (typing, undo, redo) → "end" (cursor follows edit)
-        // - remote/unknown edits → "preserve" (cursor stays relative)
-        const mode = origin === "local" ? "end" : "preserve"
+        // Source-presence selectMode dispatch:
+        // - tagged local edits (typing, undo, redo) → "end" (cursor follows edit)
+        // - remote/untagged edits → "preserve" (cursor stays relative)
+        const mode = changeset.source !== undefined ? "end" : "preserve"
         // Surgical update — O(k) where k is the edit size
         patchInputValue(input, change.instructions, mode)
       } else {

@@ -353,7 +353,7 @@ export function createMockTextRef(initial: string = ""): {
       instructions.push({ insert: text })
       const changeset: Changeset<ChangeBase> = {
         changes: [{ type: "text", instructions } as ChangeBase],
-        origin: "local",
+        source: Symbol("mock-text-ref:local"),
       }
       for (const cb of subscribers) {
         cb(changeset)
@@ -366,7 +366,7 @@ export function createMockTextRef(initial: string = ""): {
       instructions.push({ delete: len })
       const changeset: Changeset<ChangeBase> = {
         changes: [{ type: "text", instructions } as ChangeBase],
-        origin: "local",
+        source: Symbol("mock-text-ref:local"),
       }
       for (const cb of subscribers) {
         cb(changeset)

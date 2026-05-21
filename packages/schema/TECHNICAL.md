@@ -597,15 +597,23 @@ The three handlers are co-extensive — they all open and close at the same boun
 
 Substrate.runBatch is invoked at most once per outermost `change(doc, fn)` — re-entrant subscriber writes open their own outermost runBatch (frameStarts goes to 0 between outer flush and subscriber re-entry), each block is its own atomic abort unit and gets its own commit.
 
-### Origin vs replay
+### Batch metadata: origin / replay / source / aborted
 
-Two distinct concepts ride on every batch through `executeBatch → ctx.prepare → ctx.flush → substrate.prepare → substrate.onFlush`, carried by the typed `BatchOptions { origin?, replay? }` parameter:
+`BatchOptions` extends `BatchMetadata` (defined in `@kyneta/changefeed`) with one upstream-only field `compensating`. Four channels ride on every batch through `executeBatch → ctx.prepare → ctx.flush → substrate.prepare → substrate.onFlush`, all surfacing on the delivered `Changeset` via `BatchMetadata`:
 
-- **`origin`** — opaque application-level label. Propagates to `Changeset.origin` so subscribers can categorize batches (`"local"`, `"sync"`, `"undo"`, `"migration"` — or anything else). The schema layer and the exchange **never branch on origin's value**. It is *free vocabulary* for app code.
+- **`origin`** — opaque application-level label. Propagates to `Changeset.origin` so subscribers can categorize batches (`"sync"`, `"undo"`, `"migration"` — or anything else). The schema layer and the exchange **never branch on origin's value**. It is *free vocabulary* for app code.
 
 - **`replay`** — kyneta-internal structural directive. `true` iff the batch represents state authored elsewhere: substrate event bridge replaying `doc.import`, a `merge` payload, or version travel. Substrates with external mutation paths (Loro, Yjs) skip native-side work in `prepare`/`onFlush` when `replay: true` (the native state already absorbed the change); the changefeed layer still delivers `Changeset` notifications, and surfaces `replay: true` to subscribers. The plain substrate ignores `replay` in `prepare` because it has no out-of-band mutation path. **User-facing APIs (`change`, `applyChanges`) never construct `replay: true`** — only substrate event bridges and `merge` paths do.
 
+- **`source`** — identity-typed echo-suppression token. Compared with `===` by subscribers that issued the change. Unlike `origin` (app vocabulary) and `replay` (kyneta-internal structural directive), `source` is a kyneta-managed handshake between writer and reader: the originating `change()` caller mints a token (`Symbol("...")` or `{}`), passes it via `options.source`, and the same token round-trips to `Changeset.source` so the caller's subscriber can identify and skip its own writes. The schema layer NEVER branches on `source`'s identity — it threads it through the pipeline unchanged, the same way it threads `origin`. **Substrate replay paths explicitly drop `source`** — `source` never survives a CRDT round-trip; any value reaching a subscriber is therefore from a local `change()` on this peer.
+
+- **`aborted`** — kyneta-internal outcome directive. See §"`Changeset.aborted`" above.
+
+These four fields are *orthogonal* — they form a two-axis classification (app-set / subscriber-set / kyneta-set × provenance / outcome). See `BatchMetadata` in `@kyneta/changefeed`'s TECHNICAL.md for the full table.
+
 Layered consumers that need to discriminate "echo from sync" from "local write" — notably `@kyneta/exchange`'s auto-subscribe filter — read `Changeset.replay` rather than parsing the `origin` string. This closes a fragile string-collision surface where `change(doc, fn, { origin: "sync" })` was accidentally suppressed and `doc.import(payload, "from-some-other-pubsub")` would echo to peers. Context: jj:qpultxsw.
+
+The "schema layer and exchange never branch on origin's value" invariant is again **structurally true** after jj:wpvtoxmw — the conflation that had crept into `text-adapter` (`origin === "local"` for echo suppression) and `Line` (a dead `origin === "local"` filter) was rectified by introducing the identity-typed `source` channel and removing the dead Line filter.
 
 ### Origin-free discriminator
 
