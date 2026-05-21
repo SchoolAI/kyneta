@@ -607,6 +607,27 @@ Two distinct concepts ride on every batch through `executeBatch → ctx.prepare 
 
 Layered consumers that need to discriminate "echo from sync" from "local write" — notably `@kyneta/exchange`'s auto-subscribe filter — read `Changeset.replay` rather than parsing the `origin` string. This closes a fragile string-collision surface where `change(doc, fn, { origin: "sync" })` was accidentally suppressed and `doc.import(payload, "from-some-other-pubsub")` would echo to peers. Context: jj:qpultxsw.
 
+### Origin-free discriminator
+
+Kyneta is a translucent layer over the underlying CRDT. The user-facing origin slot (`batch.origin` in Loro, `transaction.origin` in Yjs) is reserved for `options.origin` round-trip — providers and ecosystem libraries (Yjs UndoManager, y-websocket, etc.) depend on this slot being app-controlled. The substrate's "is this event mine?" discriminator must travel via the CRDT's own event-machinery channels, not via the origin slot.
+
+#### Why this matters (translucency as a kyneta value)
+Kyneta's "bring your own doc" position is that the underlying CRDT remains fully usable by raw consumers and ecosystem tooling. The Yjs ecosystem in particular routes provider identity (`y-websocket`, `y-indexeddb`, `y-webrtc`) and orchestration filters (`UndoManager.addTrackedOrigin`) through `transaction.origin` — colonizing that slot with a kyneta sentinel forces every kyneta-using app to either fork those tools or accept that kyneta is opaque to the rest of its ecosystem. The same logic applies to Loro's `batch.origin` as its provider ecosystem matures. Translucency isn't a stylistic choice — it's load-bearing for interop. Any future "let me just put a small flag on `transaction.origin`" proposal must answer: how does this not break the provider ecosystem?
+
+#### Loro implementation
+`subscribePreCommit` hook captures per-commit identity `(peer, counter+length-1)` synchronously inside `doc.commit()`; subscribe handler matches via `batch.to` entries.
+
+#### Yjs implementation
+`transaction.meta.set(MARK, true)` inscribed from inside the `Y.transact` body; observeDeep checks `transaction.meta.get(MARK)`. Survives Yjs's nested-transact collapse.
+
+#### Why the two implementations aren't identical
+Loro models commits as a discrete API call (`doc.commit()` is separate from the pending mutations); Yjs models transactions as a body callback (`Y.transact(body)` runs work inside an opened transaction object). The pre-commit hook is Loro's analog of "code that runs inside the transaction"; `transaction.meta` is Yjs's analog of "intrinsic per-commit identity that travels with the event." Same principle (origin-free, CRDT-native machinery), substrate-shaped expression.
+
+#### Known limitation (both substrates)
+Mixing raw CRDT mutations with kyneta `change()` calls inside the same atomic unit (Yjs `transact` body, or Loro pending ops accumulated before a kyneta-issued commit) is unsupported. The raw mutations will be silently absorbed into kyneta's own-commit skip and not bridged to the changefeed. Use separate transacts/commits for raw mutations. This is a fundamental limit of commit-level discrimination — no origin-free approach can address it without op-level provenance, which neither CRDT exposes.
+
+Context: jj:uvykupvx.
+
 ### Substrate algebra vocabulary
 
 The substrate is a functor `Π : ChangeGroupoid → NativeStateCategory`. Three names show up across `prepare`, `afterBatch`, `runBatch`, the inverse stack, and the materialisation interpreter:

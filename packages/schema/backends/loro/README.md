@@ -90,6 +90,8 @@ loroDoc.commit()
 // → "Something changed"
 ```
 
+*Note for raw LoroDoc consumers:* Subscribers attached directly to the underlying `LoroDoc` will newly see `options.origin` faithfully on `batch.origin` (where previously it was overwritten by a kyneta sentinel).
+
 ## Sync
 
 Two peers exchange state via `exportSince` / `importDelta`:

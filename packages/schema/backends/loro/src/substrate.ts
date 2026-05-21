@@ -12,8 +12,15 @@
 //   replay it re-materialises σ from λ (CRDT merge is a lattice join
 //   that has no incremental σ-step decomposition).
 // - Persistent doc.subscribe() event bridge for external changes.
-// - One re-entrancy guard: `inOurCommit` (suppresses event-bridge
-//   reprocessing of the single commit we just issued ourselves).
+// - Own-commit discriminator: a pre-commit-hook discriminator
+//   (`subscribePreCommit` captures the in-flight commit's identity;
+//   the subscribe handler matches via `batch.to`) prevents the bridge
+//   from reprocessing commits we just issued ourselves, leaving the
+//   user-facing `batch.origin` slot free for `options.origin` round-trip.
+//   Loro's pre-commit hook fires synchronously inside `doc.commit()`,
+//   before the subscribe event. A single-shot `nextIsOurs` flag gates
+//   the capture (set sync before `doc.commit()`, cleared by pre-commit
+//   on its first fire; `finally` sweeps the empty-commit case).
 //
 // The event bridge contract: wrapping a LoroDoc in a kyneta substrate
 // means subscribing to the kyneta doc observes ALL mutations to the
@@ -174,11 +181,24 @@ export function createLoroSubstrate(
   // entries by spread semantics.
   const coalesceBuffer = new Map<ContainerID, Record<string, unknown>>()
 
-  // Set true around our own doc.commit() so the subscriber ignores the
-  // resulting by:"local" event (changefeed already captured those ops
-  // via wrappedPrepare). Orthogonal to BatchOptions.replay, which
-  // handles inbound discrimination of replays from local writes.
-  let inOurCommit = false
+  // Own-commit discriminator. Loro fires `doc.subscribe` events
+  // synchronously inside `doc.commit()`, with nested events from
+  // re-entrant commits queued and drained after the current handler
+  // exits but still inside the outer commit call. We discriminate via
+  // the CRDT's own event machinery (per-commit identity captured in
+  // `subscribePreCommit`) rather than via the user-facing `batch.origin`
+  // slot, which is reserved for `options.origin` round-trip.
+  //
+  // `nextIsOurs` is set true synchronously before each `doc.commit()`
+  // we issue and cleared by the pre-commit hook on its first fire — it
+  // has a single-statement lifetime, no re-entrancy window. The `finally`
+  // in runBatch sweeps the empty-commit case (where pre-commit never
+  // fires; verified by probe — see TECHNICAL.md "Why pre-commit hook").
+  let nextIsOurs = false
+
+  // Pending own-commit identities: `${peer}:${counter+length-1}`
+  // matches the tail entry of `batch.to` for the corresponding event.
+  const ourCommits = new Set<string>()
 
   // Stashed origin from merge for the subscriber to pick up.
   let pendingImportOrigin: string | undefined
@@ -413,15 +433,19 @@ export function createLoroSubstrate(
       // Ctx-level outermost detection (frameStarts.length === 0)
       // means substrate.runBatch is invoked at most once per outermost
       // change(doc, fn). No per-substrate depth counter needed.
-      if (options?.origin !== undefined) {
-        doc.setNextCommitMessage(options.origin)
-      }
-      work()
-      inOurCommit = true
+      nextIsOurs = true
       try {
-        doc.commit()
+        work()
+        doc.commit(
+          options?.origin !== undefined
+            ? { origin: options.origin }
+            : undefined,
+        )
       } finally {
-        inOurCommit = false
+        // Empty-commit safety: if no event fired (probe-verified
+        // behavior), pre-commit never cleared the flag. This ensures a
+        // subsequent external raw commit doesn't get misclassified.
+        nextIsOurs = false
       }
     },
 
@@ -557,10 +581,28 @@ export function createLoroSubstrate(
 
   // --- Event bridge (registered once at construction) ---
 
+  doc.subscribePreCommit(e => {
+    // We set nextIsOurs true synchronously before work() in runBatch.
+    // Loro's exportSince() (called by Exchange sync during ctx.flush() inside work())
+    // triggers an implicit commit. Setting this flag early ensures we capture
+    // that implicit commit's identity. We clear it on first fire to prevent
+    // any subsequent raw external commits from being misclassified.
+    if (nextIsOurs) {
+      const tail = e.changeMeta.counter + e.changeMeta.length - 1
+      ourCommits.add(`${e.changeMeta.peer}:${tail}`)
+      nextIsOurs = false
+    }
+  })
+
   doc.subscribe(batch => {
-    // Ignore our own commits (changefeed already captured via wrappedPrepare)
-    if (batch.by === "local" && inOurCommit) {
-      return
+    // We consume the captured identity via delete-as-predicate. This immediately
+    // cleans up the Set on match, preventing memory leaks. Local batches always
+    // have a single entry in batch.to representing the peer's new counter, but
+    // iterating is robust to any future Loro version vector changes.
+    if (batch.by === "local") {
+      for (const f of batch.to) {
+        if (ourCommits.delete(`${f.peer}:${f.counter}`)) return
+      }
     }
 
     // Ignore checkout events (version travel, not mutations)

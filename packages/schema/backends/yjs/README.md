@@ -139,6 +139,8 @@ yjsDoc.getMap("root").toJSON()  // raw state
 yjsDoc.clientID                  // client ID
 ```
 
+*Note for raw Y.Doc consumers:* Subscribers attached directly to the underlying `Y.Doc` will newly see `options.origin` faithfully on `transaction.origin` (where previously it was silently dropped).
+
 ## Yjs Ecosystem Compatibility
 
 Because `yjs(doc)` returns a standard `Y.Doc`, the entire Yjs provider ecosystem works out of the box:

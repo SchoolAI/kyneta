@@ -1,5 +1,6 @@
 import type { Substrate, SubstratePayload } from "@kyneta/schema"
 import {
+  BACKING_DOC,
   change,
   interpret,
   observation,
@@ -9,6 +10,7 @@ import {
   Schema,
   type SchemaNode,
   subscribe,
+  unwrap,
   writable,
 } from "@kyneta/schema"
 import { LoroDoc } from "loro-crdt"
@@ -843,5 +845,72 @@ describe("parseVersion", () => {
     const serialized = v.serialize()
     const parsed = loroSubstrateFactory.parseVersion(serialized)
     expect(parsed.compare(v)).toBe("equal")
+  })
+})
+
+// ===========================================================================
+// Origin-free discriminator tests
+// ===========================================================================
+
+describe("origin-free discriminator", () => {
+  it("options.origin survives to batch.origin", () => {
+    const substrate = loroSubstrateFactory.create(TestSchema)
+    const doc = interpretSubstrate(TestSchema, substrate)
+    const native = (substrate as any)[BACKING_DOC] as LoroDoc
+
+    let capturedOrigin: string | undefined = "not-called"
+    native.subscribe(batch => {
+      capturedOrigin = batch.origin
+    })
+
+    change(doc, d => d.title.insert(0, "x"), { origin: "undo" })
+    expect(capturedOrigin).toBe("undo")
+    expect(
+      native.getAllChanges().get(`${native.peerId}` as `${number}`)?.[0]
+        ?.message,
+    ).toBeUndefined()
+  })
+
+  it("raw external commit during own handler is bridged", () => {
+    const substrate = loroSubstrateFactory.create(TestSchema)
+    const doc = interpretSubstrate(TestSchema, substrate)
+    const native = (substrate as any)[BACKING_DOC] as LoroDoc
+
+    let externalFired = false
+    native.subscribe(() => {
+      if (!externalFired) {
+        externalFired = true
+        const raw = unwrap(doc) as LoroDoc
+        raw.getText("title").insert(0, "ext")
+        raw.commit()
+      }
+    })
+
+    let kynetaFires = 0
+    subscribe(doc, () => {
+      kynetaFires++
+    })
+
+    change(doc, d => d.title.insert(0, "x"))
+    // 1 for our own change (captured via wrappedPrepare),
+    // plus 1 for the raw external commit we triggered inside the handler
+    expect(kynetaFires).toBe(2)
+  })
+
+  it("external write with any string origin is bridged", () => {
+    const substrate = loroSubstrateFactory.create(TestSchema)
+    const doc = interpretSubstrate(TestSchema, substrate)
+    const native = (substrate as any)[BACKING_DOC] as LoroDoc
+
+    let kynetaFires = 0
+    subscribe(doc, () => {
+      kynetaFires++
+    })
+
+    native.setNextCommitOrigin("__kyneta_local__")
+    native.getText("title").insert(0, "ext")
+    native.commit()
+
+    expect(kynetaFires).toBe(1)
   })
 })

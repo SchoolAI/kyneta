@@ -6,7 +6,7 @@
 //   by `runBatch`. The projection law `σ ≡ Π(λ)` holds at every prepare
 //   boundary — re-entrant subscribers reading either σ (via the Reader)
 //   or λ (via `unwrap`) see a coherent state.
-// - `runBatch(body)` opens one `Y.transact(doc, body, KYNETA_ORIGIN)` per
+// - `runBatch(body)` opens one `Y.transact(doc, body, options?.origin)` per
 //   outermost logical action. Yjs's native transact nesting collapses
 //   inner re-entrant transacts into the outer one for free — no depth
 //   counter needed (unlike Loro). External `observeDeep` consumers see
@@ -18,7 +18,9 @@
 // - `afterBatch` flushes the json-boundary coalescer on local writes
 //   and re-materialises σ from λ on replay.
 // - Persistent observeDeep event bridge for external changes.
-// - Transaction-origin filter (`KYNETA_ORIGIN`) to ignore our own writes.
+// - Per-transaction meta mark (`KYNETA_MARK`) inscribed from inside the
+//   transact body to ignore our own writes; survives Yjs's nested-transact
+//   collapse so external wrapping is handled correctly.
 //
 // The event bridge contract: wrapping a Y.Doc in a kyneta substrate
 // means subscribing to the kyneta doc observes ALL mutations to the
@@ -80,10 +82,19 @@ import { YjsVersion } from "./version.js"
 import { resolveYjsType } from "./yjs-resolve.js"
 
 // ---------------------------------------------------------------------------
-// Origin tag — used to suppress echo from our own transactions
+// Own-commit discriminator
 // ---------------------------------------------------------------------------
 
-const KYNETA_ORIGIN = "kyneta-prepare"
+// Own-commit discriminator. We mark `transaction.meta` from inside
+// the transact body — the mark travels with the Transaction object
+// that Yjs hands to observeDeep, regardless of `transaction.origin`.
+// This frees the user-facing `origin` slot for `options.origin`
+// round-trip and correctly handles the case where external code
+// wraps `change(doc, fn)` in its own `Y.transact` (Yjs's nested-
+// transact collapse delivers the SAME Transaction object to both
+// outer and inner callbacks; verified by probe — see TECHNICAL.md
+// "Why transaction.meta mark").
+const KYNETA_MARK = Symbol("kyneta:own-commit")
 
 // ---------------------------------------------------------------------------
 // createYjsSubstrate — wrap a user-provided Y.Doc
@@ -299,19 +310,20 @@ export function createYjsSubstrate(
       flushJsonBoundaryBuffer()
     },
 
-    runBatch(work: () => void, _options?: BatchOptions): void {
+    runBatch(work: () => void, options?: BatchOptions): void {
       // Yjs's native transact nesting collapses inner re-entrant
       // transacts into the outermost — exactly the "one batched
       // event per outermost logical action" semantic we want. No
       // depth counter needed.
       //
-      // The KYNETA_ORIGIN tag (NOT `options?.origin`) is the Yjs-
-      // layer transaction origin: the observeDeep bridge skips
-      // transactions tagged with this origin because we already
-      // captured the ops via wrappedPrepare. The app-level
-      // `options?.origin` flows separately through the kyneta
-      // Changeset via the changefeed layer.
-      doc.transact(work, KYNETA_ORIGIN)
+      // We mark the transaction via `tr.meta.set` inside the transact body.
+      // The mark lives on per-transaction meta, orthogonal to origin.
+      // The app-level `options?.origin` flows directly to `transaction.origin`
+      // and round-trips to the changefeed layer.
+      doc.transact(tr => {
+        tr.meta.set(KYNETA_MARK, true)
+        work()
+      }, options?.origin)
     },
 
     context(): WritableContext {
@@ -433,8 +445,11 @@ export function createYjsSubstrate(
   // --- Event bridge (registered once at construction) ---
 
   rootMap.observeDeep((events, transaction) => {
-    // Ignore our own transactions (changefeed already captured via wrappedPrepare)
-    if (transaction.origin === KYNETA_ORIGIN) {
+    // Own-commit discriminator: kyneta's runBatch marks the transaction
+    // via `tr.meta.set` inside the transact body. The mark survives Yjs's
+    // nested-transact collapse, so external code wrapping `change()` in
+    // its own Y.transact is correctly classified as own.
+    if (transaction.meta.get(KYNETA_MARK)) {
       return
     }
 

@@ -82,7 +82,7 @@ The two backends implement the same `Substrate<V>` contract and share the overal
 | Container discrimination | `.kind()` method (strings: `"Map"`, `"Text"`, `"List"`, …) | `instanceof Y.Map`, `instanceof Y.Array`, `instanceof Y.Text` |
 | Why | Loro containers are WASM handles; `instanceof` is unreliable across module boundaries | Yjs shared types are native JS classes; `instanceof` is stable |
 | Write commit | Eager `applyDiff` in `prepare` (plain MapDiff writes coalesce into a per-CID buffer drained in `afterBatch`; structural inserts apply immediately). `runBatch` brackets with a depth counter + single `doc.commit()` on outermost release | Eager imperative mutations inside the ambient `Y.transact` opened by `runBatch` (origin-tagged `KYNETA_ORIGIN`); Yjs's native transact nesting collapses re-entries for free |
-| Event bridge | `doc.subscribe` + `inOurCommit` guard + `BatchOptions.replay` directive | `observeDeep` + `transaction.origin === KYNETA_ORIGIN` filter + `BatchOptions.replay` directive |
+| Event bridge | `doc.subscribe` + pre-commit-hook discriminator + `BatchOptions.replay` directive | `observeDeep` + `transaction.meta` mark discriminator + `BatchOptions.replay` directive |
 | Structural identity | Identity hash as Loro container key | Identity hash as `Y.Map` key within the root `Y.Map` |
 | Structural creation | Lazy — creation happens on first typed accessor call | Eager — `ensureContainers` walks the schema on upgrade |
 | Structural client ID | Not needed (Loro has no equivalent concern) | `STRUCTURAL_YJS_CLIENT_ID = 0` during `ensureContainers` |
@@ -306,7 +306,7 @@ Source: `packages/schema/backends/yjs/src/substrate.ts` → `rootMap.observeDeep
 
 The persistent `observeDeep` callback on the root `Y.Map` is the enforcement mechanism for the key invariant: every mutation fires the kyneta changefeed, regardless of source. Sources include:
 
-- Local kyneta writes via `change(doc, fn)` — suppressed by origin tag.
+- Local kyneta writes via `change(doc, fn)` — suppressed by the `transaction.meta` mark.
 - `exchange.merge(payload)` from remote peers — not suppressed; subscribers must see it.
 - `Y.applyUpdate(doc, update)` from application code directly — not suppressed.
 - Raw Yjs API writes (`doc.getMap("root").get(id).insert(0, "x")`) bypassing kyneta — not suppressed.
@@ -314,17 +314,38 @@ The persistent `observeDeep` callback on the root `Y.Map` is the enforcement mec
 
 The handler:
 
-1. If the transaction origin equals `OURS` and the re-entrancy guard is set → skip (kyneta already notified during its own `change`).
-2. Otherwise, set the re-entrancy guard to block recursive entry.
-3. Call `eventsToOps(events, schema, binding)` → pure translation from Yjs events to kyneta `Op[]`.
-4. Dispatch the ops through the interpreter stack's notification pipeline.
-5. Clear the guard.
+1. If the transaction carries the `KYNETA_MARK` symbol in `transaction.meta` → skip (kyneta already notified during its own `change`).
+2. Call `eventsToOps(events, schema, binding)` → pure translation from Yjs events to kyneta `Op[]`.
+3. Dispatch the ops through the interpreter stack's notification pipeline.
 
-### Origin tagging
+### Own-commit discriminator via `transaction.meta`
 
-`Y.transact` accepts an arbitrary `origin` value as its third argument. The substrate passes a unique per-substrate symbol (`OURS`) when wrapping its own writes; external `Y.transact` calls (or `Y.applyUpdate`, which does its own transact) carry whatever origin the caller supplied (often `null`).
+`Y.transact` accepts an arbitrary `origin` value as its third argument. The substrate passes the user-provided `options?.origin` directly to `Y.transact`, freeing the user-facing `origin` slot for legitimate round-trips. To identify its own transactions, the substrate inscribes a unique per-substrate Symbol (`KYNETA_MARK`) into `transaction.meta` from inside the transact body.
 
-The event handler's discriminant is `transaction.origin === OURS`, not a boolean flag set just-before / just-after `transact`. This means the bridge correctly handles nested or concurrent transactions from other sources — each event's `transaction.origin` is inspected independently.
+#### Why the `transaction.meta` mark
+
+Yjs's event-delivery semantics are synchronous: `beforeTransaction` fires synchronously inside `doc.transact()`; the body callback runs with access to the in-flight `Transaction` object; `observeDeep` fires synchronously after the body returns, before `transact` returns. Nested `transact` calls collapse — both outer and inner body callbacks receive the SAME Transaction object.
+
+Yjs's `Transaction.meta: Map<any, any>` is a public per-transaction Map. Writing to it from inside the transact body inscribes the mark on the SAME Transaction object that `observeDeep` later receives — including the external-wrap case, since the inner kyneta `transact` body shares the outer's Transaction object via Yjs's nested-collapse semantics. The mark is data on the CRDT's own event machinery; `transaction.origin` is left untouched and carries `options.origin` verbatim.
+
+#### Probe-verified empirical facts
+
+| Property | Behavior |
+|---|---|
+| Nested transact callback identity | Inner and outer transact body callbacks receive the SAME `Transaction` object; outer's origin wins. |
+| `transaction.meta` survives to observeDeep | `tr.meta.set(MARK, value)` from inside the body is visible to observeDeep on the same transaction. |
+| External-wrap mark survival | External code wrapping a kyneta-style inner transact: the inner's mark reaches observeDeep on the outer's shared Transaction. |
+| Mixed-mode collapse | External raw mutations + marked inner transact in one outer share ONE Transaction; observeDeep sees all events with mark set (all-or-nothing skip — known limitation). |
+| Empty transact | `beforeTransaction` fires, `observeDeep` does NOT fire. No issue: mark is just data on a soon-to-be-GC'd Transaction. |
+
+Three properties this gives us:
+1. `transaction.origin` is preserved as a transparent pass-through for `options.origin` — providers and `UndoManager.addTrackedOrigin` see the app's intent, not a kyneta sentinel.
+2. External-wrap is correctly classified as own — strict improvement over the `KYNETA_ORIGIN` string design.
+3. No string namespace to collide with — external code can use any string origin without triggering kyneta's bridge-skip.
+
+### Known limitation: mixed mode
+
+Mixing raw CRDT mutations with `change()` calls inside the same atomic unit (a single Yjs `transact` body) is unsupported. The raw mutations will be silently absorbed into kyneta's own-commit skip and not bridged to the kyneta changefeed. To intermix, use separate transacts for raw mutations. This is a fundamental limit of commit-level discrimination.
 
 During replay, `onFlush` re-materializes the `PlainState` shadow from the `Y.Doc` via `materializeYjsShadow`, ensuring that `ctx.reader` — which reads through `plainReader(shadow)` — is consistent with the merged Yjs state for any subscriber callbacks that fire during notification delivery. See [§The functional shadow](../../TECHNICAL.md#the-functional-shadow).
 

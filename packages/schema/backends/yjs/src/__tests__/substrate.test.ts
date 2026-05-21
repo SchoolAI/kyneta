@@ -8,6 +8,7 @@ import {
   RawPath,
   Schema,
   subscribe,
+  unwrap,
   version,
 } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
@@ -650,6 +651,60 @@ describe("YjsSubstrate", () => {
       expect(docB.title()).toBe("seedmore")
       expect(docB.count()).toBe(42)
       expect(writes).toBe(1)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Origin-free discriminator tests
+  // -------------------------------------------------------------------------
+
+  describe("origin-free discriminator", () => {
+    it("options.origin survives to transaction.origin", () => {
+      const doc = createDoc(yjs.bind(SimpleSchema))
+      const native = unwrap(doc) as Y.Doc
+
+      let capturedOrigin: string | undefined = "not-called"
+      native.on("afterTransaction", tr => {
+        capturedOrigin = tr.origin
+      })
+
+      change(doc, d => d.title.insert(0, "x"), { origin: "undo" })
+      expect(capturedOrigin).toBe("undo")
+    })
+
+    it("external wrapping kyneta is correctly classified as own", () => {
+      const doc = createDoc(yjs.bind(SimpleSchema))
+
+      let kynetaFires = 0
+      subscribe(doc, () => {
+        kynetaFires++
+      })
+
+      const native = unwrap(doc) as Y.Doc
+      native.transact(() => {
+        change(doc, d => d.title.insert(0, "x"))
+      }, "external")
+
+      // Should fire exactly once (captured via wrappedPrepare),
+      // and NOT twice (the bridge should skip the external transaction
+      // because the inner kyneta transact marked the transaction).
+      expect(kynetaFires).toBe(1)
+    })
+
+    it("external raw transact with any string origin is bridged", () => {
+      const doc = createDoc(yjs.bind(SimpleSchema))
+
+      let kynetaFires = 0
+      subscribe(doc, () => {
+        kynetaFires++
+      })
+
+      const native = unwrap(doc) as Y.Doc
+      native.transact(() => {
+        native.getMap("root").set("title", "ext")
+      }, "kyneta-prepare")
+
+      expect(kynetaFires).toBe(1)
     })
   })
 })

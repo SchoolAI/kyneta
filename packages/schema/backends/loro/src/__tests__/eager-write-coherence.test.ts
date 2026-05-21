@@ -388,12 +388,10 @@ describe("Loro nested-commit semantics under re-entry", () => {
     )
     expect(localBatches).toHaveLength(2)
 
-    // At least one of the new commits carries one of the origin
-    // messages we set. Exact assignment is intricate under the new
-    // model (the inner's `setNextCommitMessage` can win the race for
-    // the next-to-be-finalized commit since it's called after the
-    // outer's setNext but before either doc.commit fires), so we just
-    // assert that the origins flowed through to the Loro layer at all.
+    // Under the new design, `message` is never set by the substrate.
+    // We assert that the messages are undefined (kyneta does not write
+    // commit messages), but the surrounding two-non-empty-batches
+    // assertion remains true.
     const log = native.getAllChanges() as Map<
       unknown,
       Array<{ counter: number; length: number; message?: string }>
@@ -403,8 +401,7 @@ describe("Loro nested-commit semantics under re-entry", () => {
       allChanges.push(...cs)
     })
     const newChanges = allChanges.slice(before)
-    const messages = newChanges.map(c => c.message)
-    expect(messages.includes("outer") || messages.includes("inner")).toBe(true)
+    expect(newChanges.every(c => c.message === undefined)).toBe(true)
   })
 })
 
