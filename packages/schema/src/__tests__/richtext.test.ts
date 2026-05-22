@@ -242,6 +242,6 @@ describe("normalizeSpans", () => {
       { text: "C", marks: undefined as any },
     ])
     expect(result).toHaveLength(1)
-    expect(result[0]!.text).toBe("ABC")
+    expect(result[0]?.text).toBe("ABC")
   })
 })

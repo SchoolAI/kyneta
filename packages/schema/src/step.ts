@@ -215,7 +215,7 @@ function marksEqual(
   const bKeys = b ? Object.keys(b).filter(k => b[k] !== undefined) : []
   if (aKeys.length !== bKeys.length) return false
   for (const key of aKeys) {
-    if (a![key] !== b?.[key]) return false
+    if (a?.[key] !== b?.[key]) return false
   }
   return true
 }

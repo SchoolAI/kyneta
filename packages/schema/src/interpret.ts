@@ -17,14 +17,12 @@
 // - Pre-built layers live in `./layers.ts` to avoid circular imports.
 
 import type { HasChangefeed } from "@kyneta/changefeed"
-import { isNonNullObject, isPropertyHost } from "./guards.js"
+import { isNonNullObject } from "./guards.js"
 import type { HasRead } from "./interpreters/bottom.js"
 import { bottomInterpreter } from "./interpreters/bottom.js"
 import type { HasTransact } from "./interpreters/writable.js"
-import { NATIVE } from "./native.js"
 import type { Path } from "./path.js"
 import { RawPath } from "./path.js"
-import { POSITION } from "./position.js"
 import type { Ref, RRef, RWRef } from "./ref.js"
 import {
   type CounterSchema,
@@ -203,7 +201,7 @@ export function dispatchSum<A>(
     // Fallback: first variant
     const keys = Object.keys(discSchema.variantMap)
     if (keys.length > 0) {
-      return variants.byKey(keys[0]!)
+      return variants.byKey(keys[0] as any)
     }
     return undefined
   }
@@ -477,7 +475,7 @@ export function interpret(
     return interpretImpl(
       schema,
       interpOrCtx as Interpreter<any, any>,
-      ctx!,
+      ctx as any,
       path,
     )
   }
@@ -547,64 +545,8 @@ function createBuilder(
 // ---------------------------------------------------------------------------
 // interpretImpl — the actual catamorphism walk
 // ---------------------------------------------------------------------------
-
-/**
- * Attach the [NATIVE] symbol property on a ref result.
- *
- * Reads the nativeResolver from the context (if present) to determine
- * the substrate-native container at the given schema position, then
- * sets it as a non-enumerable, non-writable property on the result.
- *
- * This is called for every node in interpretImpl — the universal
- * catamorphism. When nativeResolver is absent (e.g. bare readable
- * stacks), this is a no-op.
- */
-function attachNative(
-  result: unknown,
-  ctx: unknown,
-  schema: Schema,
-  path: Path,
-): void {
-  const resolver = (ctx as any)?.nativeResolver as
-    | ((schema: Schema, path: Path) => unknown)
-    | undefined
-  if (resolver && isPropertyHost(result)) {
-    Object.defineProperty(result, NATIVE, {
-      value: resolver(schema, path),
-      enumerable: false,
-      writable: false,
-      configurable: false,
-    })
-  }
-}
-
-/**
- * Attach the `[POSITION]` capability to a text ref.
- *
- * Reads `ctx.positionResolver` — a function set by each substrate in its
- * `context()` method. If present, calls it with the text schema and path,
- * then defines `[POSITION]` as a non-enumerable property on the result.
- *
- * Only called for text nodes (unlike `attachNative` which is called for all).
- */
-function attachPosition(
-  result: unknown,
-  ctx: unknown,
-  schema: Schema,
-  path: Path,
-): void {
-  const resolver = (ctx as any)?.positionResolver as
-    | ((schema: Schema, path: Path) => unknown)
-    | undefined
-  if (resolver && isPropertyHost(result)) {
-    Object.defineProperty(result, POSITION, {
-      value: resolver(schema, path),
-      enumerable: false,
-      writable: false,
-      configurable: false,
-    })
-  }
-}
+// interpretImpl — the actual catamorphism walk
+// ---------------------------------------------------------------------------
 
 function interpretImpl<Ctx, A>(
   schema: Schema,
@@ -641,9 +583,7 @@ function interpretImpl<Ctx, A>(
 
   switch (schema[KIND]) {
     case "scalar": {
-      const result = interp.scalar(ctx, resolvedPath, schema)
-      attachNative(result, ctx, schema, resolvedPath)
-      return result
+      return interp.scalar(ctx, resolvedPath, schema)
     }
 
     case "product": {
@@ -652,7 +592,7 @@ function interpretImpl<Ctx, A>(
       // so that ctx.rootPath set by withAddressing is picked up.
       const fieldThunks: Record<string, () => A> = {}
       for (const key of Object.keys(schema.fields)) {
-        const fieldSchema = schema.fields[key]!
+        const fieldSchema = schema.fields[key] as any
         fieldThunks[key] = () => {
           const childPath = effectivePath().field(key)
           const result = interpretImpl(fieldSchema, interp, ctx, childPath)
@@ -666,7 +606,6 @@ function interpretImpl<Ctx, A>(
         schema,
         fieldThunks,
       )
-      attachNative(productResult, ctx, schema, resolvedPath)
       return productResult
     }
 
@@ -678,9 +617,7 @@ function interpretImpl<Ctx, A>(
         getOnRefCreated()?.(childPath, result)
         return result
       }
-      const seqResult = interp.sequence(ctx, resolvedPath, schema, itemFn)
-      attachNative(seqResult, ctx, schema, resolvedPath)
-      return seqResult
+      return interp.sequence(ctx, resolvedPath, schema, itemFn)
     }
 
     case "map": {
@@ -692,9 +629,7 @@ function interpretImpl<Ctx, A>(
         getOnRefCreated()?.(childPath, result)
         return result
       }
-      const mapResult = interp.map(ctx, resolvedPath, schema, itemFn)
-      attachNative(mapResult, ctx, schema, resolvedPath)
-      return mapResult
+      return interp.map(ctx, resolvedPath, schema, itemFn)
     }
 
     case "sum": {
@@ -735,16 +670,11 @@ function interpretImpl<Ctx, A>(
     }
 
     case "text": {
-      const textResult = interp.text(ctx, resolvedPath, schema)
-      attachNative(textResult, ctx, schema, resolvedPath)
-      attachPosition(textResult, ctx, schema, resolvedPath)
-      return textResult
+      return interp.text(ctx, resolvedPath, schema)
     }
 
     case "counter": {
-      const counterResult = interp.counter(ctx, resolvedPath, schema)
-      attachNative(counterResult, ctx, schema, resolvedPath)
-      return counterResult
+      return interp.counter(ctx, resolvedPath, schema)
     }
 
     case "set": {
@@ -755,9 +685,7 @@ function interpretImpl<Ctx, A>(
         getOnRefCreated()?.(childPath, result)
         return result
       }
-      const setResult = interp.set(ctx, resolvedPath, schema, itemFn)
-      attachNative(setResult, ctx, schema, resolvedPath)
-      return setResult
+      return interp.set(ctx, resolvedPath, schema, itemFn)
     }
 
     case "tree": {
@@ -791,15 +719,7 @@ function interpretImpl<Ctx, A>(
         }
         return out
       }
-      const treeResult = interp.tree(
-        ctx,
-        resolvedPath,
-        schema,
-        nodesThunk,
-        nodeFn,
-      )
-      attachNative(treeResult, ctx, schema, resolvedPath)
-      return treeResult
+      return interp.tree(ctx, resolvedPath, schema, nodesThunk, nodeFn)
     }
 
     case "movable": {
@@ -809,15 +729,11 @@ function interpretImpl<Ctx, A>(
         getOnRefCreated()?.(childPath, result)
         return result
       }
-      const movableResult = interp.movable(ctx, resolvedPath, schema, itemFn)
-      attachNative(movableResult, ctx, schema, resolvedPath)
-      return movableResult
+      return interp.movable(ctx, resolvedPath, schema, itemFn)
     }
 
     case "richtext": {
       const richtextResult = interp.richtext(ctx, resolvedPath, schema)
-      attachNative(richtextResult, ctx, schema, resolvedPath)
-      attachPosition(richtextResult, ctx, schema, resolvedPath)
       return richtextResult
     }
   }

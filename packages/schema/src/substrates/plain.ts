@@ -60,11 +60,7 @@ import type {
   SubstratePayload,
   Version,
 } from "../substrate.js"
-import {
-  BACKING_DOC,
-  RECORD_INVERSE,
-  TREE_NODE_ALLOCATE,
-} from "../substrate.js"
+import { BACKING_DOC, RECORD_INVERSE } from "../substrate.js"
 import { Zero } from "../zero.js"
 
 // ---------------------------------------------------------------------------
@@ -230,41 +226,33 @@ export function createPlainSubstrate<V extends Version>(
 
     context(): WritableContext {
       if (!cachedCtx) {
-        cachedCtx = buildWritableContext(substrate)
-        // Attach nativeResolver — for plain substrates, only the root
-        // has a native value (the PlainState backing object). All children
-        // are undefined since plain substrates don't have dedicated containers.
-        ;(cachedCtx as any).nativeResolver = (
-          _schema: unknown,
-          path: { segments: readonly unknown[] },
-        ) => {
-          return path.segments.length === 0 ? doc : undefined
-        }
-        ;(cachedCtx as any).positionResolver = (
-          _schema: unknown,
-          _path: { segments: readonly unknown[] },
-        ) => {
-          return {
-            createPosition(index: number, side: Side): PlainPosition {
-              return new PlainPosition(index, side)
-            },
-            decodePosition(bytes: Uint8Array): PlainPosition {
-              return decodePlainPosition(bytes)
-            },
-          } satisfies PositionCapable
-        }
-        // Tree node id allocation — per-doc monotonic counter keyed by
-        // the tree's path. Plain substrate offers no concurrent-move
-        // correctness guarantee (the price of being plain). `parent`
-        // and `index` are accepted to match the capability signature but
-        // ignored — the create instruction's stepTree application
-        // positions the node.
         let nextTreeNodeCounter = 1
-        ;(cachedCtx as any)[TREE_NODE_ALLOCATE] = (
-          treePath: { key: string },
-          _parent?: string | null,
-          _index?: number,
-        ) => `tree-${treePath.key || "root"}-${nextTreeNodeCounter++}`
+        cachedCtx = buildWritableContext(substrate, {
+          nativeResolver: (
+            _schema: unknown,
+            path: { segments: readonly unknown[] },
+          ) => {
+            return path.segments.length === 0 ? doc : undefined
+          },
+          positionResolver: (
+            _schema: unknown,
+            _path: { segments: readonly unknown[] },
+          ) => {
+            return {
+              createPosition(index: number, side: Side): PlainPosition {
+                return new PlainPosition(index, side)
+              },
+              decodePosition(bytes: Uint8Array): PlainPosition {
+                return decodePlainPosition(bytes)
+              },
+            } satisfies PositionCapable
+          },
+          treeNodeAllocate: (
+            treePath: { key: string },
+            _parent?: string | null,
+            _index?: number,
+          ) => `tree-${treePath.key || "root"}-${nextTreeNodeCounter++}`,
+        })
       }
       return cachedCtx
     },

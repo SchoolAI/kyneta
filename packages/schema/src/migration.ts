@@ -1289,16 +1289,16 @@ function* expandNested(
   while (true) {
     const fields: Record<string, SchemaNode> = {}
     for (let i = 0; i < fieldNames.length; i++) {
-      const name = fieldNames[i]!
-      const variant = fieldVariants[i]![indices[i]!]!
+      const name = fieldNames[i] as any
+      const variant = (fieldVariants[i] as any)[indices[i] as any] as any
       fields[name] = variant
     }
     yield { ...schema, fields } as ProductSchema
     // Advance.
     let k = indices.length - 1
     while (k >= 0) {
-      indices[k] = indices[k]! + 1
-      if (indices[k]! < fieldVariants[k]!.length) break
+      indices[k] = (indices[k] as any) + 1
+      if ((indices[k] as any) < (fieldVariants[k] as any).length) break
       indices[k] = 0
       k--
     }
@@ -1374,7 +1374,9 @@ function renameRootField(
   if (fromPath.includes(".") || toPath.includes(".")) return { ok: false }
   if (!(fromPath in schema.fields)) return { ok: false }
   if (toPath in schema.fields) return { ok: false }
-  const fieldSchema = (schema.fields as Record<string, SchemaNode>)[fromPath]!
+  const fieldSchema = (schema.fields as Record<string, SchemaNode>)[
+    fromPath
+  ] as any
   const nextFields: Record<string, SchemaNode> = {}
   for (const [k, v] of Object.entries(schema.fields)) {
     if (k !== fromPath) nextFields[k] = v as SchemaNode

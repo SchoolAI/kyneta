@@ -240,6 +240,7 @@ export type {
   RichTextRef,
   ScalarRef,
   SequenceRef,
+  SubstrateCapabilities,
   TextRef,
   Writable,
   WritableContext,

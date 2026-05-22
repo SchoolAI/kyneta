@@ -40,11 +40,12 @@ function assertRoundTrip(
   for (let pos = 0; pos <= cs; pos++) {
     const resolved = resolveDocPosition(reader, schema, pos)
     expect(resolved, `resolve(${pos}) should not be null`).not.toBeNull()
+    if (!resolved) continue // Satisfy TS after the expect
     const flat = flattenDocPosition(
       reader,
       schema,
-      resolved!.path,
-      resolved!.offset,
+      resolved.path,
+      resolved.offset,
     )
     expect(flat, `round-trip failed at pos ${pos}`).toBe(pos)
   }
@@ -213,18 +214,18 @@ describe("resolveDocPosition", () => {
     const { reader } = setup({ title: "Hi" })
 
     const r0 = resolveDocPosition(reader, schema, 0)
-    expect(r0!.path.length).toBe(0) // root, before first child
-    expect(r0!.offset).toBe(0)
+    expect(r0?.path.length).toBe(0) // root, before first child
+    expect(r0?.offset).toBe(0)
 
     const r1 = resolveDocPosition(reader, schema, 1)
-    expect(r1!.path.format()).toBe("title")
-    expect(r1!.offset).toBe(1)
-    expect(r1!.schema[KIND]).toBe("text")
+    expect(r1?.path.format()).toBe("title")
+    expect(r1?.offset).toBe(1)
+    expect(r1?.schema[KIND]).toBe("text")
 
     // End-of-text is a valid position (offset = charCount)
     const r2 = resolveDocPosition(reader, schema, 2)
-    expect(r2!.path.format()).toBe("title")
-    expect(r2!.offset).toBe(2)
+    expect(r2?.path.format()).toBe("title")
+    expect(r2?.offset).toBe(2)
   })
 
   it("out of bounds returns null", () => {
@@ -262,8 +263,8 @@ describe("resolveDocPosition", () => {
     // Should resolve at the list level, offset=1 (after item[0])
     const r = resolveDocPosition(reader, schema, 5)
     expect(r).not.toBeNull()
-    expect(r!.path.length).toBe(0) // at the list root
-    expect(r!.offset).toBe(1) // after the single item
+    expect(r?.path.length).toBe(0) // at the list root
+    expect(r?.offset).toBe(1) // after the single item
   })
 
   // --- Regression: scalar between composites ---
@@ -290,8 +291,8 @@ describe("resolveDocPosition", () => {
     const r3 = resolveDocPosition(reader, schema, 3)
     expect(r3).not.toBeNull()
     // Must be root offset 2, NOT root offset 1 (the pre-fix bug)
-    expect(r3!.path.length).toBe(0)
-    expect(r3!.offset).toBe(2)
+    expect(r3?.path.length).toBe(0)
+    expect(r3?.offset).toBe(2)
   })
 })
 
@@ -464,7 +465,7 @@ describe("live reader reflects mutations", () => {
     // Round-trip pre-mutation
     const cs1 = contentSize(reader, schema, RawPath.empty)
     for (let pos = 0; pos <= cs1; pos++) {
-      const r = resolveDocPosition(reader, schema, pos)!
+      const r = resolveDocPosition(reader, schema, pos) as any
       expect(flattenDocPosition(reader, schema, r.path, r.offset)).toBe(pos)
     }
     // Mutate
@@ -475,7 +476,7 @@ describe("live reader reflects mutations", () => {
     const cs2 = contentSize(reader, schema, RawPath.empty)
     expect(cs2).not.toBe(cs1)
     for (let pos = 0; pos <= cs2; pos++) {
-      const r = resolveDocPosition(reader, schema, pos)!
+      const r = resolveDocPosition(reader, schema, pos) as any
       expect(flattenDocPosition(reader, schema, r.path, r.offset)).toBe(pos)
     }
   })

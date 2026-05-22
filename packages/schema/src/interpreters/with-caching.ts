@@ -285,8 +285,8 @@ export function withCaching<A extends HasNavigation>(
       // Override each field getter with memoization
       for (const key of Object.keys(fields)) {
         if (key === discKey) continue
-        const thunk = fields[key]!
-        const state = fieldState[key]!
+        const thunk = fields[key] as any
+        const state = fieldState[key] as any
         Object.defineProperty(result, key, {
           get() {
             if (!state.resolved) {
@@ -303,8 +303,8 @@ export function withCaching<A extends HasNavigation>(
       // INVALIDATE handler: clear all field caches.
       const invalidateProduct = (_change: ChangeBase): void => {
         for (const key of Object.keys(fieldState)) {
-          fieldState[key]!.resolved = false
-          fieldState[key]!.cached = undefined
+          ;(fieldState[key] as any).resolved = false
+          ;(fieldState[key] as any).cached = undefined
         }
       }
 

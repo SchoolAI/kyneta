@@ -179,11 +179,11 @@ export function flattenForest<A>(
   function visit(node: ForestNode<A>, parent: string | null, index: number) {
     out.push({ id: node.id, parent, index, data: node.data })
     for (let i = 0; i < node.children.length; i++) {
-      visit(node.children[i]!, node.id, i)
+      visit(node.children[i] as any, node.id, i)
     }
   }
   for (let i = 0; i < forest.length; i++) {
-    visit(forest[i]!, null, i)
+    visit(forest[i] as any, null, i)
   }
   return out
 }
@@ -221,7 +221,7 @@ export function subtreeIds(
   if (!flat.some(n => n.id === rootId)) return []
   queue.push(rootId)
   while (queue.length > 0) {
-    const id = queue.shift()!
+    const id = queue.shift() as any
     if (ids.has(id)) continue
     ids.add(id)
     const kids = childrenByParent.get(id) ?? []

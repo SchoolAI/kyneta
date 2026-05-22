@@ -114,7 +114,7 @@ export function withNavigation<A extends HasCall>(
             configurable: true,
           })
         } else {
-          const thunk = fields[key]!
+          const thunk = fields[key] as any
           Object.defineProperty(result, key, {
             get() {
               return thunk()

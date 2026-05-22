@@ -27,6 +27,9 @@
 
 import type { ChangeBase } from "../change.js"
 import type { Interpreter, Path, SumVariants } from "../interpret.js"
+import type { RefContext } from "../interpreter-types.js"
+import { NATIVE } from "../native.js"
+import { POSITION } from "../position.js"
 import type {
   CounterSchema,
   MapSchema,
@@ -34,6 +37,7 @@ import type {
   ProductSchema,
   RichTextSchema,
   ScalarSchema,
+  Schema,
   SequenceSchema,
   SetSchema,
   SumSchema,
@@ -188,6 +192,42 @@ export function makeCarrier(): HasCall {
 }
 
 // ---------------------------------------------------------------------------
+// Capability attachment helpers
+// ---------------------------------------------------------------------------
+
+function attachNative(
+  result: HasCall,
+  ctx: Partial<RefContext> | undefined,
+  schema: Schema,
+  path: Path,
+): void {
+  if (ctx?.nativeResolver) {
+    Object.defineProperty(result, NATIVE, {
+      value: ctx.nativeResolver(schema, path),
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    })
+  }
+}
+
+function attachPosition(
+  result: HasCall,
+  ctx: Partial<RefContext> | undefined,
+  schema: TextSchema | RichTextSchema,
+  path: Path,
+): void {
+  if (ctx?.positionResolver) {
+    Object.defineProperty(result, POSITION, {
+      value: ctx.positionResolver(schema, path),
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
 // bottomInterpreter — the universal foundation
 // ---------------------------------------------------------------------------
 
@@ -204,63 +244,94 @@ export function makeCarrier(): HasCall {
  * withWritable(withCaching(withReadable(bottom)))    // + mutation
  * ```
  *
- * The `Ctx` is `unknown` — bottom needs no context. Layers that need
- * context (e.g. `withReadable` needs a store) narrow it in their own
- * type signatures.
+ * The `Ctx` is `Partial<RefContext> | undefined` — bottom needs no context
+ * for itself, but it attaches `[NATIVE]` and `[POSITION]` if the context
+ * provides the respective resolvers.
  */
-export const bottomInterpreter: Interpreter<unknown, HasCall> = {
-  scalar(_ctx: unknown, _path: Path, _schema: ScalarSchema): HasCall {
-    return makeCarrier()
+export const bottomInterpreter: Interpreter<
+  Partial<RefContext> | undefined,
+  HasCall
+> = {
+  scalar(
+    ctx: Partial<RefContext> | undefined,
+    path: Path,
+    schema: ScalarSchema,
+  ): HasCall {
+    const carrier = makeCarrier()
+    attachNative(carrier, ctx, schema, path)
+    return carrier
   },
 
   product(
-    _ctx: unknown,
-    _path: Path,
-    _schema: ProductSchema,
+    ctx: Partial<RefContext> | undefined,
+    path: Path,
+    schema: ProductSchema,
     _fields: Readonly<Record<string, () => HasCall>>,
   ): HasCall {
     // Field thunks are intentionally ignored — bottom produces inert
     // carriers. `withReadable` / `withCaching` will use the thunks
     // to build navigation and caching.
-    return makeCarrier()
+    const carrier = makeCarrier()
+    attachNative(carrier, ctx, schema, path)
+    return carrier
   },
 
   sequence(
-    _ctx: unknown,
-    _path: Path,
-    _schema: SequenceSchema,
+    ctx: Partial<RefContext> | undefined,
+    path: Path,
+    schema: SequenceSchema,
     _item: (index: number) => HasCall,
   ): HasCall {
-    return makeCarrier()
+    const carrier = makeCarrier()
+    attachNative(carrier, ctx, schema, path)
+    return carrier
   },
 
   map(
-    _ctx: unknown,
-    _path: Path,
-    _schema: MapSchema,
+    ctx: Partial<RefContext> | undefined,
+    path: Path,
+    schema: MapSchema,
     _item: (key: string) => HasCall,
   ): HasCall {
-    return makeCarrier()
+    const carrier = makeCarrier()
+    attachNative(carrier, ctx, schema, path)
+    return carrier
   },
 
   sum(
-    _ctx: unknown,
+    _ctx: Partial<RefContext> | undefined,
     _path: Path,
     _schema: SumSchema,
     _variants: SumVariants<HasCall>,
   ): HasCall {
+    // No attachNative: the dispatched variant already carries [NATIVE]
+    // from its own interpreter case. A sum has no container of its own;
+    // the fallback bare carrier intentionally omits [NATIVE].
     return makeCarrier()
   },
 
   // --- First-class leaf types -----------------------------------------------
   // Text and counter are leaf types — they get their own carrier.
 
-  text(_ctx: unknown, _path: Path, _schema: TextSchema): HasCall {
-    return makeCarrier()
+  text(
+    ctx: Partial<RefContext> | undefined,
+    path: Path,
+    schema: TextSchema,
+  ): HasCall {
+    const carrier = makeCarrier()
+    attachNative(carrier, ctx, schema, path)
+    attachPosition(carrier, ctx, schema, path)
+    return carrier
   },
 
-  counter(_ctx: unknown, _path: Path, _schema: CounterSchema): HasCall {
-    return makeCarrier()
+  counter(
+    ctx: Partial<RefContext> | undefined,
+    path: Path,
+    schema: CounterSchema,
+  ): HasCall {
+    const carrier = makeCarrier()
+    attachNative(carrier, ctx, schema, path)
+    return carrier
   },
 
   // --- First-class container types ------------------------------------------
@@ -269,33 +340,46 @@ export const bottomInterpreter: Interpreter<unknown, HasCall> = {
   // (`readonly FlatTreeNode<HasCall>[]`), not a single carrier.
 
   set(
-    _ctx: unknown,
-    _path: Path,
-    _schema: SetSchema,
+    ctx: Partial<RefContext> | undefined,
+    path: Path,
+    schema: SetSchema,
     _item: (key: string) => HasCall,
   ): HasCall {
-    return makeCarrier()
+    const carrier = makeCarrier()
+    attachNative(carrier, ctx, schema, path)
+    return carrier
   },
 
   tree(
-    _ctx: unknown,
-    _path: Path,
-    _schema: TreeSchema,
+    ctx: Partial<RefContext> | undefined,
+    path: Path,
+    schema: TreeSchema,
     _nodes: () => readonly import("../interpret.js").FlatTreeNode<HasCall>[],
   ): HasCall {
-    return makeCarrier()
+    const carrier = makeCarrier()
+    attachNative(carrier, ctx, schema, path)
+    return carrier
   },
 
   movable(
-    _ctx: unknown,
-    _path: Path,
-    _schema: MovableSequenceSchema,
+    ctx: Partial<RefContext> | undefined,
+    path: Path,
+    schema: MovableSequenceSchema,
     _item: (index: number) => HasCall,
   ): HasCall {
-    return makeCarrier()
+    const carrier = makeCarrier()
+    attachNative(carrier, ctx, schema, path)
+    return carrier
   },
 
-  richtext(_ctx: unknown, _path: Path, _schema: RichTextSchema): HasCall {
-    return makeCarrier()
+  richtext(
+    ctx: Partial<RefContext> | undefined,
+    path: Path,
+    schema: RichTextSchema,
+  ): HasCall {
+    const carrier = makeCarrier()
+    attachNative(carrier, ctx, schema, path)
+    attachPosition(carrier, ctx, schema, path)
+    return carrier
   },
 }

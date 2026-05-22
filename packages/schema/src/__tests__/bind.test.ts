@@ -338,7 +338,9 @@ describe("ephemeral binding target", () => {
 
     // Apply to target — merge handles "entirety" payloads correctly
     const target = factory.create(testSchema)
-    target.merge(payload!)
+    if (payload) {
+      target.merge(payload)
+    }
 
     const ts = (target.version() as TimestampVersion).timestamp
     expect(ts).toBeGreaterThan(0)

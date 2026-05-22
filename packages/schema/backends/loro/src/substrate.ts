@@ -66,7 +66,6 @@ import {
   type SubstrateFactory,
   type SubstratePayload,
   syncShadow,
-  TREE_NODE_ALLOCATE,
   type Version,
   type WritableContext,
 } from "@kyneta/schema"
@@ -451,95 +450,81 @@ export function createLoroSubstrate(
 
     context(): WritableContext {
       if (!cachedCtx) {
-        cachedCtx = buildWritableContext(substrate)
-        // Attach nativeResolver — used by interpretImpl to set [NATIVE]
-        // on every ref. The resolver maps schema positions to Loro containers.
-        ;(cachedCtx as any).nativeResolver = (
-          nodeSchema: SchemaNode,
-          path: { segments: readonly unknown[] },
-        ) => {
-          if (path.segments.length === 0) return doc
-          if (nodeSchema[KIND] === "scalar" || nodeSchema[KIND] === "sum")
-            return undefined
-          return resolveContainer(doc, schema, path as any, binding).resolved
-        }
-        // Attach positionResolver — used to create and decode LoroPositions
-        // backed by Loro Cursors. Resolves the schema path to a LoroText
-        // container, then delegates to Cursor-based anchoring.
-        ;(cachedCtx as any).positionResolver = (
-          _nodeSchema: unknown,
-          path: { segments: readonly unknown[] },
-        ) => {
-          return {
-            createPosition(index: number, side: Side) {
-              // Resolve path to the LoroText container
-              const resolved = resolveContainer(
-                doc,
-                schema,
-                path as any,
-                binding,
-              ).resolved
-              if (
-                !resolved ||
-                typeof (resolved as any).getCursor !== "function"
-              ) {
-                throw new Error(
-                  `positionResolver: path does not resolve to a LoroText`,
-                )
-              }
-              const loroSide = toLoroSide(side)
-              const cursor = (resolved as any).getCursor(index, loroSide) as
-                | Cursor
-                | undefined
-              if (!cursor) {
-                throw new Error(
-                  `positionResolver: getCursor returned undefined at index ${index}`,
-                )
-              }
-              return new LoroPosition(cursor, doc)
-            },
-            decodePosition(bytes: Uint8Array) {
-              const cursor = Cursor.decode(bytes)
-              return new LoroPosition(cursor, doc)
-            },
-          } satisfies PositionCapable
-        }
-        // Create-then-record. The pattern this once pioneered — eager
-        // native mutation during prepare — is now universal across the
-        // substrate write path (applyDiff-eager prepare + coalescing
-        // buffer; see the module-doc header). Tree node ids retain
-        // their own niche because they must be peer-stamped for
-        // Loro's `tree-move` merge to work: we materialize the node
-        // here so the id we hand back to the kyneta interpreter is
-        // identical to the one Loro persists.
-        //
-        // Position-at-allocation: `LoroTree.createNode(parent, index)`
-        // accepts a parent TreeID and index directly. Passing them in
-        // up-front avoids a subsequent applyDiff `create` against the
-        // same TreeID with a different parent (Loro panics with a
-        // locking-order violation on that path — see `treeChangeToDiff`
-        // for the diff-side filter that drops the redundant create).
-        ;(cachedCtx as any)[TREE_NODE_ALLOCATE] = (
-          treePath: Path,
-          parent?: string | null,
-          index?: number,
-        ): string => {
-          const { resolved } = resolveContainer(doc, schema, treePath, binding)
-          if (
-            !resolved ||
-            typeof (resolved as any).kind !== "function" ||
-            (resolved as any).kind() !== "Tree"
-          ) {
-            throw new Error(
-              "TREE_NODE_ALLOCATE: path does not resolve to a LoroTree container",
+        cachedCtx = buildWritableContext(substrate, {
+          nativeResolver: (
+            nodeSchema: SchemaNode,
+            path: { segments: readonly unknown[] },
+          ) => {
+            if (path.segments.length === 0) return doc
+            if (nodeSchema[KIND] === "scalar" || nodeSchema[KIND] === "sum")
+              return undefined
+            return resolveContainer(doc, schema, path as any, binding).resolved
+          },
+          positionResolver: (
+            _nodeSchema: unknown,
+            path: { segments: readonly unknown[] },
+          ) => {
+            return {
+              createPosition(index: number, side: Side) {
+                // Resolve path to the LoroText container
+                const resolved = resolveContainer(
+                  doc,
+                  schema,
+                  path as any,
+                  binding,
+                ).resolved
+                if (
+                  !resolved ||
+                  typeof (resolved as any).getCursor !== "function"
+                ) {
+                  throw new Error(
+                    `positionResolver: path does not resolve to a LoroText`,
+                  )
+                }
+                const loroSide = toLoroSide(side)
+                const cursor = (resolved as any).getCursor(index, loroSide) as
+                  | Cursor
+                  | undefined
+                if (!cursor) {
+                  throw new Error(
+                    `positionResolver: getCursor returned undefined at index ${index}`,
+                  )
+                }
+                return new LoroPosition(cursor, doc)
+              },
+              decodePosition(bytes: Uint8Array) {
+                const cursor = Cursor.decode(bytes)
+                return new LoroPosition(cursor, doc)
+              },
+            } satisfies PositionCapable
+          },
+          treeNodeAllocate: (
+            treePath: Path,
+            parent?: string | null,
+            index?: number,
+          ): string => {
+            const { resolved } = resolveContainer(
+              doc,
+              schema,
+              treePath,
+              binding,
             )
-          }
-          const node = (resolved as any).createNode(
-            parent ?? undefined,
-            index,
-          ) as { id: string }
-          return node.id
-        }
+            if (
+              !resolved ||
+              typeof (resolved as any).kind !== "function" ||
+              (resolved as any).kind() !== "Tree"
+            ) {
+              throw new Error(
+                "TREE_NODE_ALLOCATE: path does not resolve to a LoroTree container",
+              )
+            }
+            const node = (resolved as any).createNode(
+              parent ?? undefined,
+              index,
+            ) as { id: string }
+            return node.id
+          },
+        })
       }
       return cachedCtx
     },

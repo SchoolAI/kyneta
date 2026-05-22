@@ -25,7 +25,7 @@ function validateUntyped(schema: SchemaNode, value: unknown): unknown {
   const ctx: ValidateContext = { root: value, errors: [] }
   const result = interpret(schema, validateInterpreter, ctx)
   if (ctx.errors.length > 0) {
-    throw ctx.errors[0]!
+    throw ctx.errors[0] as any
   }
   return result
 }

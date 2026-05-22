@@ -233,8 +233,8 @@ describe("advanceAddresses", () => {
     advanceAddresses(addresses, instructions)
 
     for (let i = 0; i < indices.length; i++) {
-      const expected = advanceIndex(indices[i]!, instructions)
-      const addr = addresses[i]!
+      const expected = advanceIndex(indices[i] as any, instructions)
+      const addr = addresses[i] as any
       if (expected === null) {
         expect(addr.dead).toBe(true)
       } else {

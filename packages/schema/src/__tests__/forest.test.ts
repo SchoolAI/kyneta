@@ -60,7 +60,7 @@ describe("nestForest / flattenForest", () => {
       { id: "c1", parent: "p", index: 1, data: "c1" },
     ]
     const nested = nestForest(flat)
-    expect(nested[0]!.children.map(c => c.id)).toEqual(["c0", "c1", "c2"])
+    expect(nested[0]?.children.map(c => c.id)).toEqual(["c0", "c1", "c2"])
   })
 
   it("skips orphan nodes (parent id not in node set)", () => {
@@ -70,7 +70,7 @@ describe("nestForest / flattenForest", () => {
     ]
     const nested = nestForest(flat)
     expect(nested).toHaveLength(1)
-    expect(nested[0]!.id).toBe("a")
+    expect(nested[0]?.id).toBe("a")
   })
 
   it("recursive projection reflects depth", () => {

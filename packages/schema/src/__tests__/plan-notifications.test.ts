@@ -38,7 +38,7 @@ describe("planNotifications: grouping", () => {
     const plan = planNotifications([pc(path, "replace"), pc(path, "replace")])
 
     expect(plan.grouped.size).toBe(1)
-    const changes = plan.grouped.get(path.key)!
+    const changes = plan.grouped.get(path.key) as any
     expect(changes).toHaveLength(2)
     expect(changes[0]?.type).toBe("replace")
     expect(changes[1]?.type).toBe("replace")
@@ -66,7 +66,7 @@ describe("planNotifications: grouping", () => {
       pc(path, "increment"),
     ])
 
-    const changes = plan.grouped.get(path.key)!
+    const changes = plan.grouped.get(path.key) as any
     expect(changes).toHaveLength(3)
     expect(changes[0]?.type).toBe("increment")
     expect(changes[1]?.type).toBe("replace")
@@ -341,7 +341,7 @@ describe("planNotifications: change data integrity", () => {
     }
     const plan = planNotifications([{ path, change }])
 
-    const changes = plan.grouped.get(path.key)!
+    const changes = plan.grouped.get(path.key) as any
     expect(changes).toHaveLength(1)
     expect(changes[0]).toBe(change) // Same reference — no cloning
   })

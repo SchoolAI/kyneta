@@ -130,7 +130,7 @@ function canonicalizeSchema(schema: SchemaNode): string {
       const marks = (schema as any).marks as Record<string, { expand: string }>
       const parts = Object.keys(marks)
         .sort()
-        .map(k => `${k}:${marks[k]!.expand}`)
+        .map(k => `${k}:${(marks[k] as any).expand}`)
       return `t:richtext(${parts.join(",")})`
     }
 

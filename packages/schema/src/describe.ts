@@ -112,12 +112,12 @@ function walk(
       if (label !== undefined) {
         lines.push(`${prefix}${label}:`)
         for (const key of keys) {
-          walk(schema.fields[key]!, lines, depth + 1, key)
+          walk(schema.fields[key] as any, lines, depth + 1, key)
         }
       } else {
         // No label (bare product at root) — just print fields at current depth
         for (const key of keys) {
-          walk(schema.fields[key]!, lines, depth, key)
+          walk(schema.fields[key] as any, lines, depth, key)
         }
       }
       return
@@ -164,7 +164,7 @@ function walk(
 
         // Nullable sugar: sum([scalar("null"), X]) → nullable<X>
         if (isNullableSum(pos)) {
-          const inner = pos.variants[1]!
+          const inner = pos.variants[1] as any
           const innerDesc = inlineOrNull(inner)
           if (innerDesc !== null) {
             lines.push(`${prefix}${lbl}nullable<${innerDesc}>`)
@@ -175,7 +175,7 @@ function walk(
         } else {
           lines.push(`${prefix}${lbl}union`)
           for (let i = 0; i < pos.variants.length; i++) {
-            walk(pos.variants[i]!, lines, depth + 1, `${i}`)
+            walk(pos.variants[i] as any, lines, depth + 1, `${i}`)
           }
         }
       }
@@ -307,7 +307,7 @@ function inlineOrNull(schema: Schema): string | null {
 function walkChildren(schema: Schema, lines: string[], depth: number): void {
   if (schema[KIND] === "product") {
     for (const key of Object.keys(schema.fields)) {
-      walk(schema.fields[key]!, lines, depth, key)
+      walk(schema.fields[key] as any, lines, depth, key)
     }
   } else {
     walk(schema, lines, depth, undefined)

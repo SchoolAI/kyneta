@@ -34,6 +34,7 @@ export type { Op }
 import type { ChangeBase } from "../change.js"
 import { incrementChange, replaceChange } from "../change.js"
 import type { Plain, RefContext } from "../interpreter-types.js"
+import type { PositionCapable } from "../position.js"
 import type {
   CounterSchema,
   DiscriminatedSumSchema,
@@ -55,7 +56,7 @@ import type {
   RecordInverseFn,
   SubstratePrepare,
 } from "../substrate.js"
-import { RECORD_INVERSE } from "../substrate.js"
+import { RECORD_INVERSE, TREE_NODE_ALLOCATE } from "../substrate.js"
 import { installKeyedWriteOps } from "./keyed-helpers.js"
 import {
   installListWriteOps,
@@ -336,6 +337,19 @@ export function executeBatch(
 // buildWritableContext — shared builder for substrate factories
 // ---------------------------------------------------------------------------
 
+export interface SubstrateCapabilities {
+  nativeResolver?: (schema: Schema, path: Path) => unknown
+  positionResolver?: (
+    schema: TextSchema | RichTextSchema,
+    path: Path,
+  ) => PositionCapable
+  treeNodeAllocate?: (
+    path: Path,
+    parent?: string | null,
+    index?: number,
+  ) => string
+}
+
 /**
  * Builds a WritableContext around a substrate's mutation primitives.
  *
@@ -347,28 +361,12 @@ export function executeBatch(
  *   for PlainSubstrate's local-write path beyond version tracking; CRDT
  *   substrates use it to flush coalescing buffers / rematerialise shadow).
  * - `substrate.runBatch?(body, options?)` — optional transaction-boundary
- *   bracket installed around the prepare-loop for local writes. The ctx
- *   wrapper invokes this **only at the outermost depth transition**;
- *   inner frames manage their own state without re-entering
- *   `substrate.runBatch`. When omitted (PlainSubstrate), the ctx invokes
- *   the body directly.
- *
- * The context wraps these with the bracket primitive and its three
- * handlers (substrate / changefeed-flush / inverse-stack — see the
- * `WritableContext` JSDoc). All three are co-extensive at `frameStarts`
- * depth transitions; `runBatch` is the one wrapper that coordinates them.
- *
- * Caching and changefeed layers wrap `ctx.prepare` and `ctx.flush` at
- * interpretation time — the substrate never needs to know about them.
- *
- * ```ts
- * const substrate = createPlainSubstrate(store)
- * const ctx = buildWritableContext(substrate)
- * const doc = interpret(schema, ctx).with(readable).with(writable).done()
- * ```
+ *   bracket. If provided, `executeBatch` invokes it at the outermost
+ *   depth transition.
  */
 export function buildWritableContext(
   substrate: SubstratePrepare,
+  capabilities: SubstrateCapabilities = {},
 ): WritableContext {
   // Inverse stack — per-frame ranges of recorded inverses. Each call to
   // ctx.runBatch pushes the current `inverseStack.length` onto frameStarts;
@@ -458,9 +456,9 @@ export function buildWritableContext(
         // changefeed accumulator filling so subscribers see the full op
         // log on the aborted Changeset; the `compensating: true` flag
         // tells substrates to skip recording the inverse-of-the-inverse.
-        const frameStart = frameStarts.pop()!
+        const frameStart = frameStarts.pop() as any
         for (let i = inverseStack.length - 1; i >= frameStart; i--) {
-          const { path, inverse } = inverseStack[i]!
+          const { path, inverse } = inverseStack[i] as any
           ctx.prepare(path, inverse, { ...opts, compensating: true })
         }
         inverseStack.length = frameStart
@@ -532,12 +530,39 @@ export function buildWritableContext(
     [FORWARD_OPS_SINCE]: (marker: number) => {
       const out: Op[] = []
       for (let i = marker; i < writerLog.length; i++) {
-        const entry = writerLog[i]!
+        const entry = writerLog[i] as any
         if (entry.compensating) continue
         out.push(entry.op)
       }
       return out
     },
+  }
+
+  if (capabilities.nativeResolver) {
+    Object.defineProperty(ctx, "nativeResolver", {
+      value: capabilities.nativeResolver,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    })
+  }
+
+  if (capabilities.positionResolver) {
+    Object.defineProperty(ctx, "positionResolver", {
+      value: capabilities.positionResolver,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    })
+  }
+
+  if (capabilities.treeNodeAllocate) {
+    Object.defineProperty(ctx, TREE_NODE_ALLOCATE, {
+      value: capabilities.treeNodeAllocate,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    })
   }
 
   return ctx

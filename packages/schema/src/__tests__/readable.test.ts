@@ -306,7 +306,7 @@ describe("readable: sequence ref", () => {
 
   it(".at(i) returns a child ref that is itself callable", () => {
     const { doc } = createReadOnlyAnnotatedDoc()
-    const msg = doc.messages.at(0)!
+    const msg = doc.messages.at(0) as any
     expect(typeof msg).toBe("function")
     expect(msg.author()).toBe("Alice")
   })
@@ -585,7 +585,7 @@ describe("readable: composability hooks", () => {
         { author: "Bob", body: "Hey" },
       ],
     })
-    const first = doc.messages.at(0)!
+    const first = doc.messages.at(0) as any
     expect(doc.messages.at(0)).toBe(first) // cached via address table
 
     // INVALIDATE with sequence change is a no-op — addressing handles it

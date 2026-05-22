@@ -358,7 +358,7 @@ describe("PlainSubstrate lifecycle", () => {
     expect(substrate.version().value).toBe(3)
 
     // exportSince(f1) should only contain the second mutation
-    const payload = substrate.exportSince(f1)!
+    const payload = substrate.exportSince(f1) as any
     const ops = (JSON.parse(payload.data as string) as Op[][]).flat()
     expect(ops.length).toBe(1)
     expect(ops[0]?.change.type).toBe("increment")
@@ -422,7 +422,7 @@ describe("Round-trip replication", () => {
     })
 
     // Export the delta and import into B
-    const delta = substrateA.exportSince(f0)!
+    const delta = substrateA.exportSince(f0) as any
     substrateB.merge(delta, { origin: "sync" })
 
     // Snapshots should match
@@ -448,7 +448,7 @@ describe("Round-trip replication", () => {
     subscribe(docB, cs => received.push(cs))
 
     // Import into B
-    const delta = substrateA.exportSince(f0)!
+    const delta = substrateA.exportSince(f0) as any
     substrateB.merge(delta, { origin: "sync" })
 
     // Changefeed should have fired with origin "sync"
@@ -472,7 +472,7 @@ describe("Round-trip replication", () => {
 
     expect(substrateB.version().value).toBe(1)
 
-    const delta = substrateA.exportSince(f0)!
+    const delta = substrateA.exportSince(f0) as any
     substrateB.merge(delta)
 
     // merge preserves batch boundaries — each batch is a separate
@@ -660,7 +660,7 @@ describe("merge with entirety payload (PlainReplica)", () => {
     change(doc, d => d.title.insert(0, "Start"))
     change(doc, d => d.count.increment(5))
 
-    const since = source.exportSince(new PlainVersion(0))!
+    const since = source.exportSince(new PlainVersion(0)) as any
     expect(since.kind).toBe("since")
     replica.merge(since)
 
@@ -731,7 +731,9 @@ describe("Epoch boundaries", () => {
     expect(JSON.parse(snapshot2.data as string).title).toBe("Source!")
 
     // Export delta since the snapshot epoch version
-    const delta = substrateB.exportSince(new PlainVersion(vAfterSnapshot))!
+    const delta = substrateB.exportSince(
+      new PlainVersion(vAfterSnapshot),
+    ) as any
     const ops = (JSON.parse(delta.data as string) as Op[][]).flat()
     expect(ops.length).toBe(1)
     expect(ops[0]?.change.type).toBe("text")
@@ -817,7 +819,7 @@ describe("PlainReplica.advance()", () => {
     change(doc, d => d.count.increment(5))
 
     // Merge source ops into replica
-    const delta = source.exportSince(new PlainVersion(0))!
+    const delta = source.exportSince(new PlainVersion(0)) as any
     replica.merge(delta)
 
     expect(replica.version().value).toBeGreaterThan(0)
@@ -852,7 +854,7 @@ describe("PlainReplica.advance()", () => {
     const v4 = source.version()
 
     // Merge all ops into replica
-    const delta = source.exportSince(new PlainVersion(0))!
+    const delta = source.exportSince(new PlainVersion(0)) as any
     replica.merge(delta)
     expect(replica.version().value).toBe(v4.value)
 
@@ -882,13 +884,13 @@ describe("PlainReplica.advance()", () => {
     change(doc, d => d.title.insert(0, "Before"))
     const v2 = source.version()
 
-    const delta1 = source.exportSince(new PlainVersion(0))!
+    const delta1 = source.exportSince(new PlainVersion(0)) as any
     replica.merge(delta1)
     replica.advance(v2)
 
     // New ops after advance
     change(doc, d => d.count.increment(99))
-    const delta2 = source.exportSince(v2)!
+    const delta2 = source.exportSince(v2) as any
     replica.merge(delta2)
 
     // exportSince from base returns the new ops
@@ -916,7 +918,7 @@ describe("PlainReplica.advance()", () => {
     change(doc, d => d.count.increment(1))
     change(doc, d => d.theme.set("dark"))
 
-    replica.merge(source.exportSince(new PlainVersion(0))!)
+    replica.merge(source.exportSince(new PlainVersion(0)) as any)
 
     // Before advance, exportSince(v0) works
     expect(replica.exportSince(new PlainVersion(0))).not.toBeNull()
@@ -944,7 +946,7 @@ describe("PlainReplica.advance()", () => {
     change(doc, d => d.title.insert(0, "Test"))
     change(doc, d => d.count.increment(42))
 
-    replica.merge(source.exportSince(new PlainVersion(0))!)
+    replica.merge(source.exportSince(new PlainVersion(0)) as any)
     replica.advance(replica.version())
 
     // Create a new replica from the trimmed entirety

@@ -580,7 +580,7 @@ export function advanceAddresses(
     if ("retain" in op) {
       // All addresses in [source, source + retain) map to [target, target + retain)
       while (ci < sorted.length && sorted[ci]?.index < source + op.retain) {
-        const addr = sorted[ci]!
+        const addr = sorted[ci] as any
         if (addr.index >= source) {
           addr.index = target + (addr.index - source)
         }
@@ -595,7 +595,7 @@ export function advanceAddresses(
     } else if ("delete" in op) {
       // All addresses in [source, source + delete) are dead.
       while (ci < sorted.length && sorted[ci]?.index < source + op.delete) {
-        const addr = sorted[ci]!
+        const addr = sorted[ci] as any
         if (addr.index >= source) {
           addr.dead = true
           dead.push(addr)
@@ -608,7 +608,7 @@ export function advanceAddresses(
 
   // Remaining addresses are in the implicit trailing retain.
   while (ci < sorted.length) {
-    const addr = sorted[ci]!
+    const addr = sorted[ci] as any
     addr.index = target + (addr.index - source)
     ci++
   }

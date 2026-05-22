@@ -220,7 +220,7 @@ describe("AddressedPath", () => {
     expect(child).toBeInstanceOf(AddressedPath)
     expect(child.length).toBe(1)
 
-    const seg = child.segments[0]! as Address
+    const seg = child.segments[0] as any as Address
     expect(seg.kind).toBe("field")
     expect((seg as any).key).toBe("title")
     expect(seg.resolve()).toBe("title")
@@ -232,7 +232,7 @@ describe("AddressedPath", () => {
     expect(child).toBeInstanceOf(AddressedPath)
     expect(child.length).toBe(1)
 
-    const seg = child.segments[0]! as Address
+    const seg = child.segments[0] as any as Address
     expect(seg.kind).toBe("index")
     expect(seg.resolve()).toBe(0)
     expect((seg as any).id).toBeGreaterThan(0)
@@ -263,7 +263,7 @@ describe("AddressedPath", () => {
       const key1 = child.key
 
       // Mutate the cursor index (simulating advancement)
-      const addr = child.segments[0]! as Address & { index: number }
+      const addr = child.segments[0] as any as Address & { index: number }
       addr.index = 10
 
       // Key should NOT change — it uses cursor.id, not cursor.index
@@ -291,7 +291,7 @@ describe("AddressedPath", () => {
     it("throws on read when address is dead", () => {
       const root = new AddressedPath([], registry)
       const child = root.item(0)
-      const addr = child.segments[0]! as Address
+      const addr = child.segments[0] as any as Address
       addr.dead = true
       expect(() => child.read({ items: ["x"] })).toThrow(
         "Ref access on deleted list item",
@@ -302,7 +302,7 @@ describe("AddressedPath", () => {
   it("lastAddress() returns the last Address segment", () => {
     const root = new AddressedPath([], registry)
     const p = root.field("items").item(2)
-    const last = p.lastAddress()!
+    const last = p.lastAddress() as any
     expect(last.kind).toBe("index")
     expect(last.resolve()).toBe(2)
   })
@@ -444,7 +444,7 @@ describe("dead address propagation", () => {
     const p = root.field("items").item(0).field("name")
 
     // Kill the index address
-    const addr = p.segments[1]! as Address
+    const addr = p.segments[1] as any as Address
     addr.dead = true
 
     expect(() => writeByPath(store, p, "bob")).toThrow(
@@ -458,7 +458,7 @@ describe("dead address propagation", () => {
     const p = root.field("settings").field("theme")
 
     // Kill the field address
-    const addr = p.segments[1]! as Address
+    const addr = p.segments[1] as any as Address
     addr.dead = true
 
     expect(() => p.read({ settings: { theme: "dark" } })).toThrow(

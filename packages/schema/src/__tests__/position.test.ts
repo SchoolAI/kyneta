@@ -272,7 +272,7 @@ describe("PlainPosition", () => {
 // ---------------------------------------------------------------------------
 
 function textInsertInstructions(
-  textLength: number,
+  _textLength: number,
   index: number,
   content: string,
 ): Instruction[] {
@@ -284,7 +284,7 @@ function textInsertInstructions(
 }
 
 function textDeleteInstructions(
-  textLength: number,
+  _textLength: number,
   index: number,
   count: number,
 ): Instruction[] {

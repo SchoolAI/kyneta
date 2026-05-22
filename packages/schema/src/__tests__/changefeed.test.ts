@@ -387,7 +387,7 @@ describe("changefeed: sequence subscribe is structural only", () => {
     expect(received[0]?.changes[0]?.type).toBe("sequence")
 
     // Mutate item content — should NOT fire
-    const msg = doc.messages.at(0)!
+    const msg = doc.messages.at(0) as any
     msg.author.set("Charlie")
     expect(received).toHaveLength(1) // still 1
   })
@@ -406,7 +406,7 @@ describe("changefeed: sequence subscribeDescendants", () => {
       for (const event of changeset.changes) events.push(event)
     })
 
-    const msg = doc.messages.at(0)!
+    const msg = doc.messages.at(0) as any
     msg.author.set("Charlie")
 
     expect(events.length).toBeGreaterThanOrEqual(1)
@@ -449,7 +449,7 @@ describe("changefeed: sequence subscribeDescendants", () => {
     const eventsAfterPush = events.length
 
     // Mutate the new item
-    const newMsg = doc.messages.at(1)!
+    const newMsg = doc.messages.at(1) as any
     newMsg.author.set("Updated")
 
     expect(events.length).toBeGreaterThan(eventsAfterPush)
@@ -480,7 +480,7 @@ describe("changefeed: sequence subscribeDescendants", () => {
     const eventsAfterDelete = events.length
 
     // Get a fresh ref to the new item at index 0 (Bob)
-    const newFirst = doc.messages.at(0)!
+    const newFirst = doc.messages.at(0) as any
     expect(newFirst.author()).toBe("Bob")
 
     // Mutate the new first item — tree subscription should fire
@@ -503,7 +503,7 @@ describe("changefeed: map subscribeDescendants", () => {
     })
 
     // Access a child ref and mutate it
-    const colorRef = doc.metadata.at("color")!
+    const colorRef = doc.metadata.at("color") as any
     colorRef.set("blue")
 
     expect(events.length).toBeGreaterThanOrEqual(1)
@@ -544,7 +544,7 @@ describe("changefeed: map subscribeDescendants", () => {
     const eventsAfterSet = events.length
 
     // Mutate the new entry
-    const colorRef = doc.metadata.at("color")!
+    const colorRef = doc.metadata.at("color") as any
     colorRef.set("blue")
 
     expect(events.length).toBeGreaterThan(eventsAfterSet)
@@ -921,7 +921,7 @@ describe("changefeed: non-enumerable", () => {
 describe("changefeed: sequence child refs have changefeed", () => {
   it("child refs from .at() have [CHANGEFEED]", () => {
     const { doc } = createChatDoc()
-    const msg = doc.messages.at(0)!
+    const msg = doc.messages.at(0) as any
     expect(hasChangefeed(msg)).toBe(true)
     expect(hasChangefeed(msg.author)).toBe(true)
     expect(hasChangefeed(msg.body)).toBe(true)
@@ -930,7 +930,7 @@ describe("changefeed: sequence child refs have changefeed", () => {
   it("newly pushed item refs have [CHANGEFEED]", () => {
     const { doc } = createChatDoc()
     doc.messages.push({ author: "Bob", body: "Hey" })
-    const newMsg = doc.messages.at(1)!
+    const newMsg = doc.messages.at(1) as any
     expect(hasChangefeed(newMsg)).toBe(true)
     expect(hasChangefeed(newMsg.author)).toBe(true)
   })

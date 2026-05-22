@@ -318,7 +318,7 @@ export const validateInterpreter: Interpreter<ValidateContext, unknown> = {
       // All variants failed
       if (nullable) {
         // Describe the inner (second) variant for a helpful message
-        const inner = posSchema.variants[1]!
+        const inner = posSchema.variants[1] as any
         const innerDesc = innerSchemaExpected(inner)
         ctx.errors.push(
           new SchemaValidationError(
@@ -554,7 +554,7 @@ export function validate<S extends Schema>(
   const result = interpret(schema, validateInterpreter, ctx)
 
   if (ctx.errors.length > 0) {
-    throw ctx.errors[0]!
+    throw ctx.errors[0] as any
   }
 
   return result as Plain<S>

@@ -328,50 +328,50 @@ export function createYjsSubstrate(
 
     context(): WritableContext {
       if (!cachedCtx) {
-        cachedCtx = buildWritableContext(substrate)
-        // Attach nativeResolver — used by interpretImpl to set [NATIVE]
-        // on every ref. The resolver maps schema positions to Yjs shared types.
-        ;(cachedCtx as any).nativeResolver = (
-          nodeSchema: SchemaNode,
-          path: { segments: readonly unknown[] },
-        ) => {
-          if (path.segments.length === 0) return doc
-          if (nodeSchema[KIND] === "scalar" || nodeSchema[KIND] === "sum")
-            return undefined
-          return resolveYjsType(rootMap, schema, path as any, binding).resolved
-        }
-        ;(cachedCtx as any).positionResolver = (
-          _nodeSchema: unknown,
-          path: { segments: readonly unknown[] },
-        ) => {
-          return {
-            createPosition(index: number, side: Side) {
-              // Resolve path to the Y.Text shared type
-              const { resolved: ytype } = resolveYjsType(
-                rootMap,
-                schema,
-                path as any,
-                binding,
-              )
-              if (!(ytype instanceof Y.Text)) {
-                throw new Error(
-                  `positionResolver: path does not resolve to a Y.Text`,
+        cachedCtx = buildWritableContext(substrate, {
+          nativeResolver: (
+            nodeSchema: SchemaNode,
+            path: { segments: readonly unknown[] },
+          ) => {
+            if (path.segments.length === 0) return doc
+            if (nodeSchema[KIND] === "scalar" || nodeSchema[KIND] === "sum")
+              return undefined
+            return resolveYjsType(rootMap, schema, path as any, binding)
+              .resolved
+          },
+          positionResolver: (
+            _nodeSchema: unknown,
+            path: { segments: readonly unknown[] },
+          ) => {
+            return {
+              createPosition(index: number, side: Side) {
+                // Resolve path to the Y.Text shared type
+                const { resolved: ytype } = resolveYjsType(
+                  rootMap,
+                  schema,
+                  path as any,
+                  binding,
                 )
-              }
-              const assoc = toYjsAssoc(side)
-              const rpos = Y.createRelativePositionFromTypeIndex(
-                ytype,
-                index,
-                assoc,
-              )
-              return new YjsPosition(rpos, doc)
-            },
-            decodePosition(bytes: Uint8Array) {
-              const rpos = Y.decodeRelativePosition(bytes)
-              return new YjsPosition(rpos, doc)
-            },
-          } satisfies PositionCapable
-        }
+                if (!(ytype instanceof Y.Text)) {
+                  throw new Error(
+                    `positionResolver: path does not resolve to a Y.Text`,
+                  )
+                }
+                const assoc = toYjsAssoc(side)
+                const rpos = Y.createRelativePositionFromTypeIndex(
+                  ytype,
+                  index,
+                  assoc,
+                )
+                return new YjsPosition(rpos, doc)
+              },
+              decodePosition(bytes: Uint8Array) {
+                const rpos = Y.decodeRelativePosition(bytes)
+                return new YjsPosition(rpos, doc)
+              },
+            } satisfies PositionCapable
+          },
+        })
       }
       return cachedCtx
     },

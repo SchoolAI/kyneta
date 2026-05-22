@@ -751,7 +751,7 @@ function getPopulatedState(ctx: RefContext): {
   }
   // ensurePrepareWiring hasn't been called yet — call it to initialize
   ensurePrepareWiring(ctx)
-  const state2 = contextState.get(ctx)!
+  const state2 = contextState.get(ctx) as any
   return {
     populated: state2.populated,
     populatedListeners: state2.populatedListeners,
