@@ -191,12 +191,14 @@ describe("storeProgram", () => {
     expect(phase).toEqual({
       status: "writing",
       version: "v1",
-      pendingVersion: "v3",
-      queued: {
-        type: "state-advanced",
-        delta: fakeDelta("delta-2"),
-        newVersion: "v3",
-      },
+      pendingVersion: "v2",
+      queued: [
+        {
+          type: "state-advanced",
+          delta: fakeDelta("delta-2"),
+          newVersion: "v3",
+        },
+      ],
     })
     expect(effects).toHaveLength(0)
   })
@@ -491,13 +493,15 @@ describe("storeProgram", () => {
     expect(phase).toEqual({
       status: "writing",
       version: "v1",
-      pendingVersion: "v3",
-      queued: {
-        type: "compact",
-        meta: plainMeta,
-        entirety: fakePayload("compacted"),
-        newVersion: "v3",
-      },
+      pendingVersion: "v2",
+      queued: [
+        {
+          type: "compact",
+          meta: plainMeta,
+          entirety: fakePayload("compacted"),
+          newVersion: "v3",
+        },
+      ],
     })
     expect(effects).toHaveLength(0)
   })
@@ -677,7 +681,7 @@ describe("storeProgram", () => {
     expect(effects).toHaveLength(0)
   })
 
-  it("queued compact overwrites queued state-advanced (latest wins)", () => {
+  it("queued compact appends to queued state-advanced", () => {
     const [initModel] = storeProgram.init
     const [idleModel] = step(initModel, {
       type: "hydrated",
@@ -697,7 +701,7 @@ describe("storeProgram", () => {
       delta: fakeDelta("delta-2"),
       newVersion: "v3",
     })
-    // Overwrite queue with a compact
+    // Append queue with a compact
     const [queuedCompact] = step(queuedDelta, {
       type: "compact",
       docId: "doc-1",
@@ -709,13 +713,20 @@ describe("storeProgram", () => {
     const phase = getPhase(queuedCompact, "doc-1")
     expect(phase.status).toBe("writing")
     if (phase.status === "writing") {
-      expect(phase.queued).toEqual({
-        type: "compact",
-        meta: plainMeta,
-        entirety: fakePayload("compacted"),
-        newVersion: "v4",
-      })
-      expect(phase.pendingVersion).toBe("v4")
+      expect(phase.queued).toEqual([
+        {
+          type: "state-advanced",
+          delta: fakeDelta("delta-2"),
+          newVersion: "v3",
+        },
+        {
+          type: "compact",
+          meta: plainMeta,
+          entirety: fakePayload("compacted"),
+          newVersion: "v4",
+        },
+      ])
+      expect(phase.pendingVersion).toBe("v2")
     }
   })
 

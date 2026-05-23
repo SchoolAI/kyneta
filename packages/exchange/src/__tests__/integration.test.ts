@@ -1633,10 +1633,48 @@ describe("waitForSync semantics", () => {
     expect(docB.count()).toBe(42)
   })
 
-  it("originator sees peer as 'pending' (not 'synced') — waitForSync is receiver-side", async () => {
+  it("collaborative doc: both peers reach 'synced' state when fully synchronized", async () => {
+    const bridge = new Bridge()
+
+    const exchangeA = createExchange({
+      id: "alice",
+      transports: [createBridgeTransport({ transportId: "alice", bridge })],
+      schemas: [LoroDoc],
+    })
+
+    const exchangeB = createExchange({
+      id: "bob",
+      transports: [createBridgeTransport({ transportId: "bob", bridge })],
+      schemas: [LoroDoc],
+    })
+
+    const docA = exchangeA.get("collab", LoroDoc)
+    change(docA, (d: any) => d.title.insert(0, "hello"))
+
+    const docB = exchangeB.get("collab", LoroDoc)
+    await sync(docB).waitForSync({ timeout: 5000 })
+
+    // Wait for any reciprocal messages to settle
+    await drain(50)
+
+    // Bob should see Alice as synced
+    const bobReadyStates = sync(docB).readyStates
+    expect(bobReadyStates).toHaveLength(1)
+    expect(bobReadyStates[0].identity.peerId).toBe("alice")
+    expect(bobReadyStates[0].status).toBe("synced")
+
+    // Alice should see Bob as synced
+    const aliceReadyStates = sync(docA).readyStates
+    expect(aliceReadyStates).toHaveLength(1)
+    expect(aliceReadyStates[0].identity.peerId).toBe("bob")
+    expect(aliceReadyStates[0].status).toBe("synced")
+  })
+
+  it("originator sees peer as 'synced' — waitForSync is receiver-side", async () => {
     // waitForSync answers "has someone sent me state?" not "has my state
     // reached all peers?" — the originator never receives an offer back
-    // from the receiver, so the peer stays "pending" from its perspective.
+    // from the receiver, but because it's an authoritative doc, it knows
+    // the receiver is synced.
     const bridge = new Bridge()
 
     const exchangeA = createExchange({
@@ -1655,12 +1693,15 @@ describe("waitForSync semantics", () => {
     const docB = exchangeB.get("config", SequentialDoc)
     await sync(docB).waitForSync({ timeout: 5000 })
 
-    // From Alice's perspective, Bob is "pending" — Alice sent an offer
-    // but never received one back, so the handshake is one-sided.
+    // Wait for any reciprocal messages to settle
+    await drain(50)
+
+    // From Alice's perspective, Bob is "synced" — Alice sent an offer
+    // and doesn't expect one back.
     const readyStates = sync(docA).readyStates
     expect(readyStates).toHaveLength(1)
     expect(readyStates[0].identity.peerId).toBe("bob")
-    expect(readyStates[0].status).toBe("pending")
+    expect(readyStates[0].status).toBe("synced")
   })
 
   it("three-peer hub: receiver-side waitForSync resolves through relay", async () => {

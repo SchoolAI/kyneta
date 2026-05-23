@@ -301,7 +301,7 @@ function applyReplaceChange(
 ): void {
   if (path.length === 0) {
     throw new Error(
-      "applyChangeToYjs: ReplaceChange at root path is not supported",
+      "Cannot replace the root document struct in a CRDT backend. The root identity is fixed. Please mutate its properties individually (e.g., `doc.myField.set(value)` instead of `doc.set({ myField: value })`).",
     )
   }
 

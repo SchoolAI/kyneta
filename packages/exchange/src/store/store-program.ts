@@ -34,7 +34,7 @@ export type DocPhase =
       status: "writing"
       version: string
       pendingVersion: string
-      queued?: QueuedInput
+      queued?: QueuedInput[]
     }
 
 type QueuedInput =
@@ -127,14 +127,23 @@ function withDoc(
 function processQueued(
   docId: DocId,
   idleVersion: string,
-  queued: QueuedInput,
+  queuedList: QueuedInput[],
 ): [DocPhase, ...StoreEffect[]] {
+  // We process all queued inputs into a single batch of effects
+  // But wait, StoreProgram expects a single phase transition.
+  // If we have multiple queued inputs, we can only process the FIRST one,
+  // and keep the rest in the queue!
+
+  const queued = queuedList[0]
+  const remaining = queuedList.slice(1)
+
   switch (queued.type) {
     case "state-advanced": {
       const phase: DocPhase = {
         status: "writing",
         version: idleVersion,
         pendingVersion: queued.newVersion,
+        queued: remaining.length > 0 ? remaining : undefined,
       }
       const effect: StoreEffect = {
         type: "persist-append",
@@ -150,6 +159,7 @@ function processQueued(
         status: "writing",
         version: idleVersion,
         pendingVersion: queued.newVersion,
+        queued: remaining.length > 0 ? remaining : undefined,
       }
       const effect: StoreEffect = {
         type: "persist-replace",
@@ -236,16 +246,19 @@ export const storeProgram: Program<StoreInput, StoreModel, StoreEffect> = {
           return [withDoc(model, msg.docId, phase), effect]
         }
 
-        // writing — queue (latest wins)
+        // writing — queue
         const phase: DocPhase = {
           status: "writing",
           version: existing.version,
-          pendingVersion: msg.newVersion,
-          queued: {
-            type: "state-advanced",
-            delta: msg.delta,
-            newVersion: msg.newVersion,
-          },
+          pendingVersion: existing.pendingVersion,
+          queued: [
+            ...(existing.queued || []),
+            {
+              type: "state-advanced",
+              delta: msg.delta,
+              newVersion: msg.newVersion,
+            },
+          ],
         }
         return [withDoc(model, msg.docId, phase)]
       }
@@ -255,7 +268,9 @@ export const storeProgram: Program<StoreInput, StoreModel, StoreEffect> = {
       // -------------------------------------------------------------------
       case "compact": {
         const existing = model.docs.get(msg.docId)
-        if (!existing) return [model]
+        if (!existing) {
+          return [model]
+        }
 
         if (existing.status === "idle") {
           const phase: DocPhase = {
@@ -278,17 +293,20 @@ export const storeProgram: Program<StoreInput, StoreModel, StoreEffect> = {
           return [withDoc(model, msg.docId, phase), effect]
         }
 
-        // writing — queue (latest wins)
+        // writing — queue
         const phase: DocPhase = {
           status: "writing",
           version: existing.version,
-          pendingVersion: msg.newVersion,
-          queued: {
-            type: "compact",
-            meta: msg.meta,
-            entirety: msg.entirety,
-            newVersion: msg.newVersion,
-          },
+          pendingVersion: existing.pendingVersion,
+          queued: [
+            ...(existing.queued || []),
+            {
+              type: "compact",
+              meta: msg.meta,
+              entirety: msg.entirety,
+              newVersion: msg.newVersion,
+            },
+          ],
         }
         return [withDoc(model, msg.docId, phase)]
       }

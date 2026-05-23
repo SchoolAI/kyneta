@@ -221,6 +221,17 @@ describe("createDoc", () => {
 // createDoc with payload (fromEntirety)
 // ===========================================================================
 
+describe("root document replacement", () => {
+  it("throws an actionable error when attempting to replace the root struct", () => {
+    const doc = createDoc(boundSimple)
+    expect(() => {
+      change(doc, (d: any) => {
+        d.set({ title: "New", count: 1, items: [] })
+      })
+    }).toThrowError(/Cannot replace the root document struct/)
+  })
+})
+
 describe("createDoc with payload", () => {
   it("reconstructs state from a snapshot", () => {
     const doc1 = createDoc(boundSimple)

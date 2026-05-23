@@ -185,6 +185,17 @@ describe("createRef (bring your own doc)", () => {
   })
 })
 
+describe("root document replacement", () => {
+  it("throws an actionable error when attempting to replace the root struct", () => {
+    const doc = createDoc(bound)
+    expect(() => {
+      change(doc, (d: any) => {
+        d.set({ title: "New", count: 1, items: [], theme: "light" })
+      })
+    }).toThrowError(/Cannot replace the root document struct/)
+  })
+})
+
 // ===========================================================================
 // createDoc with payload (replaces createLoroDocFromEntirety)
 // ===========================================================================

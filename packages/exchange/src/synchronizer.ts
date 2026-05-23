@@ -1115,8 +1115,11 @@ export class Synchronizer {
           )
           return
 
-        case "no-gap":
+        case "no-gap": {
+          const payload = runtime.replica.exportSince(runtime.replica.version())
+          if (payload) enqueueOffer(payload)
           return
+        }
 
         case "gap": {
           const payload = runtime.replica.exportSince(gap.parsed)
@@ -1167,6 +1170,12 @@ export class Synchronizer {
         return
 
       case "no-gap":
+        this.#dispatchSync({
+          type: "sync/peer-synced",
+          docId: effect.docId,
+          version: effect.version,
+          peerId: effect.fromPeerId,
+        })
         return
 
       case "gap":

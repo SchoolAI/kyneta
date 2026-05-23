@@ -158,6 +158,12 @@ export type SyncInput =
       version: string
       fromPeerId: PeerId
     }
+  | {
+      type: "sync/peer-synced"
+      docId: DocId
+      version: string
+      peerId: PeerId
+    }
   | { type: "sync/queue-doc-event"; event: DocChange }
   | { type: "sync/tick-quiescent" }
   | { type: "sync/synthetic-doc-removed-all"; docIds: readonly DocId[] }
@@ -546,6 +552,8 @@ export function createSyncUpdate(
         return handleDocDismiss(input, model, canShare)
       case "sync/doc-imported":
         return handleDocImported(input, model, canShare)
+      case "sync/peer-synced":
+        return handlePeerSynced(input, model)
       case "sync/queue-doc-event":
         return [
           {
@@ -910,6 +918,40 @@ function handleDocImported(
   return effect ? [nextModel, effect] : [nextModel]
 }
 
+function handlePeerSynced(
+  msg: Extract<SyncInput, { type: "sync/peer-synced" }>,
+  model: SyncModel,
+): [SyncModel, ...SyncEffect[]] {
+  const docEntry = model.documents.get(msg.docId)
+  if (!docEntry) return [model]
+
+  const peers = new Map(model.peers)
+  const peerState = peers.get(msg.peerId)
+  let pendingReadyStateDocIds = model.pendingReadyStateDocIds
+
+  if (peerState) {
+    const docSyncStates = new Map(peerState.docSyncStates)
+    docSyncStates.set(msg.docId, {
+      status: "synced",
+      lastKnownVersion: msg.version,
+      lastUpdated: new Date(),
+    })
+    peers.set(msg.peerId, { ...peerState, docSyncStates })
+    pendingReadyStateDocIds = appendUniqueDocId(
+      pendingReadyStateDocIds,
+      msg.docId,
+    )
+  }
+
+  return [
+    {
+      ...model,
+      peers,
+      pendingReadyStateDocIds,
+    },
+  ]
+}
+
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 // HANDLER: Tick / synthetic
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -1111,23 +1153,44 @@ function handleInterestForKnownDoc(
 
   const effects = buildInterestResponse(fromPeerId, message, docEntry)
 
-  // Update peer sync state to "pending"
   const peers = new Map(model.peers)
   const docSyncStates = new Map(peerState.docSyncStates)
-  docSyncStates.set(message.docId, {
-    status: "pending",
-    lastUpdated: new Date(),
-  })
+
+  if (message.reciprocate) {
+    // We expect an offer back, so status is pending
+    docSyncStates.set(message.docId, {
+      status: "pending",
+      lastUpdated: new Date(),
+    })
+  } else {
+    // We don't expect an offer back (read-only peer), so status is synced
+    docSyncStates.set(message.docId, {
+      status: "synced",
+      lastKnownVersion: message.version || "",
+      lastUpdated: new Date(),
+    })
+  }
+
   peers.set(fromPeerId, { ...peerState, docSyncStates })
+
+  let pendingReadyStateDocIds = model.pendingReadyStateDocIds
+  if (!message.reciprocate) {
+    pendingReadyStateDocIds = appendUniqueDocId(
+      pendingReadyStateDocIds,
+      message.docId,
+    )
+  } else {
+    pendingReadyStateDocIds = appendUniqueDocId(
+      pendingReadyStateDocIds,
+      message.docId,
+    )
+  }
 
   return [
     {
       ...model,
       peers,
-      pendingReadyStateDocIds: appendUniqueDocId(
-        model.pendingReadyStateDocIds,
-        message.docId,
-      ),
+      pendingReadyStateDocIds,
     },
     ...effects,
   ]

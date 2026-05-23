@@ -924,6 +924,7 @@ describe("sync-program", () => {
         type: "interest",
         docId: "doc-1",
         version: "v0",
+        reciprocate: true,
       })
 
       const peerState = m2.peers.get("bob")
@@ -1076,6 +1077,7 @@ describe("sync-program", () => {
         type: "interest",
         docId: "doc-1",
         version: "v0",
+        reciprocate: true,
       })
       expect(
         defined(modelAfterInterest.peers.get("bob")).docSyncStates.has("doc-1"),

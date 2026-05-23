@@ -462,7 +462,9 @@ function replaceChangeToDiff(
   binding?: SchemaBinding,
 ): [ContainerID, Diff | JsonDiff][] {
   if (path.segments.length === 0) {
-    throw new Error("replaceChangeToDiff: cannot replace at root")
+    throw new Error(
+      "Cannot replace the root document struct in a CRDT backend. The root identity is fixed. Please mutate its properties individually (e.g., `doc.myField.set(value)` instead of `doc.set({ myField: value })`).",
+    )
   }
 
   const lastSeg = path.segments[path.segments.length - 1]
