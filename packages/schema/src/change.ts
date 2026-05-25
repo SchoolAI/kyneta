@@ -216,6 +216,14 @@ export function textChange(
 export function sequenceChange<T>(
   instructions: readonly SequenceInstruction<T>[],
 ): SequenceChange<T> {
+  for (const inst of instructions) {
+    if (
+      "insert" in inst &&
+      (inst as { insert: readonly unknown[] }).insert.includes(undefined)
+    ) {
+      throw new TypeError("Cannot insert undefined into a sequence")
+    }
+  }
   return { type: "sequence", instructions }
 }
 
