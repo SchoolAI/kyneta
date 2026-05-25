@@ -382,9 +382,11 @@ function sequenceChangeToDiff(
         }
       }
 
-      listDeltas.push({
-        insert: items,
-      } as Delta<(Value | JsonContainerID)[]>)
+      for (const item of items) {
+        listDeltas.push({
+          insert: [item],
+        } as Delta<(Value | JsonContainerID)[]>)
+      }
     }
   }
 
@@ -780,9 +782,15 @@ function materializeValueDiffs(
     }
 
     if (items.length > 0) {
+      const listDeltas: Delta<(Value | JsonContainerID)[]>[] = []
+      for (const item of items) {
+        listDeltas.push({ insert: [item] } as Delta<
+          (Value | JsonContainerID)[]
+        >)
+      }
       result.push([
         parentCID,
-        { type: "list", diff: [{ insert: items }] } as ListJsonDiff,
+        { type: "list", diff: listDeltas } as ListJsonDiff,
       ])
     }
     result.push(...deferred)

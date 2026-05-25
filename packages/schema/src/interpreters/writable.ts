@@ -461,17 +461,24 @@ export function buildWritableContext(
         // log on the aborted Changeset; the `compensating: true` flag
         // tells substrates to skip recording the inverse-of-the-inverse.
         const frameStart = frameStarts.pop() as any
-        for (let i = inverseStack.length - 1; i >= frameStart; i--) {
-          const { path, inverse } = inverseStack[i] as any
-          ctx.prepare(path, inverse, { ...opts, compensating: true })
-        }
-        inverseStack.length = frameStart
-        // Only the outermost frame flushes — the inner frame's catch
-        // pops + compensates but lets the rethrow propagate to the
-        // outer frame's wrappedWork.
-        if (frameStarts.length === 0) {
-          ctx.flush({ ...opts, aborted: true })
-          writerLog.length = 0
+        try {
+          for (let i = inverseStack.length - 1; i >= frameStart; i--) {
+            const { path, inverse } = inverseStack[i] as any
+            ctx.prepare(path, inverse, { ...opts, compensating: true })
+          }
+          inverseStack.length = frameStart
+          // Only the outermost frame flushes — the inner frame's catch
+          // pops + compensates but lets the rethrow propagate to the
+          // outer frame's wrappedWork.
+          if (frameStarts.length === 0) {
+            ctx.flush({ ...opts, aborted: true })
+            writerLog.length = 0
+          }
+        } catch (compErr: any) {
+          const err =
+            compErr instanceof Error ? compErr : new Error(String(compErr))
+          ;(err as any).cause = e
+          throw err
         }
         throw e
       }

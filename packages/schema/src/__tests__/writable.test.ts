@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { Ref, WritableContext } from "../index.js"
 import {
   bottomInterpreter,
+  buildWritableContext,
   change,
   FORWARD_OPS_MARKER,
   FORWARD_OPS_SINCE,
@@ -837,74 +838,158 @@ describe("writable: TRANSACT attachment", () => {
     const { ctx, doc } = createStructuralDoc()
     expect(doc.metadata[TRANSACT]).toBe(ctx)
   })
-
   it("text annotated ref has [TRANSACT] pointing to ctx", () => {
     const { ctx, doc } = createAnnotatedDoc()
     expect(doc.title[TRANSACT]).toBe(ctx)
   })
+})
 
-  it("counter annotated ref has [TRANSACT] pointing to ctx", () => {
-    const { ctx, doc } = createAnnotatedDoc()
-    expect(doc.count[TRANSACT]).toBe(ctx)
-  })
+// ===========================================================================
+// Compensation loop
+// ===========================================================================
 
-  it("doc (delegating annotation) ref has [TRANSACT] pointing to ctx", () => {
-    const { ctx, doc } = createAnnotatedDoc()
-    expect(doc[TRANSACT]).toBe(ctx)
-  })
+describe("writable: compensation loop", () => {
+  it("surfaces original error via Error.cause when compensation fails", () => {
+    const schema = Schema.struct({ count: Schema.counter() })
+    const store = { count: 0 }
 
-  it("[TRANSACT] does not appear in Object.keys()", () => {
-    const { doc } = createStructuralDoc()
-    expect(Object.keys(doc.settings)).not.toContain(TRANSACT)
-    expect(Object.keys(doc.settings)).not.toContain(String(TRANSACT))
-  })
+    const originalError = new Error("Substrate prepare failed")
+    const compensationError = new Error("Substrate compensation failed")
 
-  it("hasTransact() returns true for refs with [TRANSACT]", () => {
-    const { doc } = createStructuralDoc()
-    expect(hasTransact(doc)).toBe(true)
-    expect(hasTransact(doc.settings)).toBe(true)
-    expect(hasTransact(doc.settings.darkMode)).toBe(true)
-    expect(hasTransact(doc.metadata)).toBe(true)
-  })
-
-  it("[TRANSACT] works on Proxy-backed map refs", () => {
-    const { ctx, doc } = createStructuralDoc()
-    // Map refs use Proxy — Object.defineProperty must bypass set trap
-    expect(doc.metadata[TRANSACT]).toBe(ctx)
-    // Verify the map still works normally after TRANSACT attachment
-    doc.metadata.set("newKey", "newValue")
-    expect(doc.metadata.at("newKey")?.()).toBe("newValue")
-  })
-
-  it("[TRANSACT] is present on cacheless stack refs", () => {
-    const schema = Schema.struct({
-      n: Schema.number(),
-    })
-    const store = { n: 0 }
-    const ctx = plainContext(store)
-    const doc = interpret(schema, cachelessInterpreter, ctx) as unknown as Ref<
-      typeof schema
-    >
-    expect(doc.n[TRANSACT]).toBe(ctx)
-    expect(doc[TRANSACT]).toBe(ctx)
-  })
-
-  it("[TRANSACT] is present on write-only stack refs", () => {
-    const schema = Schema.struct({ n: Schema.number() })
-    const store = { n: 0 }
-    const dispatched: unknown[] = []
-    const ctx: WritableContext = {
+    // Create a mock substrate where prepare throws, and compensation also throws
+    const mockSubstrate = {
       reader: plainReader(store),
-      prepare: (path, change) => dispatched.push({ path, change }),
-      flush: () => {},
-      runBatch: work => work(),
-      dispatch: (path, change) => dispatched.push({ path, change }),
-      [FORWARD_OPS_MARKER]: () => 0,
-      [FORWARD_OPS_SINCE]: () => [],
+      prepare: (_path: any, _change: any, opts: any) => {
+        // Record an inverse so compensation loop has something to run
+        if (opts?.[Symbol.for("kyneta:record-inverse")]) {
+          opts[Symbol.for("kyneta:record-inverse")](_path, {
+            type: "increment",
+            amount: -1,
+          })
+        }
+
+        if (opts?.compensating) {
+          throw compensationError
+        }
+        throw originalError
+      },
+      afterBatch: () => {},
+      runBatch: (work: () => void) => work(),
     }
-    const ref = interpret(schema, writeOnlyInterpreter, ctx) as any
-    // Write-only product ref has [TRANSACT] (child .n is not navigable
-    // without withReadable, so we test the product itself)
-    expect(ref[TRANSACT]).toBe(ctx)
+
+    const ctx = buildWritableContext(mockSubstrate as any, {})
+    const doc = interpret(schema, fullInterpreter, ctx) as any
+
+    try {
+      change(doc, d => d.count.increment(1))
+      expect.fail("Should have thrown")
+    } catch (e: any) {
+      expect(e).toBe(compensationError)
+      expect(e.cause).toBe(originalError)
+    }
   })
+
+  it("surfaces original error via Error.cause when compensation throws a string (WASM)", () => {
+    const schema = Schema.struct({ count: Schema.counter() })
+    const store = { count: 0 }
+
+    const originalError = new Error("Substrate prepare failed")
+    const compensationErrorStr = "Index out of bound"
+
+    const mockSubstrate = {
+      reader: plainReader(store),
+      prepare: (_path: any, _change: any, opts: any) => {
+        if (opts?.[Symbol.for("kyneta:record-inverse")]) {
+          opts[Symbol.for("kyneta:record-inverse")](_path, {
+            type: "increment",
+            amount: -1,
+          })
+        }
+
+        if (opts?.compensating) {
+          throw compensationErrorStr
+        }
+        throw originalError
+      },
+      afterBatch: () => {},
+      runBatch: (work: () => void) => work(),
+    }
+
+    const ctx = buildWritableContext(mockSubstrate as any, {})
+    const doc = interpret(schema, fullInterpreter, ctx) as any
+
+    try {
+      change(doc, d => d.count.increment(1))
+      expect.fail("Should have thrown")
+    } catch (e: any) {
+      expect(e).toBeInstanceOf(Error)
+      expect(e.message).toBe(compensationErrorStr)
+      expect(e.cause).toBe(originalError)
+    }
+  })
+})
+
+it("counter annotated ref has [TRANSACT] pointing to ctx", () => {
+  const { ctx, doc } = createAnnotatedDoc()
+  expect(doc.count[TRANSACT]).toBe(ctx)
+})
+
+it("doc (delegating annotation) ref has [TRANSACT] pointing to ctx", () => {
+  const { ctx, doc } = createAnnotatedDoc()
+  expect(doc[TRANSACT]).toBe(ctx)
+})
+
+it("[TRANSACT] does not appear in Object.keys()", () => {
+  const { doc } = createStructuralDoc()
+  expect(Object.keys(doc.settings)).not.toContain(TRANSACT)
+  expect(Object.keys(doc.settings)).not.toContain(String(TRANSACT))
+})
+
+it("hasTransact() returns true for refs with [TRANSACT]", () => {
+  const { doc } = createStructuralDoc()
+  expect(hasTransact(doc)).toBe(true)
+  expect(hasTransact(doc.settings)).toBe(true)
+  expect(hasTransact(doc.settings.darkMode)).toBe(true)
+  expect(hasTransact(doc.metadata)).toBe(true)
+})
+
+it("[TRANSACT] works on Proxy-backed map refs", () => {
+  const { ctx, doc } = createStructuralDoc()
+  // Map refs use Proxy — Object.defineProperty must bypass set trap
+  expect(doc.metadata[TRANSACT]).toBe(ctx)
+  // Verify the map still works normally after TRANSACT attachment
+  doc.metadata.set("newKey", "newValue")
+  expect(doc.metadata.at("newKey")?.()).toBe("newValue")
+})
+
+it("[TRANSACT] is present on cacheless stack refs", () => {
+  const schema = Schema.struct({
+    n: Schema.number(),
+  })
+  const store = { n: 0 }
+  const ctx = plainContext(store)
+  const doc = interpret(schema, cachelessInterpreter, ctx) as unknown as Ref<
+    typeof schema
+  >
+  expect(doc.n[TRANSACT]).toBe(ctx)
+  expect(doc[TRANSACT]).toBe(ctx)
+})
+
+it("[TRANSACT] is present on write-only stack refs", () => {
+  const schema = Schema.struct({ n: Schema.number() })
+  const store = { n: 0 }
+  const dispatched: unknown[] = []
+  const ctx: WritableContext = {
+    reader: plainReader(store),
+    prepare: (path, change) => dispatched.push({ path, change }),
+    flush: () => {},
+    runBatch: work => work(),
+    dispatch: (path, change) => dispatched.push({ path, change }),
+    [FORWARD_OPS_MARKER]: () => 0,
+    [FORWARD_OPS_SINCE]: () => [],
+  }
+  const ref = interpret(schema, writeOnlyInterpreter, ctx) as any
+  // Write-only product ref has [TRANSACT] (child .n is not navigable
+  // without withReadable, so we test the product itself)
+  expect(ref[TRANSACT]).toBe(ctx)
 })

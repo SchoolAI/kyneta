@@ -147,6 +147,41 @@ describe("write round-trip", () => {
     change(doc, d => d.theme.set("dark"))
     expect(doc.theme()).toBe("dark")
   })
+
+  it("bypasses loro-wasm 8-item limit when inserting many items", () => {
+    const substrate = loroSubstrateFactory.create(TestSchema)
+    const doc = interpretSubstrate(TestSchema, substrate)
+
+    // Create an array of 10 items
+    const items = Array.from({ length: 10 }).map((_, i) => ({
+      name: `Task ${i}`,
+      done: false,
+    }))
+
+    // This should not throw an "Insert array exceeds maximum supported length" error
+    change(doc, (d: any) => d.items.push(...items))
+
+    expect([...doc.items]).toHaveLength(10)
+    expect((doc.items as any).at(9).name()).toBe("Task 9")
+  })
+
+  it("bypasses loro-wasm 8-item limit when materializing nested lists", () => {
+    const s = Schema.struct({
+      trace: Schema.struct({
+        messages: Schema.list(Schema.string()),
+      }).nullable(),
+    })
+    const substrate = loroSubstrateFactory.create(s)
+    const doc = interpretSubstrate(s, substrate) as any
+
+    const messages = Array.from({ length: 10 }).map((_, i) => `msg ${i}`)
+
+    // This triggers materializeValueDiffs for the nested list
+    change(doc, d => d.trace.set({ messages }))
+
+    expect([...doc.trace()!.messages]).toHaveLength(10)
+    expect([...doc.trace()!.messages][9]).toBe("msg 9")
+  })
 })
 
 // ===========================================================================

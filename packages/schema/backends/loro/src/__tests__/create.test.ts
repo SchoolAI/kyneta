@@ -125,7 +125,7 @@ describe("createDoc (fresh doc)", () => {
     const event = doc.events.at(0) as any
     expect(event.id()).toBe("evt-1")
     expect(event.blocks.length).toBe(1)
-    
+
     const block = event.blocks.at(0) as any
     expect(block.type()).toBe("text")
     expect(block.content()).toBe("hello world")

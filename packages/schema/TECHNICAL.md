@@ -601,6 +601,10 @@ The three handlers are co-extensive — they all open and close at the same boun
 
 Substrate.runBatch is invoked at most once per outermost `change(doc, fn)` — re-entrant subscriber writes open their own outermost runBatch (frameStarts goes to 0 between outer flush and subscriber re-entry), each block is its own atomic abort unit and gets its own commit.
 
+**Gotcha: Compensation masking with buffered substrates.** If a substrate (like Loro) buffers changes (e.g., `coalesceBuffer`) or throws synchronously during `prepare`, Kyneta's eager inverse recording causes the compensation loop to apply inverses for changes that were never actually committed to the substrate. This can cause the compensation loop itself to crash (e.g., throwing "Index out of bound" when attempting to revert an uncommitted insert). A `try/catch` in the compensation loop ensures the original error is chained via `Error.cause`, but the architectural mismatch between eager inverse recording and buffered substrate application remains a known limitation.
+
+**Future Direction:** This will eventually be resolved by a deeper architectural shift, such as a "two-phase prepare" (recording inverses only after successful substrate application) or by pushing transaction boundaries and rollback responsibilities down to the substrate.
+
 ### Batch metadata: origin / replay / source / aborted
 
 `BatchOptions` extends `BatchMetadata` (defined in `@kyneta/changefeed`) with one upstream-only field `compensating`. Four channels ride on every batch through `executeBatch → ctx.prepare → ctx.flush → substrate.prepare → substrate.onFlush`, all surfacing on the delivered `Changeset` via `BatchMetadata`:
