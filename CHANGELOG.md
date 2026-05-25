@@ -1,12 +1,12 @@
-# Unreleased
+# 1.8.0
 
-  Schema — three-primitive substrate contract (jj:ryquprut):
+  Schema — three-primitive substrate contract:
   - The transaction lifecycle (`beginTransaction` / `commit` / `abort` / `inTransaction` / `pending`) is removed from `WritableContext`. `change(doc, fn)` is now a thin wrapper around `ctx.runBatch` (a `runWriter` / `execWriter` pattern over the change-Writer monad). The public `change(doc, fn)` and `applyChanges(ref, ops)` APIs are unchanged. **Breaking** for code that constructed `WritableContext` by hand (test fixtures) or called `ctx.beginTransaction` / `ctx.commit` / `ctx.abort` directly.
   - **`change(doc, fn)` provides read-your-writes inside the block.** σ advances eagerly on every prepare, so two pushes in one block append in order. Pre-refactor, length-derived helpers read a stale σ and silently reordered.
   - **Atomic abort preserved across plain/Loro/Yjs via in-bracket inverse compensation.** When `fn` throws inside the outermost `change(doc, fn)`, the bracket replays the frame's recorded inverses LIFO inside the same commit. σ and λ both revert; one batched native event fires (Loro: one `doc.commit`; Yjs: one `observeDeep` event); the kyneta Changeset surfaces `aborted: true` and contains forward + inverse pairs that net to identity. The change algebra is a groupoid; abort is identity composition `c ∘ c⁻¹ = id`, not state rollback.
   - `WritableContext.dispatch` survives with redefined depth-aware semantics: outside any frame opens an implicit single-op `runBatch` (auto-commit); inside a frame just calls `prepare`. The 5 ref-helper files and the addressing layer's `REMOVE` handler are unchanged.
   - Kyneta-Changeset batching at the outermost-block boundary is preserved as an explicit contract — N helpers in one `change(doc, fn)` deliver one Changeset with N changes to each affected subscriber.
-  - **Substrate cleanup**: Loro's per-substrate depth counter and outermost-origin tracking are deleted (ctx-level outermost detection via `frameStarts.length === 0` subsumes them). Yjs's dead `accumulatedDs` field and `afterTransaction` handler are deleted (the accumulator was already unused on the version path post-jj:kqnkxrkl).
+  - **Substrate cleanup**: Loro's per-substrate depth counter and outermost-origin tracking are deleted (ctx-level outermost detection via `frameStarts.length === 0` subsumes them). Yjs's dead `accumulatedDs` field and `afterTransaction` handler are deleted (the accumulator was already unused on the version path).
   - **New types**: `Changeset.aborted?: boolean` on `@kyneta/changefeed`; `BatchOptions.compensating?: boolean` and `BatchOptions.aborted?: boolean` on `@kyneta/schema`; `RECORD_INVERSE` symbol and `RecordInverseFn` type for the internal substrate→bracket inverse-recording protocol.
   - **New module**: `@kyneta/schema`'s `inverse.ts` with `invert(pre, change)` and per-type inverters (`invertReplace`, `invertIncrement`, `invertText`, `invertSequence`, `invertMap`, `invertSet`, `invertRichText`, `invertTree`) plus `deepClonePreState`. Every constructor's reverse arrow is pinned by the groupoid identity round-trip test.
 
@@ -20,6 +20,21 @@
   - `SubstratePrepare.runBatch?` is a new optional transaction-bracket primitive that `executeBatch` invokes around the prepare-loop + flush block for local-write batches (replay batches bypass it). CRDT substrates install their native transaction primitive here.
   - `WritableContext.runBatch` is the corresponding context-level callable installed by `buildWritableContext`.
   - `syncShadow(target, source)` is the new shared helper used by both CRDT backends' replay paths to copy a fresh materialised shadow onto the substrate's live shadow without losing the reader's identity.
+
+  Schema & Changefeed — identity-typed echo suppression and origin-free discriminator:
+  - **`Changeset.source` for principled echo suppression.** Added an identity-typed `source?: unknown` field to `Changeset` (propagated from `CommitOptions.source`). Subscribers that issue changes can supply a unique token (e.g., a `Symbol`) and compare it against `cs.source` to suppress their own echoes.
+  - **`origin` is pure app-level vocabulary.** The fragile `origin === "local"` string convention has been removed from `text-adapter` and `Line`. Kyneta no longer branches on `origin`'s value internally.
+  - **Origin-free own-commit discriminator.** Both CRDT substrates now use their native event machinery to distinguish kyneta-issued commits from external writes, rather than colonizing the user-facing `origin` slot. Loro uses a `subscribePreCommit` hook; Yjs uses a `transaction.meta` mark. External code wrapping a kyneta `change()` in its own `Y.transact` is now correctly classified.
+
+  Schema — optimizations and fixes:
+  - **Sequence fixes:** Materialize sequence items when pushing structured objects on Loro. Reject `undefined` values in sequence `push` and `insert`. Bypassed `loro-wasm`'s 8-item insert limit and surfaced original errors during compensation.
+  - **Typed `SubstrateCapabilities` bag:** Replaced producer-side `as any` casts on context monkey-patches. Substrates now declare optional capabilities (`nativeResolver`, `positionResolver`, `treeNodeAllocate`) via a typed bag passed to `buildWritableContext`.
+  - **Runtime type guards:** Optimized runtime type guards and fixed type holes across the schema layer.
+  - **Root document replacement:** Improved the error message when attempting to replace the root document.
+  - **DocRef:** Preserved the call signature in `DocRef` when omitting `NATIVE`.
+
+  Exchange — transport improvements:
+  - **Shared Line session:** Refactored `Line` to share sessions with an exclusive receiver.
 
 # 1.7.0
 
