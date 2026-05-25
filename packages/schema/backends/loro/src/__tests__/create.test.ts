@@ -97,6 +97,40 @@ describe("createDoc (fresh doc)", () => {
     expect((doc.items.at(0) as any).done()).toBe(false)
   })
 
+  it("materializes nested sequences when pushing structured objects", () => {
+    const NestedSchema = Schema.struct({
+      events: Schema.list(
+        Schema.struct({
+          id: Schema.string(),
+          blocks: Schema.list(
+            Schema.struct({
+              type: Schema.string(),
+              content: Schema.string(),
+            }),
+          ),
+        }),
+      ),
+    })
+    const nestedBound = loro.bind(NestedSchema)
+    const doc = createDoc(nestedBound)
+
+    change(doc, (d: any) => {
+      d.events.push({
+        id: "evt-1",
+        blocks: [{ type: "text", content: "hello world" }],
+      })
+    })
+
+    expect(doc.events.length).toBe(1)
+    const event = doc.events.at(0) as any
+    expect(event.id()).toBe("evt-1")
+    expect(event.blocks.length).toBe(1)
+    
+    const block = event.blocks.at(0) as any
+    expect(block.type()).toBe("text")
+    expect(block.content()).toBe("hello world")
+  })
+
   it("supports seed with list items", () => {
     const doc = createDoc(bound)
     change(doc, (d: any) => d.items.push({ name: "A", done: false }))

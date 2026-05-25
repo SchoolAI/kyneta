@@ -764,6 +764,28 @@ function materializeValueDiffs(
 
     result.push([parentCID, { type: "map", updated } as MapJsonDiff])
     result.push(...deferred)
+  } else if (kind === "sequence" && Array.isArray(value)) {
+    const items: (Value | JsonContainerID)[] = []
+    const deferred: [ContainerID, Diff | JsonDiff][] = []
+    const itemSchema = (schema as any).item
+
+    for (const item of value) {
+      if (itemSchema && needsContainer(item, itemSchema)) {
+        const childCID = materializeCIDForSchema(itemSchema)
+        items.push(jsonCID(childCID))
+        materializeValueDiffs(item, itemSchema, childCID, deferred)
+      } else {
+        items.push(item as Value)
+      }
+    }
+
+    if (items.length > 0) {
+      result.push([
+        parentCID,
+        { type: "list", diff: [{ insert: items }] } as ListJsonDiff,
+      ])
+    }
+    result.push(...deferred)
   }
 }
 
