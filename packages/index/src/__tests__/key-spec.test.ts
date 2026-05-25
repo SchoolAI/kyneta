@@ -24,8 +24,8 @@ const TaggedDoc = json.bind(taggedSchema)
 
 describe("field (scalar FK)", () => {
   it("groupKeys returns single-element array with accessor value", () => {
-    const ref = createDoc(ItemDoc) as any
-    change(ref, (d: any) => {
+    const ref = createDoc(ItemDoc)
+    change(ref, d => {
       d.ownerId.set("user:alice")
       d.status.set("active")
       d.name.set("Item 1")
@@ -36,8 +36,8 @@ describe("field (scalar FK)", () => {
   })
 
   it("watch fires on FK mutation", () => {
-    const ref = createDoc(ItemDoc) as any
-    change(ref, (d: any) => {
+    const ref = createDoc(ItemDoc)
+    change(ref, d => {
       d.ownerId.set("user:alice")
       d.status.set("active")
       d.name.set("Item 1")
@@ -49,7 +49,7 @@ describe("field (scalar FK)", () => {
     const callback = vi.fn()
     const unsub = watch("item1", ref, callback)
 
-    change(ref, (d: any) => {
+    change(ref, d => {
       d.ownerId.set("user:bob")
     })
 
@@ -58,8 +58,8 @@ describe("field (scalar FK)", () => {
   })
 
   it("watch does NOT fire on non-FK field mutation", () => {
-    const ref = createDoc(ItemDoc) as any
-    change(ref, (d: any) => {
+    const ref = createDoc(ItemDoc)
+    change(ref, d => {
       d.ownerId.set("user:alice")
       d.status.set("active")
       d.name.set("Item 1")
@@ -72,7 +72,7 @@ describe("field (scalar FK)", () => {
     const unsub = watch("item1", ref, callback)
 
     // Mutate name, not ownerId
-    change(ref, (d: any) => {
+    change(ref, d => {
       d.name.set("Updated Item")
     })
 
@@ -81,8 +81,8 @@ describe("field (scalar FK)", () => {
   })
 
   it("unsub stops watch", () => {
-    const ref = createDoc(ItemDoc) as any
-    change(ref, (d: any) => {
+    const ref = createDoc(ItemDoc)
+    change(ref, d => {
       d.ownerId.set("user:alice")
       d.status.set("active")
       d.name.set("Item 1")
@@ -95,7 +95,7 @@ describe("field (scalar FK)", () => {
     const unsub = watch("item1", ref, callback)
     unsub()
 
-    change(ref, (d: any) => {
+    change(ref, d => {
       d.ownerId.set("user:carol")
     })
 
@@ -109,8 +109,8 @@ describe("field (scalar FK)", () => {
 
 describe("field (compound key)", () => {
   it("groupKeys returns compound key with \\0 separator", () => {
-    const ref = createDoc(ItemDoc) as any
-    change(ref, (d: any) => {
+    const ref = createDoc(ItemDoc)
+    change(ref, d => {
       d.ownerId.set("user:alice")
       d.status.set("active")
       d.name.set("Item 1")
@@ -124,16 +124,16 @@ describe("field (compound key)", () => {
   })
 
   it("watch fires when either accessor changes", () => {
-    const ref = createDoc(ItemDoc) as any
-    change(ref, (d: any) => {
+    const ref = createDoc(ItemDoc)
+    change(ref, d => {
       d.ownerId.set("user:alice")
       d.status.set("active")
       d.name.set("Item 1")
     })
 
     const spec = field<any>(
-      (r: any) => r.ownerId,
-      (r: any) => r.status,
+      r => r.ownerId,
+      r => r.status,
     )
     const { watch } = spec
     if (!watch) throw new Error("expected watch")
@@ -141,13 +141,13 @@ describe("field (compound key)", () => {
     const unsub = watch("item1", ref, callback)
 
     // Mutate ownerId
-    change(ref, (d: any) => {
+    change(ref, d => {
       d.ownerId.set("user:bob")
     })
     expect(callback).toHaveBeenCalledTimes(1)
 
     // Mutate status
-    change(ref, (d: any) => {
+    change(ref, d => {
       d.status.set("inactive")
     })
     expect(callback).toHaveBeenCalledTimes(2)
@@ -156,16 +156,16 @@ describe("field (compound key)", () => {
   })
 
   it("compound unsub tears down all watches", () => {
-    const ref = createDoc(ItemDoc) as any
-    change(ref, (d: any) => {
+    const ref = createDoc(ItemDoc)
+    change(ref, d => {
       d.ownerId.set("user:alice")
       d.status.set("active")
       d.name.set("Item 1")
     })
 
     const spec = field<any>(
-      (r: any) => r.ownerId,
-      (r: any) => r.status,
+      r => r.ownerId,
+      r => r.status,
     )
     const { watch } = spec
     if (!watch) throw new Error("expected watch")
@@ -173,10 +173,10 @@ describe("field (compound key)", () => {
     const unsub = watch("item1", ref, callback)
     unsub()
 
-    change(ref, (d: any) => {
+    change(ref, d => {
       d.ownerId.set("user:carol")
     })
-    change(ref, (d: any) => {
+    change(ref, d => {
       d.status.set("archived")
     })
 
@@ -190,30 +190,30 @@ describe("field (compound key)", () => {
 
 describe("keys (record fan-out)", () => {
   it("groupKeys returns all keys of the record", () => {
-    const ref = createDoc(TaggedDoc) as any
-    change(ref, (d: any) => {
+    const ref = createDoc(TaggedDoc)
+    change(ref, d => {
       d.tags.set("urgent", { label: "Urgent" })
       d.tags.set("bug", { label: "Bug" })
     })
 
-    const spec = keys<any>((r: any) => r.tags)
+    const spec = keys<any>(r => r.tags)
     const result = spec.groupKeys("entry1", ref).sort()
     expect(result).toEqual(["bug", "urgent"])
   })
 
   it("watch fires on structural change (key added)", () => {
     const ref = createDoc(TaggedDoc) as any
-    change(ref, (d: any) => {
+    change(ref, d => {
       d.tags.set("urgent", { label: "Urgent" })
     })
 
-    const spec = keys<any>((r: any) => r.tags)
+    const spec = keys<any>(r => r.tags)
     const { watch } = spec
     if (!watch) throw new Error("expected watch")
     const callback = vi.fn()
     const unsub = watch("entry1", ref, callback)
 
-    change(ref, (d: any) => {
+    change(ref, d => {
       d.tags.set("new-tag", { label: "New" })
     })
 
@@ -222,20 +222,20 @@ describe("keys (record fan-out)", () => {
   })
 
   it("watch does NOT fire on value mutation inside a record entry (subscribeNode fix)", () => {
-    const ref = createDoc(TaggedDoc) as any
-    change(ref, (d: any) => {
+    const ref = createDoc(TaggedDoc)
+    change(ref, d => {
       d.tags.set("urgent", { label: "Urgent" })
     })
 
-    const spec = keys<any>((r: any) => r.tags)
+    const spec = keys<any>(r => r.tags)
     const { watch } = spec
     if (!watch) throw new Error("expected watch")
     const callback = vi.fn()
     const unsub = watch("entry1", ref, callback)
 
     // Mutate value inside the record — should NOT fire
-    change(ref, (d: any) => {
-      d.tags.at("urgent").label.set("Very Urgent")
+    change(ref, d => {
+      d.tags.at("urgent")?.label.set("Very Urgent")
     })
 
     expect(callback).not.toHaveBeenCalled()
@@ -243,19 +243,19 @@ describe("keys (record fan-out)", () => {
   })
 
   it("watch fires on structural change (key removed)", () => {
-    const ref = createDoc(TaggedDoc) as any
-    change(ref, (d: any) => {
+    const ref = createDoc(TaggedDoc)
+    change(ref, d => {
       d.tags.set("urgent", { label: "Urgent" })
       d.tags.set("bug", { label: "Bug" })
     })
 
-    const spec = keys<any>((r: any) => r.tags)
+    const spec = keys<any>(r => r.tags)
     const { watch } = spec
     if (!watch) throw new Error("expected watch")
     const callback = vi.fn()
     const unsub = watch("entry1", ref, callback)
 
-    change(ref, (d: any) => {
+    change(ref, d => {
       d.tags.delete("urgent")
     })
 
