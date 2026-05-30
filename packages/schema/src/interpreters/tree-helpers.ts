@@ -165,7 +165,7 @@ export function installTreeReadable(
  * `.delete` and `.move` are pure recording into the dispatch queue;
  * concurrent-move correctness is the substrate's responsibility.
  *
- * Caveat: dispatch buffers ops within a `change()` transaction, so a
+ * Caveat: dispatch buffers ops within a `batch()` transaction, so a
  * `.delete(id)` for an id created earlier in the same transaction sees
  * the pre-transaction topology and produces an empty instruction list.
  * Split such cases across separate transactions.

@@ -1,7 +1,7 @@
 // eager-write-coherence — pins the post-Phase-3 contract for the Yjs
 // substrate's write path:
 //
-//   1. Re-entry: subscriber callbacks may freely `change()` the doc.
+//   1. Re-entry: subscriber callbacks may freely `batch()` the doc.
 //      Substrate writes land synchronously; both reads (σ via the
 //      Reader) AND subsequent writes (λ via applyChangeToYjs) succeed
 //      against the new state.
@@ -17,7 +17,7 @@
 // native `Y.transact` already collapses re-entrant nesting for free.
 
 import {
-  change,
+  batch,
   interpret,
   observation,
   readable,
@@ -76,16 +76,16 @@ describe("Yjs re-entry: subscriber writes after subscriber push", () => {
 
     subscribe(doc.events, () => {
       if ((doc.events as any).length !== 1) return
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.events.push({ kind: "assistant", body: "" })
       })
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.events.at(1).body.set("hello")
       })
     })
 
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.events.push({ kind: "user", body: "hi" })
       })
     }).not.toThrow()
@@ -103,13 +103,13 @@ describe("Yjs re-entry: subscriber writes after subscriber push", () => {
     let observed: string | undefined
     subscribe(doc.items, () => {
       if ((doc.items as any).length !== 1) return
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.items.push({ name: "synthesised" })
       })
       observed = (doc.items as any).at(1).name()
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ name: "user" })
     })
 
@@ -136,15 +136,15 @@ describe("Yjs projection law", () => {
     })
     const { doc } = buildUnbound(schema)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.insert(0, "Hello")
       d.items.push({ name: "a", done: false })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.at(0).done.set(true)
       d.items.push({ name: "b", done: false })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.meta.set({ tags: "kyneta", version: 2 })
       d.peers.set("alice", true)
       d.peers.set("bob", false)
@@ -179,12 +179,12 @@ describe("Yjs json-boundary storage", () => {
     })
     const { doc } = build(schema)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.config.set({ tags: "ci", retries: 3 })
     })
     expect(doc.config()).toEqual({ tags: "ci", retries: 3 })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.config.tags.set("prod")
     })
     expect(doc.config()).toEqual({ tags: "prod", retries: 3 })
@@ -214,10 +214,10 @@ describe("Yjs json-boundary storage", () => {
     })
     const { doc } = build(schema)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.push({ title: "first", done: false })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.push({ title: "second", done: false })
     })
     expect(doc.todos()).toEqual([
@@ -225,7 +225,7 @@ describe("Yjs json-boundary storage", () => {
       { title: "second", done: false },
     ])
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.at(0).done.set(true)
     })
     expect(doc.todos()).toEqual([
@@ -240,7 +240,7 @@ describe("Yjs json-boundary storage", () => {
     })
     const { doc } = build(schema)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { email: "alice@example.com" })
       d.profiles.set("bob", { email: "bob@example.com" })
     })
@@ -249,7 +249,7 @@ describe("Yjs json-boundary storage", () => {
       bob: { email: "bob@example.com" },
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.at("alice").email.set("alice@new.example.com")
     })
     expect(doc.profiles()).toEqual({
@@ -265,13 +265,13 @@ describe("Yjs json-boundary storage", () => {
 // ---------------------------------------------------------------------------
 
 describe("Yjs three-primitive substrate (jj:ryquprut)", () => {
-  it("multi-push in one change() block appends in order against the CRDT", () => {
+  it("multi-push in one batch() block appends in order against the CRDT", () => {
     const schema = Schema.struct({
       todos: Schema.list(Schema.string()),
     })
     const { doc } = build(schema)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.push("a")
       d.todos.push("b")
       d.todos.push("c")
@@ -288,7 +288,7 @@ describe("Yjs three-primitive substrate (jj:ryquprut)", () => {
     const { doc } = build(schema)
 
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.a.set("set-a")
         d.b.set("set-b")
         throw new Error("abort")
@@ -309,7 +309,7 @@ describe("Yjs three-primitive substrate (jj:ryquprut)", () => {
     })
 
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.a.set("hello")
         throw new Error("abort")
       })

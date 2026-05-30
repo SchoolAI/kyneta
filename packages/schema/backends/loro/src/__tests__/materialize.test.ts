@@ -12,7 +12,7 @@ import type {
 } from "@kyneta/schema"
 import {
   BACKING_DOC,
-  change,
+  batch,
   deriveSchemaBinding,
   interpret,
   KIND,
@@ -103,7 +103,7 @@ describe("materializeLoroShadow", () => {
     const substrate = loroSubstrateFactory.create(TextSchema)
     const doc = interpretSubstrate(TextSchema, substrate)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(0, "hello")
     })
 
@@ -118,7 +118,7 @@ describe("materializeLoroShadow", () => {
     const substrate = loroSubstrateFactory.create(CounterSchema)
     const doc = interpretSubstrate(CounterSchema, substrate)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.count.increment(5)
     })
 
@@ -133,7 +133,7 @@ describe("materializeLoroShadow", () => {
     const substrate = loroSubstrateFactory.create(ScalarSchema)
     const doc = interpretSubstrate(ScalarSchema, substrate)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.name.set("Alice")
       d.age.set(30)
       d.active.set(true)
@@ -150,13 +150,13 @@ describe("materializeLoroShadow", () => {
     const substrate = loroSubstrateFactory.create(SequenceSchema)
     const doc = interpretSubstrate(SequenceSchema, substrate)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.items.push("alpha")
     })
-    change(doc, d => {
+    batch(doc, d => {
       d.items.push("beta")
     })
-    change(doc, d => {
+    batch(doc, d => {
       d.items.push("gamma")
     })
 
@@ -171,7 +171,7 @@ describe("materializeLoroShadow", () => {
     const substrate = loroSubstrateFactory.create(NestedSchema)
     const doc = interpretSubstrate(NestedSchema, substrate)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.meta.author.set("Bob")
       d.meta.version.set(42)
     })
@@ -205,7 +205,7 @@ describe("materializeLoroShadow", () => {
     const substrate = loroSubstrateFactory.create(TextSchema)
     const doc = interpretSubstrate(TextSchema, substrate)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(0, "test")
     })
 
@@ -227,17 +227,17 @@ describe("materializeLoroShadow", () => {
     const substrate = loroSubstrateFactory.create(FullSchema)
     const doc = interpretSubstrate(FullSchema, substrate)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(0, "My Doc")
       d.count.increment(10)
       d.theme.set("dark")
       d.settings.darkMode.set(true)
       d.settings.fontSize.set(16)
     })
-    change(doc, d => {
+    batch(doc, d => {
       d.tags.push("important")
     })
-    change(doc, d => {
+    batch(doc, d => {
       d.tags.push("urgent")
     })
 
@@ -258,7 +258,7 @@ describe("materializeLoroShadow", () => {
     const substrate = loroSubstrateFactory.create(TextSchema)
     const doc = interpretSubstrate(TextSchema, substrate)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(0, "no binding")
     })
 

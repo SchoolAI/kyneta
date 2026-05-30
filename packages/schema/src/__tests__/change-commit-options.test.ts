@@ -1,11 +1,11 @@
 // change-commit-options — tests that CommitOptions.origin propagates
-// through change() to Changeset.origin received by subscribers.
+// through batch() to Changeset.origin received by subscribers.
 
 import type { Changeset } from "@kyneta/changefeed"
 import { describe, expect, it } from "vitest"
 import { json } from "../bind.js"
 import { createDoc } from "../create-doc.js"
-import { change } from "../facade/change.js"
+import { batch } from "../facade/batch.js"
 import { subscribeNode } from "../facade/observe.js"
 import { Schema } from "../schema.js"
 
@@ -18,17 +18,17 @@ const TextDocSchema = Schema.struct({
 })
 
 // ===========================================================================
-// change(): CommitOptions.origin propagation
+// batch(): CommitOptions.origin propagation
 // ===========================================================================
 
 describe("change: CommitOptions.origin propagation", () => {
-  it("change() with { origin } propagates origin to Changeset received by subscribers", () => {
+  it("batch() with { origin } propagates origin to Changeset received by subscribers", () => {
     const doc = createDoc(json.bind(TextDocSchema))
 
     const changesets: Changeset[] = []
     subscribeNode(doc.title, cs => changesets.push(cs))
 
-    change(
+    batch(
       doc,
       d => {
         d.title.insert(0, "Hello")
@@ -40,13 +40,13 @@ describe("change: CommitOptions.origin propagation", () => {
     expect(changesets[0]?.origin).toBe("my-tag")
   })
 
-  it("change() without options produces origin === undefined", () => {
+  it("batch() without options produces origin === undefined", () => {
     const doc = createDoc(json.bind(TextDocSchema))
 
     const changesets: Changeset[] = []
     subscribeNode(doc.title, cs => changesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(0, "World")
     })
 
@@ -56,18 +56,18 @@ describe("change: CommitOptions.origin propagation", () => {
 })
 
 // ===========================================================================
-// change(): CommitOptions.source propagation (Task 2.1 — source round-trip)
+// batch(): CommitOptions.source propagation (Task 2.1 — source round-trip)
 // ===========================================================================
 
 describe("change: CommitOptions.source propagation", () => {
-  it("change() with { source } propagates the identity-typed token to Changeset.source", () => {
+  it("batch() with { source } propagates the identity-typed token to Changeset.source", () => {
     const doc = createDoc(json.bind(TextDocSchema))
 
     const changesets: Changeset[] = []
     subscribeNode(doc.title, cs => changesets.push(cs))
 
     const tok = {}
-    change(
+    batch(
       doc,
       d => {
         d.title.insert(0, "Hello")
@@ -84,13 +84,13 @@ describe("change: CommitOptions.source propagation", () => {
     expect(changesets[0]?.source).not.toBe(otherEmpty)
   })
 
-  it("change() without options produces source === undefined", () => {
+  it("batch() without options produces source === undefined", () => {
     const doc = createDoc(json.bind(TextDocSchema))
 
     const changesets: Changeset[] = []
     subscribeNode(doc.title, cs => changesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(0, "World")
     })
 
@@ -105,7 +105,7 @@ describe("change: CommitOptions.source propagation", () => {
     subscribeNode(doc.title, cs => changesets.push(cs))
 
     const sym = Symbol("test-binding")
-    change(
+    batch(
       doc,
       d => {
         d.title.insert(0, "Sym")

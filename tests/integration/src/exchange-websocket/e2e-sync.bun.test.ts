@@ -27,7 +27,7 @@
 
 import { Exchange, type ExchangeParams } from "@kyneta/exchange"
 import { loro } from "@kyneta/loro-schema"
-import { change, ephemeral, json, Schema } from "@kyneta/schema"
+import { batch, ephemeral, json, Schema } from "@kyneta/schema"
 import { WebsocketClientTransport } from "@kyneta/websocket-transport/browser"
 import {
   type BunWebsocketData,
@@ -222,9 +222,9 @@ describe("Sequential sync over Websocket (PlainSubstrate)", () => {
   it("server creates doc, client syncs and gets the same state", async () => {
     const { serverExchange, clientExchange } = await createConnectedPair()
 
-    // Server creates a doc and populates it via change()
+    // Server creates a doc and populates it via batch()
     const docServer = serverExchange.get("doc-1", SequentialDoc)
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("Hello from Server")
       d.count.set(42)
     })
@@ -247,7 +247,7 @@ describe("Sequential sync over Websocket (PlainSubstrate)", () => {
     const { serverExchange, clientExchange } = await createConnectedPair()
 
     const docServer = serverExchange.get("doc-1", SequentialDoc)
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("V1")
       d.count.set(1)
     })
@@ -258,7 +258,7 @@ describe("Sequential sync over Websocket (PlainSubstrate)", () => {
     expect(docClient.title()).toBe("V1")
 
     // Server mutates
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("V2")
       d.count.set(2)
     })
@@ -273,7 +273,7 @@ describe("Sequential sync over Websocket (PlainSubstrate)", () => {
     const { serverExchange, clientExchange } = await createConnectedPair()
 
     const docServer = serverExchange.get("doc-1", SequentialDoc)
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("V1")
       d.count.set(1)
     })
@@ -284,7 +284,7 @@ describe("Sequential sync over Websocket (PlainSubstrate)", () => {
     expect(docClient.title()).toBe("V1")
 
     // Client mutates
-    change(docClient, (d: any) => {
+    batch(docClient, (d: any) => {
       d.title.set("From Client")
       d.count.set(99)
     })
@@ -306,7 +306,7 @@ describe("Causal sync over Websocket (LoroSubstrate)", () => {
 
     // Server creates and populates a Loro doc
     const docServer = serverExchange.get("doc-1", LoroDoc)
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.insert(0, "Hello CRDT")
     })
     // Client creates the same doc
@@ -329,10 +329,10 @@ describe("Causal sync over Websocket (LoroSubstrate)", () => {
     await drain()
 
     // Both insert concurrently
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.insert(0, "Server")
     })
-    change(docClient, (d: any) => {
+    batch(docClient, (d: any) => {
       d.title.insert(0, "Client")
     })
     // Let sync happen
@@ -358,7 +358,7 @@ describe("LWW sync over Websocket (Ephemeral/Presence)", () => {
 
     // Server sets presence
     const presServer = serverExchange.get("presence", PresenceDoc)
-    change(presServer, (d: any) => {
+    batch(presServer, (d: any) => {
       d.cursor.x.set(100)
       d.cursor.y.set(200)
       d.name.set("Server")
@@ -382,7 +382,7 @@ describe("LWW sync over Websocket (Ephemeral/Presence)", () => {
     const presClient = clientExchange.get("presence", PresenceDoc)
 
     // Set initial values
-    change(presServer, (d: any) => {
+    batch(presServer, (d: any) => {
       d.cursor.x.set(0)
       d.cursor.y.set(0)
       d.name.set("Server")
@@ -391,7 +391,7 @@ describe("LWW sync over Websocket (Ephemeral/Presence)", () => {
     expect(presClient.name()).toBe("Server")
 
     // Server moves cursor
-    change(presServer, (d: any) => {
+    batch(presServer, (d: any) => {
       d.cursor.x.set(500)
       d.cursor.y.set(600)
     })
@@ -419,13 +419,13 @@ describe("Heterogeneous documents over Websocket", () => {
 
     // Server: plain config doc
     const configServer = serverExchange.get("config", ConfigDoc)
-    change(configServer, (d: any) => {
+    batch(configServer, (d: any) => {
       d.config.set("dark-mode")
     })
 
     // Server: Loro collaborative doc
     const textServer = serverExchange.get("collab", CollabDoc)
-    change(textServer, (d: any) => {
+    batch(textServer, (d: any) => {
       d.text.insert(0, "collaborative text")
     })
     // Client: create both docs
@@ -460,7 +460,7 @@ describe("Large payload fragmentation over Websocket", () => {
     const docServer = serverExchange.get("large-doc", LargeDoc)
 
     // Insert enough text to create a payload larger than 256 bytes
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.content.insert(
         0,
         "This is a fairly long piece of text that should generate a Loro snapshot " +

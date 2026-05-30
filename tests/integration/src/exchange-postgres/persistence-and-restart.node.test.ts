@@ -15,7 +15,7 @@
 
 import { Exchange } from "@kyneta/exchange"
 import { createPostgresStore } from "@kyneta/postgres-store"
-import { change, Schema } from "@kyneta/schema"
+import { batch, Schema } from "@kyneta/schema"
 import type { EntryPayloadJson } from "@kyneta/sql-store-core"
 import { yjs } from "@kyneta/yjs-schema"
 import type { Pool } from "pg"
@@ -84,7 +84,7 @@ describeIfEnabled(
       const docServer = serverExchange.get("doc-1", YjsDoc)
       const docClient = clientExchange.get("doc-1", YjsDoc)
 
-      change(docServer, (d: any) => {
+      batch(docServer, (d: any) => {
         d.title.insert(0, "from server")
         d.count.set(7)
       })
@@ -93,7 +93,7 @@ describeIfEnabled(
       expect(docClient.title()).toBe("from server")
       expect(docClient.count()).toBe(7)
 
-      change(docClient, (d: any) => {
+      batch(docClient, (d: any) => {
         d.count.set(42)
       })
 
@@ -160,7 +160,7 @@ describeIfEnabled(
         const docServer = serverExchange.get("doc-1", YjsDoc)
         clientExchange.get("doc-1", YjsDoc)
 
-        change(docServer, (d: any) => {
+        batch(docServer, (d: any) => {
           d.title.insert(0, "persisted")
           d.count.set(11)
         })
@@ -225,7 +225,7 @@ describeIfEnabled(
         expect(docServer.count()).toBe(11)
         expect(docClient.count()).toBe(11)
 
-        change(docClient, (d: any) => {
+        batch(docClient, (d: any) => {
           d.count.set(99)
         })
 
@@ -257,7 +257,7 @@ describeIfEnabled(
         }),
       )
       const doc = exchange.get("doc-roundtrip", YjsDoc)
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "portable")
         d.count.set(5)
       })

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import type { Op } from "../index.js"
 import {
   applyChanges,
-  change,
+  batch,
   incrementChange,
   interpret,
   observation,
@@ -72,14 +72,14 @@ function getChangefeed(obj: unknown): {
 }
 
 // ===========================================================================
-// change() — imperative mutation → Op[]
+// batch() — imperative mutation → Op[]
 // ===========================================================================
 
 describe("change: basic behavior", () => {
   it("returns Op[] with correct paths and change types", () => {
     const { doc } = createChatDoc()
 
-    const ops = change(doc, d => {
+    const ops = batch(doc, d => {
       d.settings.darkMode.set(true)
     })
 
@@ -93,7 +93,7 @@ describe("change: basic behavior", () => {
   it("captures multiple mutations as multiple Op entries", () => {
     const { doc } = createChatDoc()
 
-    const ops = change(doc, d => {
+    const ops = batch(doc, d => {
       d.settings.darkMode.set(true)
       d.settings.fontSize.set(18)
       d.messages.push({ author: "Bob", body: "Hey" })
@@ -115,7 +115,7 @@ describe("change: basic behavior", () => {
   it("captures text mutations", () => {
     const { doc } = createChatDoc()
 
-    const ops = change(doc, d => {
+    const ops = batch(doc, d => {
       d.title.insert(5, " World")
     })
 
@@ -128,7 +128,7 @@ describe("change: basic behavior", () => {
   it("captures counter mutations", () => {
     const { doc } = createChatDoc()
 
-    const ops = change(doc, d => {
+    const ops = batch(doc, d => {
       d.count.increment(3)
     })
 
@@ -139,7 +139,7 @@ describe("change: basic behavior", () => {
   it("applies mutations to the store", () => {
     const { doc, store } = createChatDoc()
 
-    change(doc, d => {
+    batch(doc, d => {
       d.settings.darkMode.set(true)
     })
 
@@ -148,14 +148,14 @@ describe("change: basic behavior", () => {
   })
 
   it("throws on non-transactable ref", () => {
-    expect(() => change({} as any, () => {})).toThrow("[TRANSACT]")
+    expect(() => batch({} as any, () => {})).toThrow("[TRANSACT]")
   })
 
   it("aborts transaction on error and re-throws", () => {
     const { doc, store } = createChatDoc()
 
     expect(() =>
-      change(doc, d => {
+      batch(doc, d => {
         d.settings.darkMode.set(true)
         throw new Error("oops")
       }),
@@ -289,12 +289,12 @@ describe("applyChanges: basic behavior", () => {
     expect(events).toHaveLength(0)
   })
 
-  it("applyChanges nested inside a change() block contributes to the outer Changeset", () => {
+  it("applyChanges nested inside a batch() block contributes to the outer Changeset", () => {
     const { doc } = createChatDoc()
     const events: Changeset[] = []
     getChangefeed(doc.settings.darkMode).subscribe(cs => events.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.settings.fontSize.set(20)
       applyChanges(doc, [
         {
@@ -313,7 +313,7 @@ describe("applyChanges: basic behavior", () => {
 })
 
 // ===========================================================================
-// Round-trip: change(docA) → applyChanges(docB)
+// Round-trip: batch(docA) → applyChanges(docB)
 // ===========================================================================
 
 describe("round-trip: change → applyChanges", () => {
@@ -321,7 +321,7 @@ describe("round-trip: change → applyChanges", () => {
     const docA = createChatDoc()
     const docB = createChatDoc()
 
-    const ops = change(docA.doc, d => {
+    const ops = batch(docA.doc, d => {
       d.title.insert(5, " World")
       d.settings.darkMode.set(true)
       d.settings.fontSize.set(20)
@@ -336,7 +336,7 @@ describe("round-trip: change → applyChanges", () => {
     const docA = createChatDoc()
     const docB = createChatDoc()
 
-    const ops = change(docA.doc, d => {
+    const ops = batch(docA.doc, d => {
       d.messages.push({ author: "Bob", body: "Hey" })
     })
 
@@ -349,7 +349,7 @@ describe("round-trip: change → applyChanges", () => {
     const docA = createChatDoc()
     const docB = createChatDoc()
 
-    const ops = change(docA.doc, d => {
+    const ops = batch(docA.doc, d => {
       d.count.increment(7)
     })
 
@@ -362,7 +362,7 @@ describe("round-trip: change → applyChanges", () => {
     const docA = createChatDoc()
     const docB = createChatDoc()
 
-    const ops = change(docA.doc, d => {
+    const ops = batch(docA.doc, d => {
       d.title.insert(5, " World")
       d.count.increment(3)
       d.messages.push({ author: "Bob", body: "Hey" })
@@ -379,7 +379,7 @@ describe("round-trip: change → applyChanges", () => {
     const docA = createChatDoc()
     const docB = createChatDoc()
 
-    const ops = change(docA.doc, d => {
+    const ops = batch(docA.doc, d => {
       d.messages.insert(0, { author: "Eve", body: "First!" })
     })
 
@@ -401,7 +401,7 @@ describe("round-trip: change → applyChanges", () => {
     const docA = createChatDoc(storeOverrides)
     const docB = createChatDoc(storeOverrides)
 
-    const ops = change(docA.doc, d => {
+    const ops = batch(docA.doc, d => {
       d.messages.delete(1, 1)
     })
 
@@ -677,7 +677,7 @@ describe("round-trip: subscribeDescendants output → applyChanges input", () =>
     )
 
     // Mutate docA — two changes at different leaf paths
-    change(docA.doc, d => {
+    batch(docA.doc, d => {
       d.settings.darkMode.set(true)
       d.count.increment(5)
     })
@@ -714,7 +714,7 @@ describe("round-trip: subscribeDescendants output → applyChanges input", () =>
     )
 
     // Mutate settings subtree — two changes at different leaf paths
-    change(docA.doc, d => {
+    batch(docA.doc, d => {
       d.settings.darkMode.set(true)
       d.settings.fontSize.set(24)
     })
@@ -753,13 +753,13 @@ describe("round-trip: subscribeDescendants output → applyChanges input", () =>
 // ===========================================================================
 
 describe("change: changefeed integration", () => {
-  it("change() fires subscribers with batched Changeset", () => {
+  it("batch() fires subscribers with batched Changeset", () => {
     const { doc } = createChatDoc()
 
     const changesets: Changeset[] = []
     getChangefeed(doc.settings.darkMode).subscribe(cs => changesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.settings.darkMode.set(true)
     })
 
@@ -767,13 +767,13 @@ describe("change: changefeed integration", () => {
     expect(changesets[0]?.changes).toHaveLength(1)
   })
 
-  it("change() with multiple mutations to same path batches them", () => {
+  it("batch() with multiple mutations to same path batches them", () => {
     const { doc } = createChatDoc()
 
     const changesets: Changeset[] = []
     getChangefeed(doc.count).subscribe(cs => changesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.count.increment(1)
       d.count.increment(2)
       d.count.increment(3)
@@ -793,7 +793,7 @@ describe("change: changefeed integration", () => {
 // Post-1.6.0: subscriber callbacks may mutate freely. The per-context
 // dispatcher enqueues re-entrant `accumulate` Msgs back into its own
 // pending queue and drains them in fresh sub-ticks of the same outer
-// dispatch call. Substrate writes inside `change()` remain synchronous
+// dispatch call. Substrate writes inside `batch()` remain synchronous
 // — subsequent reads see the new state. These tests verify the new
 // drain-to-quiescence semantics.
 
@@ -812,7 +812,7 @@ describe("re-entrancy: mutation during notification drains to quiescence", () =>
     })
 
     expect(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.settings.darkMode.set(true)
       })
     }).not.toThrow()
@@ -822,7 +822,7 @@ describe("re-entrancy: mutation during notification drains to quiescence", () =>
     expect(fontSizeFired).toBe(1)
   })
 
-  it("change() inside subscriber lands; sub-tick Changeset is delivered", () => {
+  it("batch() inside subscriber lands; sub-tick Changeset is delivered", () => {
     const { doc } = createChatDoc()
 
     let fontSizeFired = 0
@@ -834,14 +834,14 @@ describe("re-entrancy: mutation during notification drains to quiescence", () =>
       countFired++
     })
     getChangefeed(doc.settings.darkMode).subscribe(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.settings.fontSize.set(20)
         d.count.increment(5)
       })
     })
 
     expect(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.settings.darkMode.set(true)
       })
     }).not.toThrow()
@@ -870,7 +870,7 @@ describe("re-entrancy: mutation during notification drains to quiescence", () =>
     })
 
     expect(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.settings.darkMode.set(true)
       })
     }).not.toThrow()
@@ -885,7 +885,7 @@ describe("re-entrancy: mutation during notification drains to quiescence", () =>
 
     // Chain: darkMode subscriber writes fontSize → fontSize subscriber
     // writes count. The dispatcher drains both sub-ticks within the
-    // outer change() call.
+    // outer batch() call.
     let fontSizeFired = 0
     let countFired = 0
     getChangefeed(doc.settings.fontSize).subscribe(() => {
@@ -900,7 +900,7 @@ describe("re-entrancy: mutation during notification drains to quiescence", () =>
     })
 
     expect(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.settings.darkMode.set(true)
       })
     }).not.toThrow()
@@ -920,7 +920,7 @@ describe("re-entrancy: mutation during notification drains to quiescence", () =>
     })
 
     expect(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.settings.darkMode.set(true)
       })
     }).not.toThrow()
@@ -1106,8 +1106,8 @@ describe("integration: library-only round-trip", () => {
     const treeChangesets: Changeset<Op>[] = []
     subscribe(docA.doc, cs => treeChangesets.push(cs))
 
-    // Mutate docA via library-level change()
-    change(docA.doc, d => {
+    // Mutate docA via library-level batch()
+    batch(docA.doc, d => {
       d.settings.darkMode.set(true)
       d.count.increment(5)
     })

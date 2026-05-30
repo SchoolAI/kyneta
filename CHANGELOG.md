@@ -1,3 +1,11 @@
+# Unreleased (2.0)
+
+  Schema — **breaking**: the `change()` mutation facade is renamed to `batch()`.
+  - `change(ref, fn, options?)` → `batch(ref, fn, options?)`. Same signature and semantics: group writes into one atomic commit + one `Changeset`, atomic abort on throw, returns the captured `Op[]`. Re-exported under the new name from `@kyneta/schema`, `@kyneta/schema/basic`, `@kyneta/react`, and the Loro/Yjs backends. The facade module moves `src/facade/change.ts` → `src/facade/batch.ts`.
+  - **Unchanged**: `applyChanges`, `remove`, `CommitOptions`, the `Op.change` field, the `Change` / `Changeset` vocabulary, the `changefeed` package, and the wire / persistence format. This is a source-level rename only — **no data migration**, no cross-version sync break.
+  - **Why**: since auto-commit-on-write (1.8.0, jj:kqnkxrkl) a single mutation commits on its own, so wrapping one write in `change()` is unnecessary — the facade's job is now batching. `batch` also matches the implementation's own vocabulary (`runBatch` / `executeBatch` / `BatchOptions`, Loro's `batch.origin`) and disambiguates the verb from the `Change` / `Changeset` data family.
+  - **Migration**: replace facade `change(...)` calls and `{ change }` imports with `batch`. An import-anchored codemod is provided at `scripts/rename-change-to-batch.ts` (renames only the facade binding — never `Op.change`, `*Change`, or `changefeed`); external consumers can do an import-anchored find-and-replace. Prefer unwrapping single mutations to a direct write (`doc.x.set(v)`) over `batch(doc, d => d.x.set(v))`.
+
 # 1.8.0
 
   Schema — three-primitive substrate contract:

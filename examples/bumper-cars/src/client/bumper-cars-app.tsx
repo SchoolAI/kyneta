@@ -9,7 +9,7 @@
 //     • input:${peerId} (ephemeral.bind, LWW) — this player's joystick input
 //
 //   The client reads game state reactively via useValue() and writes
-//   input via change() through the useInputSender hook.
+//   input via batch() through the useInputSender hook.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -19,7 +19,7 @@ import {
   useExchange,
   useValue,
   useSyncStatus,
-  change,
+  batch,
 } from "@kyneta/react"
 import type { Ref } from "@kyneta/schema"
 import { CAR_COLORS, type CarColor } from "../constants.js"
@@ -116,7 +116,7 @@ export default function BumperCarsApp({
       const doc = exchange.get(`input:${myPeerId}`, PlayerInputDoc)
       inputDocRef.current = doc
 
-      change(doc, d => {
+      batch(doc, d => {
         d.name.set(name)
         d.color.set(color)
         d.force.set(0)

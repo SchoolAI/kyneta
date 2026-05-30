@@ -11,7 +11,7 @@ import type { Changeset } from "@kyneta/changefeed"
 import type { Op } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
 import {
-  change,
+  batch,
   createDoc,
   exportEntirety,
   exportSince,
@@ -37,7 +37,7 @@ describe("Schema.tree on Loro: create + read", () => {
   it("creates a root and reads its data through doc.tree()", () => {
     const doc = createDoc(bound)
     let rootId = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       rootId = d.tree.create({ data: { label: "Root" } })
     })
     expect(typeof rootId).toBe("string")
@@ -59,7 +59,7 @@ describe("Schema.tree on Loro: create + read", () => {
     const doc = createDoc(bound)
     let rootId = ""
     let childId = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       rootId = d.tree.create({ data: { label: "Root" } })
       childId = d.tree.create({ parent: rootId, data: { label: "Child" } })
     })
@@ -82,7 +82,7 @@ describe("Schema.tree on Loro: materialize after binary import", () => {
     const docA = createDoc(bound)
     let rootId = ""
     let childId = ""
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       rootId = d.tree.create({ data: { label: "Root" } })
       childId = d.tree.create({ parent: rootId, data: { label: "Child" } })
     })
@@ -100,12 +100,12 @@ describe("Schema.tree on Loro: delete + move", () => {
     const doc = createDoc(bound)
     let rootId = ""
     let childId = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       rootId = d.tree.create({ data: { label: "Root" } })
       childId = d.tree.create({ parent: rootId, data: { label: "Child" } })
       d.tree.create({ parent: childId, data: { label: "Grandchild" } })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.tree.delete(childId)
     })
     expect((doc.tree as any).size).toBe(1)
@@ -118,7 +118,7 @@ describe("Schema.tree on Loro: delete + move", () => {
     let rootId = ""
     let childId = ""
     let grandchildId = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       rootId = d.tree.create({ data: { label: "Root" } })
       childId = d.tree.create({ parent: rootId, data: { label: "C" } })
       grandchildId = d.tree.create({
@@ -126,7 +126,7 @@ describe("Schema.tree on Loro: delete + move", () => {
         data: { label: "GC" },
       })
     })
-    const ops = change(doc, (d: any) => {
+    const ops = batch(doc, (d: any) => {
       d.tree.delete(rootId)
     })
     const targets = ops
@@ -143,12 +143,12 @@ describe("Schema.tree on Loro: delete + move", () => {
     let a = ""
     let b = ""
     let target = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       a = d.tree.create({ data: { label: "A" } })
       b = d.tree.create({ data: { label: "B" } })
       target = d.tree.create({ parent: a, data: { label: "Target" } })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.tree.move(target, { parent: b, index: 0 })
     })
     const roots = (doc.tree as any).roots
@@ -180,7 +180,7 @@ describe("Schema.tree on Loro: peer sync via binary updates", () => {
 
     let rootId = ""
     let childId = ""
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       rootId = d.tree.create({ data: { label: "A" } })
       childId = d.tree.create({ parent: rootId, data: { label: "B" } })
     })
@@ -209,10 +209,10 @@ describe("Schema.tree on Loro: concurrent move convergence", () => {
 
     let rootA = ""
     let rootB = ""
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       rootA = d.tree.create({ data: { label: "A" } })
     })
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       rootB = d.tree.create({ data: { label: "B" } })
     })
 
@@ -223,10 +223,10 @@ describe("Schema.tree on Loro: concurrent move convergence", () => {
     merge(docA, exportSince(docB, vBeforeMergeA)!, { origin: "sync" })
 
     // Concurrent moves: each peer reparents the other's root under its own.
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.tree.move(rootB, { parent: rootA, index: 0 })
     })
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       d.tree.move(rootA, { parent: rootB, index: 0 })
     })
 
@@ -258,10 +258,10 @@ describe("Schema.tree on Loro: deleted-node read", () => {
     // future regression is visible.
     const doc = createDoc(bound)
     let rootId = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       rootId = d.tree.create({ data: { label: "Ghost" } })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.tree.delete(rootId)
     })
 
@@ -275,7 +275,7 @@ describe("Schema.tree on Loro: deleted-node read", () => {
 describe("Schema.tree on Loro: unwrap semantics", () => {
   it("unwrap on the tree ref returns the Loro LoroTree container", () => {
     const doc = createDoc(bound)
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.tree.create({ data: { label: "Root" } })
     })
     const native = unwrap(doc.tree as any) as any
@@ -289,7 +289,7 @@ describe("Schema.tree on Loro: unwrap semantics", () => {
     // .kind() === "Map"), not a LoroTreeNode (which has no .kind()).
     const doc = createDoc(bound)
     let rootId = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       rootId = d.tree.create({ data: { label: "Root" } })
     })
     const nodeNative = unwrap((doc.tree as any).node(rootId)) as any
@@ -316,12 +316,12 @@ describe("Schema.tree on Loro: round-trip via binary sync (Phase 5)", () => {
     let a = ""
     let b = ""
     let target = ""
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       a = d.tree.create({ data: { label: "A" } })
       b = d.tree.create({ data: { label: "B" } })
       target = d.tree.create({ parent: a, data: { label: "T" } })
     })
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.tree.move(target, { parent: b, index: 0 })
     })
 
@@ -341,11 +341,11 @@ describe("Schema.tree on Loro: round-trip via binary sync (Phase 5)", () => {
 
     let root = ""
     let child = ""
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       root = d.tree.create({ data: { label: "R" } })
       child = d.tree.create({ parent: root, data: { label: "C" } })
     })
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.tree.delete(child)
     })
 
@@ -371,7 +371,7 @@ describe("Schema.tree on Loro: subscribe parity", () => {
     subscribe(doc as any, cs => changesets.push(cs))
 
     let id = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       id = d.tree.create({ data: { label: "x" } })
     })
 

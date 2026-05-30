@@ -21,7 +21,8 @@ const TaskDoc = Schema.struct({
 
 const doc = createDoc(TaskDoc)
 
-change(doc, d => {
+// Group several writes into one atomic commit + one notification:
+batch(doc, d => {
   d.title.insert(0, "Ship it")
   d.done.set(true)
   d.games.push({ type: "catan", players: 3 })
@@ -29,6 +30,7 @@ change(doc, d => {
 
 doc()                    // { "title": "Ship it", "count": 0, ... }
 doc.title()              // "Ship it"
+// A single mutation needs no batch() — a bare helper call auto-commits:
 doc.title.insert(7, "!") // surgical text edit
 doc.count.increment()    // counter delta
 doc.games.push({         // makes structural doc.games.at(1) available
@@ -43,13 +45,15 @@ subscribe(doc, (changeset) => {
 
 Zero runtime dependencies.
 
+> **Mutation convention.** A single write commits on its own — call it directly (`doc.title.insert(...)`). Reach for `batch(doc, d => …)` only to group **multiple** writes into one atomic commit + notification, to capture the returned `Op[]`, or to attach `origin`/`source` provenance.
+
 ## What you get from one schema
 
 | Capability | How |
 |---|---|
 | **Typed reads** | `doc.title()` returns `string`, `doc()` returns the full plain snapshot |
 | **Typed writes** | `.set()`, `.insert()`, `.increment()`, `.push()`, `.delete()` — each ref knows its mutation surface |
-| **Transactions** | `change(doc, d => { ... })` → `Op[]` — atomic batching, returns captured ops |
+| **Batching** | `batch(doc, d => { … })` → `Op[]` — group writes into one atomic commit + one notification (a single write needs no wrapper); returns the captured ops for sync |
 | **Sync** | `applyChanges(docB, ops)` — apply ops from another doc, network, or undo stack |
 | **Observation** | `subscribe(doc, cb)` for tree-level, `subscribeNode(ref, cb)` for leaf-level |
 | **Self-removal** | `remove(ref)` — a child ref removes itself from its parent container |
@@ -61,7 +65,7 @@ Zero runtime dependencies.
 
 ```ts
 // Capture mutations on docA
-const ops = change(docA, d => {
+const ops = batch(docA, d => {
   d.title.insert(0, "✨ ")
   d.count.increment(10)
 })
@@ -160,7 +164,7 @@ subscribeNode(doc.count, (changeset) => {
 })
 ```
 
-Subscribers receive batched `Changeset` objects — never partially-applied state. Origin provenance (`{ origin: "sync" }`) flows through from `change()` and `applyChanges()`.
+Subscribers receive batched `Changeset` objects — never partially-applied state. Origin provenance (`{ origin: "sync" }`) flows through from `batch()` and `applyChanges()`.
 
 ## Data readiness
 
@@ -168,7 +172,7 @@ Subscribers receive batched `Changeset` objects — never partially-applied stat
 // Every ref starts unpopulated — no data has arrived yet
 doc.title.isPopulated()     // false
 
-change(doc, d => d.title.insert(0, "Hello"))
+doc.title.insert(0, "Hello")
 
 doc.title.isPopulated()     // true (monotonic — never reverts)
 doc.isPopulated()           // true (parent flips when any child does)

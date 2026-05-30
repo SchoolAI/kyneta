@@ -5,7 +5,7 @@
 // logic is already covered by store.test.ts (Tier 1).
 
 import { createReactiveMap } from "@kyneta/changefeed"
-import { change, createDoc, Schema } from "@kyneta/schema/basic"
+import { batch, createDoc, Schema } from "@kyneta/schema/basic"
 import { act, renderHook } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { useValue } from "../use-value.js"
@@ -43,7 +43,7 @@ describe("useValue", () => {
     expect(result.current).toBe("")
 
     act(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.title.set("hello")
       })
     })
@@ -56,7 +56,7 @@ describe("useValue", () => {
     const { result } = renderHook(() => useValue(doc))
 
     act(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.title.set("updated")
       })
     })
@@ -81,7 +81,7 @@ describe("useValue", () => {
     unmount()
 
     // Mutate after unmount — should not cause errors
-    change(doc, d => {
+    batch(doc, d => {
       d.title.set("after unmount")
     })
   })
@@ -101,7 +101,7 @@ describe("useValue", () => {
 
     // Mutation should cause re-render
     act(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.title.set("alive")
       })
     })

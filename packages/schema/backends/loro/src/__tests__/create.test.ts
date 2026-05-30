@@ -1,7 +1,7 @@
 import { LoroDoc } from "loro-crdt"
 import { describe, expect, it } from "vitest"
 import {
-  change,
+  batch,
   createDoc,
   createLoroSubstrate,
   createRef,
@@ -47,7 +47,7 @@ describe("createDoc (fresh doc)", () => {
 
   it("creates a doc with seed values", () => {
     const doc = createDoc(bound)
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.insert(0, "Hello")
       d.theme.set("dark")
     })
@@ -55,40 +55,40 @@ describe("createDoc (fresh doc)", () => {
     expect(doc.theme()).toBe("dark")
   })
 
-  it("supports change() and subscribe()", () => {
+  it("supports batch() and subscribe()", () => {
     const doc = createDoc(bound)
     let fired = false
     subscribe(doc, () => {
       fired = true
     })
 
-    change(doc, (d: any) => d.title.insert(0, "Hi"))
+    batch(doc, (d: any) => d.title.insert(0, "Hi"))
     expect(doc.title()).toBe("Hi")
     expect(fired).toBe(true)
   })
 
   it("supports counter increment", () => {
     const doc = createDoc(bound)
-    change(doc, (d: any) => d.count.increment(5))
+    batch(doc, (d: any) => d.count.increment(5))
     expect(doc.count()).toBe(5)
 
-    change(doc, (d: any) => d.count.increment(3))
+    batch(doc, (d: any) => d.count.increment(3))
     expect(doc.count()).toBe(8)
   })
 
   it("supports scalar set", () => {
     const doc = createDoc(bound)
-    change(doc, (d: any) => d.theme.set("light"))
+    batch(doc, (d: any) => d.theme.set("light"))
     expect(doc.theme()).toBe("light")
 
-    change(doc, (d: any) => d.theme.set("dark"))
+    batch(doc, (d: any) => d.theme.set("dark"))
     expect(doc.theme()).toBe("dark")
   })
 
   it("supports list push with structured items", () => {
     const doc = createDoc(bound)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ name: "Task 1", done: false })
     })
 
@@ -114,7 +114,7 @@ describe("createDoc (fresh doc)", () => {
     const nestedBound = loro.bind(NestedSchema)
     const doc = createDoc(nestedBound)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.events.push({
         id: "evt-1",
         blocks: [{ type: "text", content: "hello world" }],
@@ -133,8 +133,8 @@ describe("createDoc (fresh doc)", () => {
 
   it("supports seed with list items", () => {
     const doc = createDoc(bound)
-    change(doc, (d: any) => d.items.push({ name: "A", done: false }))
-    change(doc, (d: any) => d.items.push({ name: "B", done: true }))
+    batch(doc, (d: any) => d.items.push({ name: "A", done: false }))
+    batch(doc, (d: any) => d.items.push({ name: "B", done: true }))
     expect(doc.items.length).toBe(2)
     expect((doc.items.at(0) as any).name()).toBe("A")
     expect((doc.items.at(1) as any).done()).toBe(true)
@@ -165,7 +165,7 @@ describe("createRef (bring your own doc)", () => {
     loroDoc.commit()
 
     const doc = createRef(TestSchema, createLoroSubstrate(loroDoc, TestSchema))
-    change(doc, (d: any) => d.title.insert(0, "New"))
+    batch(doc, (d: any) => d.title.insert(0, "New"))
     expect(doc.title()).toBe("New")
   })
 
@@ -183,7 +183,7 @@ describe("createRef (bring your own doc)", () => {
       fired = true
     })
 
-    // External mutation — bypasses kyneta change()
+    // External mutation — bypasses kyneta batch()
     loroDoc.getText("title").insert(0, "External")
     loroDoc.commit()
 
@@ -223,7 +223,7 @@ describe("root document replacement", () => {
   it("throws an actionable error when attempting to replace the root struct", () => {
     const doc = createDoc(bound)
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.set({ title: "New", count: 1, items: [], theme: "light" })
       })
     }).toThrowError(/Cannot replace the root document struct/)
@@ -237,7 +237,7 @@ describe("root document replacement", () => {
 describe("createDoc with payload (from entirety)", () => {
   it("reconstructs from a snapshot", () => {
     const docA = createDoc(bound)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "Original")
       d.theme.set("dark")
       d.count.increment(10)
@@ -253,12 +253,12 @@ describe("createDoc with payload (from entirety)", () => {
 
   it("reconstructed doc is fully functional", () => {
     const docA = createDoc(bound)
-    change(docA, (d: any) => d.title.insert(0, "Source"))
+    batch(docA, (d: any) => d.title.insert(0, "Source"))
 
     const snapshot = exportEntirety(docA)
     const docB = createDoc(bound, snapshot)
 
-    change(docB, (d: any) => d.title.insert(6, "!"))
+    batch(docB, (d: any) => d.title.insert(6, "!"))
     expect(docB.title()).toBe("Source!")
   })
 })
@@ -278,7 +278,7 @@ describe("sync primitives", () => {
     const doc = createDoc(bound)
     const v0 = version(doc)
 
-    change(doc, (d: any) => d.title.insert(0, "A"))
+    batch(doc, (d: any) => d.title.insert(0, "A"))
     const v1 = version(doc)
 
     expect(v0.compare(v1)).toBe("behind")
@@ -286,7 +286,7 @@ describe("sync primitives", () => {
 
   it("exportEntirety() returns a binary payload", () => {
     const doc = createDoc(bound)
-    change(doc, (d: any) => d.title.insert(0, "Test"))
+    batch(doc, (d: any) => d.title.insert(0, "Test"))
     const snap = exportEntirety(doc)
     expect(snap.encoding).toBe("binary")
     expect(snap.data).toBeInstanceOf(Uint8Array)
@@ -298,7 +298,7 @@ describe("sync primitives", () => {
 
     const v0 = version(docB)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "Hello")
       d.count.increment(5)
     })
@@ -321,7 +321,7 @@ describe("sync primitives", () => {
     const received: unknown[] = []
     subscribe(docB, (cs: any) => received.push(cs))
 
-    change(docA, (d: any) => d.title.insert(0, "Remote"))
+    batch(docA, (d: any) => d.title.insert(0, "Remote"))
     const delta = exportSince(docA, v0)!
     merge(docB, delta, { origin: "sync" })
 
@@ -341,10 +341,10 @@ describe("full workflow", () => {
   it("create → mutate → sync → observe (the README example)", () => {
     // Peer A creates a doc
     const docA = createDoc(bound)
-    change(docA, (d: any) => d.title.insert(0, "Draft"))
+    batch(docA, (d: any) => d.title.insert(0, "Draft"))
 
     // Peer A mutates
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(5, " v1")
       d.count.increment(1)
       d.items.push({ name: "Task", done: false })
@@ -366,7 +366,7 @@ describe("full workflow", () => {
     subscribe(docB, () => bChanges.push(1))
 
     // Peer A makes more changes
-    change(docA, (d: any) => d.count.increment(9))
+    batch(docA, (d: any) => d.count.increment(9))
 
     // Sync A → B via delta
     const delta = exportSince(docA, version(docB))

@@ -13,7 +13,7 @@
 //
 //   attach(element, textRef, options?) → detach
 //     Binds an HTMLInputElement or HTMLTextAreaElement to a TextRef.
-//     Local edits flow into the CRDT via change(); remote edits are
+//     Local edits flow into the CRDT via batch(); remote edits are
 //     surgically applied via setRangeText() with selection rebasing.
 //     IME composition is handled; undo is intercepted by default.
 //
@@ -21,7 +21,7 @@
 
 import { CHANGEFEED, type Changeset } from "@kyneta/changefeed"
 import {
-  change,
+  batch,
   isTextChange,
   type TextChange,
   type TextInstruction,
@@ -40,7 +40,7 @@ import {
  *
  * - Callable: `ref()` returns the current string value.
  * - `[CHANGEFEED]`: subscribe to remote changes.
- * - `insert` / `delete` / `update`: mutation methods used inside `change()`.
+ * - `insert` / `delete` / `update`: mutation methods used inside `batch()`.
  *
  * Any `Ref<TextSchema>` from the standard interpreter stack satisfies this.
  */
@@ -176,7 +176,7 @@ export interface AttachOptions {
  * Establishes a bidirectional binding:
  *
  * **Local → CRDT**: On `input` events, diffs the element's value against
- * the ref's current string and applies the delta via `change()`, tagged
+ * the ref's current string and applies the delta via `batch()`, tagged
  * with a per-`attach()` identity-typed source token for echo suppression.
  *
  * **CRDT → Element**: Subscribes to the ref's changefeed. Changesets whose
@@ -288,9 +288,9 @@ export function attach(
       else if ("insert" in op) insertText = op.insert
     }
 
-    // Apply via change() tagged with our source token so the resulting
+    // Apply via batch() tagged with our source token so the resulting
     // echo through cf.subscribe() can be identified and skipped.
-    change(
+    batch(
       textRef as any,
       (ref: any) => {
         if (deleteCount > 0) ref.delete(offset, deleteCount)

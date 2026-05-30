@@ -33,17 +33,17 @@ Two document types, two binding targets, one Exchange:
   keyboard/joystick
        │
        ▼
-  change(inputDoc)
+  batch(inputDoc)
        │  ephemeral broadcast
        ▼
-  ─────────────────►  read input:A  ◄─────────────────  change(inputDoc)
+  ─────────────────►  read input:A  ◄─────────────────  batch(inputDoc)
                       read input:B                           ▲
                            │                            keyboard/joystick
                            ▼
                       tick() ── pure physics
                            │
                            ▼
-                      change(gameStateDoc)
+                      batch(gameStateDoc)
                            │  sequential push
                       ┌────┴────┐
                       ▼         ▼
@@ -152,7 +152,7 @@ bumper-cars/
 
 Previously, in `@loro-extended` (see `@loro-extended/examples/bumper-cars`) we used a dedicated "ephemeral/presence" system baked into the sync engine — `sync(doc).presence.setSelf(...)`, `useEphemeral(...)`, a discriminated union schema for presence types.
 
-Kyneta has none of that. Player input is a regular document bound with `ephemeral.bind(schema)`. It goes through the same Exchange, the same WebSocket adapter, the same `change()` / `useValue()` API as everything else. The ephemeral sync protocol handles the semantics (broadcast snapshot on every change, timestamp-based stale rejection at the receiver).
+Kyneta has none of that. Player input is a regular document bound with `ephemeral.bind(schema)`. It goes through the same Exchange, the same WebSocket adapter, the same `batch()` / `useValue()` API as everything else. The ephemeral sync protocol handles the semantics (broadcast snapshot on every change, timestamp-based stale rejection at the receiver).
 
 ### The server is the right tool for game state
 
@@ -185,7 +185,7 @@ The game loop follows the Functional Core / Imperative Shell principle:
 
 1. **Gather** — read all input docs by calling each ref directly (`inputDoc()`)
 2. **Plan** — call `tick()`, a pure function that takes state + inputs and returns new state + collisions
-3. **Execute** — write results to the game state doc via `change()`
+3. **Execute** — write results to the game state doc via `batch()`
 
 The pure `tick()` function is tested with 10 tests that exercise the full physics pipeline (input → friction → position → wall bounce → car collision → scoring → cooldown) without any Exchange or WebSocket infrastructure.
 

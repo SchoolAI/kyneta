@@ -12,7 +12,7 @@
 import { Bridge, createBridgeTransport } from "@kyneta/bridge-transport"
 import type { Lease } from "@kyneta/machine"
 import { createLease } from "@kyneta/machine"
-import { change, json, Schema, subscribe } from "@kyneta/schema"
+import { batch, json, Schema, subscribe } from "@kyneta/schema"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   Exchange,
@@ -83,14 +83,14 @@ function makeMesh(leases?: { alice?: Lease; bob?: Lease; carol?: Lease }) {
 }
 
 describe("doc-layer re-entry: same-doc inside a peer-event subscriber", () => {
-  it("change() inside peer-departed propagates without queueMicrotask deferral", async () => {
+  it("batch() inside peer-departed propagates without queueMicrotask deferral", async () => {
     const { exchangeA, exchangeB, exchangeC } = makeMesh()
 
     const docA = exchangeA.get("room", PresenceDoc)
     const docB = exchangeB.get("room", PresenceDoc)
     const docC = exchangeC.get("room", PresenceDoc)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.version.set(1)
     })
     await drain()
@@ -103,7 +103,7 @@ describe("doc-layer re-entry: same-doc inside a peer-event subscriber", () => {
     exchangeB.peers.subscribe(cs => {
       for (const ch of cs.changes) {
         if (ch.type === "peer-departed" && ch.peer.peerId === "alice") {
-          change(docB, (d: any) => {
+          batch(docB, (d: any) => {
             d.version.set(99)
             d.scratch.set(42)
           })
@@ -134,12 +134,12 @@ describe("doc-layer re-entry: whole-stack tick-induced cascade", () => {
       scratchFires++
     })
     subscribe(docA.version, () => {
-      change(docA, (d: any) => {
+      batch(docA, (d: any) => {
         d.scratch.set(d.scratch() + 1)
       })
     })
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.version.set(1)
     })
 
@@ -164,19 +164,19 @@ describe("doc-layer re-entry: budget exhaustion spans synchronizer + changefeed"
     const docB = exchange.get("docB", PresenceDoc)
 
     subscribe(docA.version, () => {
-      change(docB, (d: any) => {
+      batch(docB, (d: any) => {
         d.version.set(d.version() + 1)
       })
     })
     subscribe(docB.version, () => {
-      change(docA, (d: any) => {
+      batch(docA, (d: any) => {
         d.version.set(d.version() + 1)
       })
     })
 
     let error: unknown
     try {
-      change(docA, (d: any) => {
+      batch(docA, (d: any) => {
         d.version.set(1)
       })
     } catch (e) {

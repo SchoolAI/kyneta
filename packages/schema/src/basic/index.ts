@@ -10,9 +10,9 @@ export type { Changeset } from "@kyneta/changefeed"
 export type { Op } from "../changefeed.js"
 // --- Describe (human-readable schema view) ---
 export { describe } from "../describe.js"
-export type { CommitOptions } from "../facade/change.js"
+export type { CommitOptions } from "../facade/batch.js"
 // --- Change protocol (substrate-agnostic, re-exported for convenience) ---
-export { applyChanges, change } from "../facade/change.js"
+export { applyChanges, batch } from "../facade/batch.js"
 
 // --- Observation protocol (substrate-agnostic, re-exported for convenience) ---
 export { subscribe, subscribeNode } from "../facade/observe.js"

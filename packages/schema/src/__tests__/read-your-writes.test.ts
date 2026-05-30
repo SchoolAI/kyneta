@@ -1,4 +1,4 @@
-// read-your-writes.test — pin the σ-eager semantic inside change() blocks.
+// read-your-writes.test — pin the σ-eager semantic inside batch() blocks.
 //
 // Pre-refactor: σ didn't advance until commit, so two pushes in one block
 // silently reordered. Post-refactor: σ advances on every prepare, so
@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest"
 import {
-  change,
+  batch,
   interpret,
   observation,
   plainContext,
@@ -29,14 +29,14 @@ function buildDoc<S extends ReturnType<typeof Schema.struct>>(
   return { store, ctx, doc }
 }
 
-describe("read-your-writes: σ advances eagerly inside change()", () => {
+describe("read-your-writes: σ advances eagerly inside batch()", () => {
   it("two pushes in one block append in order (the canonical two-push gotcha resolved)", () => {
     const schema = Schema.struct({
       todos: Schema.list(Schema.string()),
     })
     const { doc } = buildDoc(schema, { todos: [] })
 
-    change(doc, d => {
+    batch(doc, d => {
       d.todos.push("a")
       d.todos.push("b")
     })
@@ -44,11 +44,11 @@ describe("read-your-writes: σ advances eagerly inside change()", () => {
     expect(doc.todos()).toEqual(["a", "b"])
   })
 
-  it("scalar reads inside change() reflect prior writes", () => {
+  it("scalar reads inside batch() reflect prior writes", () => {
     const schema = Schema.struct({ count: Schema.number() })
     const { doc } = buildDoc(schema, { count: 0 })
 
-    change(doc, d => {
+    batch(doc, d => {
       d.count.set(5)
       expect(doc.count()).toBe(5)
       d.count.set(10)
@@ -66,17 +66,17 @@ describe("read-your-writes: σ advances eagerly inside change()", () => {
     const docTwo = buildDoc(schema, { todos: [], count: 0 })
 
     // One block
-    change(docOne.doc, d => {
+    batch(docOne.doc, d => {
       d.todos.push("a")
       d.todos.push("b")
       d.count.set(2)
     })
 
     // Two blocks
-    change(docTwo.doc, d => {
+    batch(docTwo.doc, d => {
       d.todos.push("a")
     })
-    change(docTwo.doc, d => {
+    batch(docTwo.doc, d => {
       d.todos.push("b")
       d.count.set(2)
     })
@@ -99,13 +99,13 @@ describe("read-your-writes: σ advances eagerly inside change()", () => {
       (cs: any) => twoFires.push(cs.changes.length),
     )
 
-    change(docOne.doc, d => {
+    batch(docOne.doc, d => {
       d.count.set(1)
       d.count.set(2)
     })
 
-    change(docTwo.doc, d => d.count.set(1))
-    change(docTwo.doc, d => d.count.set(2))
+    batch(docTwo.doc, d => d.count.set(1))
+    batch(docTwo.doc, d => d.count.set(2))
 
     expect(oneFires).toEqual([2])
     expect(twoFires).toEqual([1, 1])

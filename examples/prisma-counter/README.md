@@ -150,7 +150,7 @@ function App() {
 ```
 
 - `useValue(doc.count)` returns a `number` — the counter's current value
-- `doc.count.increment(n)` mutates the counter directly — no `change()` wrapper needed
+- `doc.count.increment(n)` mutates the counter directly — no `batch()` wrapper needed
 - Counter refs auto-commit on each `.increment()` call
 - The UI re-renders on every increment, local or remote
 

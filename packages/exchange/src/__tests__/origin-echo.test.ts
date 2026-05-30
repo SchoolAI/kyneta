@@ -5,7 +5,7 @@
 // and replay (regardless of origin string) does. Context: jj:qpultxsw.
 
 import { Bridge, createBridgeTransport } from "@kyneta/bridge-transport"
-import { change, exportEntirety, json, merge, Schema } from "@kyneta/schema"
+import { batch, exportEntirety, json, merge, Schema } from "@kyneta/schema"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   Exchange,
@@ -61,15 +61,15 @@ function makePair() {
 }
 
 describe("exchange origin-echo: structural replay discriminator", () => {
-  it("change() with origin 'sync' still broadcasts to peers", async () => {
+  it("batch() with origin 'sync' still broadcasts to peers", async () => {
     const { exchangeA, exchangeB } = makePair()
     const docA = exchangeA.get("doc", TestDoc)
     const docB = exchangeB.get("doc", TestDoc)
     await drain()
 
-    // A user's `change()` is local-in-intent regardless of its origin
+    // A user's `batch()` is local-in-intent regardless of its origin
     // label; "sync" must not accidentally suppress the broadcast.
-    change(docA, (d: any) => d.value.set(42), { origin: "sync" })
+    batch(docA, (d: any) => d.value.set(42), { origin: "sync" })
     await drain()
 
     expect(docB.value()).toBe(42)
@@ -87,7 +87,7 @@ describe("exchange origin-echo: structural replay discriminator", () => {
     // it back over the wire — regardless of the origin label.
     const sourceEx = createExchange({ id: "source" })
     const sourceDoc = sourceEx.get("source", TestDoc)
-    change(sourceDoc, (d: any) => d.value.set(99))
+    batch(sourceDoc, (d: any) => d.value.set(99))
     await drain()
     const payload = exportEntirety(sourceDoc)
 

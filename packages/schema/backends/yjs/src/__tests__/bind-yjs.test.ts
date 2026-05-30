@@ -1,5 +1,5 @@
 import {
-  change,
+  batch,
   createRef,
   deriveIdentity,
   exportEntirety,
@@ -89,7 +89,7 @@ describe("yjs.bind", () => {
 
       // Populate via the substrate's writable context
       const doc = createYjsDocFromFactory(factory, SimpleSchema)
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "Test")
         d.count.set(7)
       })
@@ -107,7 +107,7 @@ describe("yjs.bind", () => {
 
       // Create and populate
       const doc1 = createYjsDocFromFactory(factory, SimpleSchema)
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.title.insert(0, "Snap")
         d.count.set(42)
       })
@@ -230,7 +230,7 @@ describe("yjs.bind", () => {
   describe("unwrap() escape hatch", () => {
     it("returns the underlying Y.Doc from a createDoc ref", () => {
       const doc = createDoc(yjs.bind(SimpleSchema))
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "Escape")
         d.count.set(0)
       })
@@ -242,7 +242,7 @@ describe("yjs.bind", () => {
 
     it("returns a Y.Doc with the correct root map state", () => {
       const doc = createDoc(yjs.bind(SimpleSchema))
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "Hello")
         d.count.set(42)
       })
@@ -281,7 +281,7 @@ describe("yjs.bind", () => {
 
     it("text mutations through escape hatch are visible", () => {
       const doc = createDoc(yjs.bind(SimpleSchema))
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "Hello")
       })
       const yjsDoc = unwrap(doc) as Y.Doc

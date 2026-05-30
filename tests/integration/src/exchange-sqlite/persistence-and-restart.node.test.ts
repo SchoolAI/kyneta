@@ -20,7 +20,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Exchange } from "@kyneta/exchange"
-import { change, Schema } from "@kyneta/schema"
+import { batch, Schema } from "@kyneta/schema"
 import type { EntryPayloadJson } from "@kyneta/sql-store-core"
 import { fromBetterSqlite3, SqliteStore } from "@kyneta/sqlite-store"
 import { yjs } from "@kyneta/yjs-schema"
@@ -149,7 +149,7 @@ describe("SQLite-backed exchanges: persistence + restart over WebSocket", () => 
     const docServer = serverExchange.get("doc-1", YjsDoc)
     const docClient = clientExchange.get("doc-1", YjsDoc)
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.insert(0, "from server")
       d.count.set(7)
     })
@@ -158,7 +158,7 @@ describe("SQLite-backed exchanges: persistence + restart over WebSocket", () => 
     expect(docClient.title()).toBe("from server")
     expect(docClient.count()).toBe(7)
 
-    change(docClient, (d: any) => {
+    batch(docClient, (d: any) => {
       d.count.set(42)
     })
 
@@ -213,7 +213,7 @@ describe("SQLite-backed exchanges: persistence + restart over WebSocket", () => 
       const docServer = serverExchange.get("doc-1", YjsDoc)
       clientExchange.get("doc-1", YjsDoc)
 
-      change(docServer, (d: any) => {
+      batch(docServer, (d: any) => {
         d.title.insert(0, "persisted")
         d.count.set(11)
       })
@@ -287,7 +287,7 @@ describe("SQLite-backed exchanges: persistence + restart over WebSocket", () => 
       expect(docServer.count()).toBe(11)
       expect(docClient.count()).toBe(11)
 
-      change(docClient, (d: any) => {
+      batch(docClient, (d: any) => {
         d.count.set(99)
       })
 

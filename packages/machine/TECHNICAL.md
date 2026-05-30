@@ -123,7 +123,7 @@ const handleB = createDispatcher(handlerB, { lease, label: "B" })
 
 When `lease.iterations > lease.budget`, the dispatcher throws `BudgetExhaustedError` carrying the lease snapshot and label. The error renders three diagnostic projections (`jj:tozwpvuu`):
 
-- `cascade entered from:` — a JS stack snapshot of the frame that opened the drain (`lease.depth` transitioning 0→1). For client-side cascades this is typically a userland `change()` / `push()` / `set()` call; for server-side cascades it's typically a transport boundary like `WebSocketConnection.#handleMessage`. Both are useful anchors for finding the cascade's source.
+- `cascade entered from:` — a JS stack snapshot of the frame that opened the drain (`lease.depth` transitioning 0→1). For client-side cascades this is typically a userland `batch()` / `push()` / `set()` call; for server-side cascades it's typically a transport boundary like `WebSocketConnection.#handleMessage`. Both are useful anchors for finding the cascade's source.
 - `top message types:` — a width-aware histogram of `${label}:${type}` keys, sorted by count, top-5 displayed. The label set encodes the cascade *topology*; the count distribution names the *hot path* (e.g. a `changefeed:flush` row at 45% of iterations points the user at the busy subscriber, even if the recent-tail window evicted it).
 - `recent (N):` — a bounded ring-buffer tail of `{label, type}` entries (default capacity 32). Order-preserving; cumulatively dominated by the histogram for runaway cascades.
 

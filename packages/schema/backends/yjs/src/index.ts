@@ -21,7 +21,7 @@ export type { DocRef, Op, Ref, SubstratePayload } from "@kyneta/schema"
 // Sync primitives (generic — work for any substrate)
 export {
   applyChanges,
-  change,
+  batch,
   createDoc,
   createRef,
   exportEntirety,

@@ -430,7 +430,7 @@ A `KeySpec<V>` tells `Index.by` how to derive group keys from a value. Three com
 
 `Collection.from`, `Index.by`, `Index.join`, and the `Source` combinators (`union`, `map`, `flatMap`, `filter`) construct fresh Changesets from the integrator output (see `src/index-impl.ts:162, 188, 258`, `src/collection.ts:121`, `src/join.ts:99`). They emit bare `{ changes }` — none of the `BatchMetadata` fields (`origin`, `replay`, `aborted`, `source`) from the upstream source changefeed are threaded through.
 
-This means **echo suppression via `cs.source` does not transit through `@kyneta/index`**: a `source` token set on a `change()` to a doc will reach direct subscribers of that doc, but a derived collection/index built over the doc will not see it. Consumers needing echo suppression on derived feeds must either subscribe to the underlying doc directly or accept that derived feeds always look like "remote" writes.
+This means **echo suppression via `cs.source` does not transit through `@kyneta/index`**: a `source` token set on a `batch()` to a doc will reach direct subscribers of that doc, but a derived collection/index built over the doc will not see it. Consumers needing echo suppression on derived feeds must either subscribe to the underlying doc directly or accept that derived feeds always look like "remote" writes.
 
 Similarly, `replay`, `origin`, and `aborted` do not propagate through derived feeds. If a future plan needs this, the integration sites listed above would need to thread the upstream changeset's metadata when emitting.
 

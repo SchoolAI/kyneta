@@ -102,10 +102,10 @@ function App() {
         <TodoItem
           key={index}
           todoRef={doc.todos.at(index)}
-          onToggle={() => change(doc, d => {
-            const todo = d.todos.at(index)
+          onToggle={() => {
+            const todo = doc.todos.at(index)
             if (todo) todo.done.set(!todo.done())
-          })}
+          }}
           onRemove={() => doc.todos.delete(index, 1)}
         />
       ))}
@@ -143,7 +143,7 @@ Browser Tab A                          Browser Tab B
 ```
 
 When Alice types in Tab A:
-1. `input` event fires → `diffText` computes the delta → `change(ref, fn, { source: ownToken })` applies it to Yjs. `ownToken` is an identity-typed `Symbol` minted per `attach()` call.
+1. `input` event fires → `diffText` computes the delta → `batch(ref, fn, { source: ownToken })` applies it to Yjs. `ownToken` is an identity-typed `Symbol` minted per `attach()` call.
 2. Yjs changefeed fires with the same `source` identity → `attach()` skips it (echo suppression via `cs.source === ownToken`)
 3. Exchange sends the Yjs update to the server via WebSocket
 4. Server relays to Tab B's Exchange

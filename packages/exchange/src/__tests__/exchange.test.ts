@@ -8,8 +8,8 @@ import {
 import { hasChangefeed } from "@kyneta/changefeed"
 import { loro } from "@kyneta/loro-schema"
 import {
+  batch,
   bind,
-  change,
   Defer,
   json,
   plainReplicaFactory,
@@ -102,10 +102,10 @@ describe("Exchange", () => {
       expect(value).toEqual({ title: "", count: 0 })
     })
 
-    it("returns a Ref<S> with navigation and change()-applied values", () => {
+    it("returns a Ref<S> with navigation and batch()-applied values", () => {
       const exchange = new Exchange({ id: "test" })
       const doc = exchange.get("doc-1", TestDoc)
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.set("Hello")
         d.count.set(42)
       })
@@ -132,10 +132,10 @@ describe("Exchange", () => {
       )
     })
 
-    it("change() values are applied", () => {
+    it("batch() values are applied", () => {
       const exchange = new Exchange({ id: "test" })
       const doc = exchange.get("doc-1", TestDoc)
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.set("Changed")
         d.count.set(99)
       })
@@ -291,7 +291,7 @@ describe("Exchange", () => {
       it("ref[SUBSTRATE] returns the substrate for an exchange-created doc", () => {
         const exchange = new Exchange({ id: "test" })
         const doc = exchange.get("doc-1", TestDoc)
-        change(doc, (d: any) => {
+        batch(doc, (d: any) => {
           d.title.set("Hi")
           d.count.set(1)
         })
@@ -332,7 +332,7 @@ describe("Exchange", () => {
     })
 
     describe("changefeed → synchronizer auto-wiring", () => {
-      it("change() auto-notifies synchronizer — no manual notifyLocalChange needed", async () => {
+      it("batch() auto-notifies synchronizer — no manual notifyLocalChange needed", async () => {
         const bridge = new Bridge()
 
         const exchangeA = new Exchange({
@@ -345,7 +345,7 @@ describe("Exchange", () => {
         })
 
         const docA = exchangeA.get("doc-1", TestDoc)
-        change(docA, (d: any) => {
+        batch(docA, (d: any) => {
           d.title.set("V1")
           d.count.set(1)
         })
@@ -356,7 +356,7 @@ describe("Exchange", () => {
         expect(docB.title()).toBe("V1")
 
         // Mutate WITHOUT calling notifyLocalChange — auto-wiring should handle it
-        change(docA, (d: any) => {
+        batch(docA, (d: any) => {
           d.title.set("V2")
           d.count.set(2)
         })
@@ -685,7 +685,7 @@ describe("Exchange", () => {
 
       // Alice creates a doc
       const doc1 = exchange1.get("doc-1", TestDoc)
-      change(doc1, d => {
+      batch(doc1, d => {
         d.title.set("hello")
         d.count.set(1)
       })
@@ -701,7 +701,7 @@ describe("Exchange", () => {
       await drain()
 
       // Alice mutates while bob is disconnected
-      change(doc1, d => d.count.set(42))
+      batch(doc1, d => d.count.set(42))
       await drain()
 
       // Reconnect

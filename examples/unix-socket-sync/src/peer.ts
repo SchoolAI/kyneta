@@ -8,7 +8,7 @@
 
 import { Exchange } from "@kyneta/exchange"
 import { randomPeerId } from "@kyneta/random"
-import { change, subscribe } from "@kyneta/schema"
+import { subscribe } from "@kyneta/schema"
 import { createUnixSocketPeer } from "@kyneta/unix-socket-transport"
 import { ConfigDoc } from "./schema.js"
 import { fields, stepBoolean, stepString, stepNumber, type Direction } from "./fields.js"
@@ -31,10 +31,15 @@ const exchange = new Exchange({
 
 const doc = exchange.get("config", ConfigDoc)
 
-// Write our presence into the document
-change(doc, (d: any) => {
-  d.peers.set(peerId, true)
-})
+// The TUI reads and writes config *scalar* fields by dynamic string key. Each
+// is a scalar ref — callable to read, `.set()` to write. Narrow the typed doc
+// to this dynamic view here, rather than scattering `as any` (which also hid
+// the statically-typed `doc.peers` accesses below).
+type ScalarFieldRef = { (): unknown; set(value: unknown): void }
+const scalarFields = doc as unknown as Record<string, ScalarFieldRef>
+
+// Write our presence into the document — a single mutation auto-commits.
+doc.peers.set(peerId, true)
 
 // ---------------------------------------------------------------------------
 // Unix socket peer
@@ -56,11 +61,11 @@ function rerender() {
   // Read current values from the document
   const values: Record<string, unknown> = {}
   for (const field of fields) {
-    values[field.key] = (doc as any)[field.key]()
+    values[field.key] = scalarFields[field.key]()
   }
 
   // Read peer info from the document's peers record
-  const peersRecord = (doc as any).peers() as Record<string, boolean>
+  const peersRecord = doc.peers()
   const peerIds = Object.keys(peersRecord).filter(id => peersRecord[id])
 
   const info: PeerInfo = {
@@ -78,10 +83,8 @@ subscribe(doc, () => rerender())
 exchange.peers.subscribe((changeset) => {
   for (const peerChange of changeset.changes) {
     if (peerChange.type === "peer-departed") {
-      // Remove departed peer from the document's peers record
-      change(doc, (d: any) => {
-        d.peers.delete(peerChange.peer.peerId)
-      })
+      // Remove departed peer from the document's peers record (single write).
+      doc.peers.delete(peerChange.peer.peerId)
     }
   }
   // Re-render after cleanup
@@ -133,9 +136,8 @@ function applyChange(direction: Direction) {
       break
   }
 
-  change(doc, (d: any) => {
-    d[field.key].set(newValue)
-  })
+  // Single mutation by dynamic key — write directly.
+  scalarFields[field.key].set(newValue)
 }
 
 // ---------------------------------------------------------------------------
@@ -144,10 +146,8 @@ function applyChange(direction: Direction) {
 
 async function cleanup() {
   stopInput()
-  // Remove our presence from the document
-  change(doc, (d: any) => {
-    d.peers.delete(peerId)
-  })
+  // Remove our presence from the document (single write).
+  doc.peers.delete(peerId)
   await peer.dispose()
   await exchange.shutdown()
   // Clear screen and show cursor

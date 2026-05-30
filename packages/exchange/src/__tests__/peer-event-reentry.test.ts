@@ -1,6 +1,6 @@
 // Subscribers on exchange.peers may mutate docs from inside their
 // callbacks. Two failure modes:
-//   - Input-phase re-entry — `change(doc, ...)` inside `peer-departed`
+//   - Input-phase re-entry — `batch(doc, ...)` inside `peer-departed`
 //     must propagate to remaining peers (B-direct).
 //   - Output-phase re-entry — `exchange.destroy(...)` inside a peer
 //     subscriber must fan out a doc-removed event to document-feed
@@ -10,7 +10,7 @@
 // drain-to-quiescence is what makes them converge.
 
 import { Bridge, createBridgeTransport } from "@kyneta/bridge-transport"
-import { change, json, Schema } from "@kyneta/schema"
+import { batch, json, Schema } from "@kyneta/schema"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   Exchange,
@@ -88,7 +88,7 @@ describe("peer-event reentry", () => {
     const docB = exchangeB.get("room", PresenceDoc)
     const docC = exchangeC.get("room", PresenceDoc)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.version.set(1)
     })
     await drain()
@@ -96,7 +96,7 @@ describe("peer-event reentry", () => {
     expect(docC.version()).toBe(1)
 
     // Mutation outside any subscriber — baseline behaviour.
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       d.version.set(2)
     })
     await drain()
@@ -112,7 +112,7 @@ describe("peer-event reentry", () => {
     const docB = exchangeB.get("room", PresenceDoc)
     const docC = exchangeC.get("room", PresenceDoc)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.version.set(1)
     })
     await drain()
@@ -125,7 +125,7 @@ describe("peer-event reentry", () => {
     exchangeB.peers.subscribe(cs => {
       for (const ch of cs.changes) {
         if (ch.type === "peer-departed" && ch.peer.peerId === "alice") {
-          change(docB, (d: any) => {
+          batch(docB, (d: any) => {
             d.version.set(99)
           })
         }
@@ -198,7 +198,7 @@ describe("peer-event reentry", () => {
     const docB = exchangeB.get("room", PresenceDoc)
     const docC = exchangeC.get("room", PresenceDoc)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.version.set(1)
     })
     await drain()
@@ -208,7 +208,7 @@ describe("peer-event reentry", () => {
         if (ch.type === "peer-departed" && ch.peer.peerId === "alice") {
           // Deferred — the existing workaround pattern.
           queueMicrotask(() => {
-            change(docB, (d: any) => {
+            batch(docB, (d: any) => {
               d.version.set(99)
             })
           })

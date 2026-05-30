@@ -7,7 +7,7 @@
 //
 //     1. Gather: read all input docs by calling each ref directly
 //     2. Plan:   call tick() — pure function, no side effects
-//     3. Execute: write results via change(gameStateDoc, ...)
+//     3. Execute: write results via batch(gameStateDoc, ...)
 //
 //   Owns its Exchange subscriptions (doc-created, doc-removed,
 //   peer-departed) so that server.ts is fully formed at construction
@@ -16,7 +16,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { Exchange } from "@kyneta/exchange"
-import { change } from "@kyneta/schema"
+import { batch } from "@kyneta/schema"
 import type { Plain, Ref } from "@kyneta/schema"
 import { TICK_INTERVAL } from "../constants.js"
 import { GameStateSchema, PlayerInputDoc, type PlayerInputSchema } from "../schema.js"
@@ -264,7 +264,7 @@ export class GameLoop {
       }
     }
 
-    change(this.#gameStateDoc, d => {
+    batch(this.#gameStateDoc, d => {
       d.set({
         cars: carsObject,
         scores: scoresObject,

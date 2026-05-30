@@ -3,7 +3,7 @@
 // "Mutation during notification delivery is not supported." This suite
 // verifies the new drain-to-quiescence semantics:
 //
-// - subscribe / subscribeNode callbacks may freely call change()/applyChanges()
+// - subscribe / subscribeNode callbacks may freely call batch()/applyChanges()
 // - substrate writes remain synchronous (subsequent reads see new state)
 // - cross-doc cascades share a lease and are budget-bounded
 // - standalone substrates use private leases (cross-substrate cascade
@@ -13,7 +13,7 @@ import { BudgetExhaustedError, createLease } from "@kyneta/machine"
 import { describe, expect, it } from "vitest"
 import { subscribe } from "../facade/observe.js"
 import {
-  change,
+  batch,
   createRef,
   interpret,
   observation,
@@ -40,7 +40,7 @@ function buildPlainDoc<S extends ReturnType<typeof Schema.struct>>(
 }
 
 describe("with-changefeed: same-doc re-entry", () => {
-  it("subscribe callback that calls change(doc) does not throw; mutation lands", () => {
+  it("subscribe callback that calls batch(doc) does not throw; mutation lands", () => {
     const schema = Schema.struct({
       x: Schema.number(),
       y: Schema.number(),
@@ -52,13 +52,13 @@ describe("with-changefeed: same-doc re-entry", () => {
       yFired++
     })
     subscribe(doc.x, () => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.y.set(99)
       })
     })
 
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.x.set(1)
       })
     }).not.toThrow()
@@ -83,7 +83,7 @@ describe("with-changefeed: same-doc re-entry", () => {
       const current = doc.counter()
       if (invocations === 1) {
         firstSeen = current
-        change(doc, (d: any) => {
+        batch(doc, (d: any) => {
           d.counter.set(current + 10)
         })
       } else {
@@ -91,7 +91,7 @@ describe("with-changefeed: same-doc re-entry", () => {
       }
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.counter.set(1)
     })
 
@@ -101,7 +101,7 @@ describe("with-changefeed: same-doc re-entry", () => {
     expect(doc.counter()).toBe(11)
   })
 
-  it("substrate-read timing: subscriber reads new state immediately after re-entrant change()", () => {
+  it("substrate-read timing: subscriber reads new state immediately after re-entrant batch()", () => {
     const schema = Schema.struct({
       a: Schema.number(),
       b: Schema.number(),
@@ -111,21 +111,21 @@ describe("with-changefeed: same-doc re-entry", () => {
     let observed: { a: number; b: number } | undefined
     subscribe(doc.a, () => {
       // Re-entrant write to b; immediately read both. Substrate writes
-      // are synchronous in `change()`, so b must already be 7 here.
-      change(doc, (d: any) => {
+      // are synchronous in `batch()`, so b must already be 7 here.
+      batch(doc, (d: any) => {
         d.b.set(7)
       })
       observed = { a: doc.a(), b: doc.b() }
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.a.set(3)
     })
 
     expect(observed).toEqual({ a: 3, b: 7 })
   })
 
-  it("substrate-write timing: subscriber writes to a path created by an earlier re-entrant change()", () => {
+  it("substrate-write timing: subscriber writes to a path created by an earlier re-entrant batch()", () => {
     // Reproduces the LLM-observer trace shape end-to-end:
     // outer change fires a subscriber that pushes a new list item and
     // synchronously writes to a field inside it. The write must land —
@@ -143,17 +143,17 @@ describe("with-changefeed: same-doc re-entry", () => {
       // skeleton and set its body field — both before the dispatcher
       // drains.
       if ((doc.events as any).length !== 1) return
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.events.push({ kind: "assistant", body: "" })
       })
       // Subsequent write targets the just-pushed item. Must not throw.
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.events.at(1).body.set("hello")
       })
     })
 
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.events.push({ kind: "user", body: "hi" })
       })
     }).not.toThrow()
@@ -178,19 +178,19 @@ describe("with-changefeed: cross-doc cascade with shared lease", () => {
 
     // Genuinely oscillating: each side toggles whenever the other moves.
     subscribe(docA.v, () => {
-      change(docB, (d: any) => {
+      batch(docB, (d: any) => {
         d.v.set(docB.v() + 1)
       })
     })
     subscribe(docB.v, () => {
-      change(docA, (d: any) => {
+      batch(docA, (d: any) => {
         d.v.set(docA.v() + 1)
       })
     })
 
     let error: unknown
     try {
-      change(docA, (d: any) => {
+      batch(docA, (d: any) => {
         d.v.set(1)
       })
     } catch (e) {
@@ -222,19 +222,19 @@ describe("with-changefeed: cross-doc cascade with shared lease", () => {
     let hops = 0
     subscribe(docA.v, () => {
       if (hops++ > 50) return
-      change(docB, (d: any) => {
+      batch(docB, (d: any) => {
         d.v.set(docB.v() + 1)
       })
     })
     subscribe(docB.v, () => {
       if (hops++ > 50) return
-      change(docA, (d: any) => {
+      batch(docA, (d: any) => {
         d.v.set(docA.v() + 1)
       })
     })
 
     expect(() => {
-      change(docA, (d: any) => {
+      batch(docA, (d: any) => {
         d.v.set(1)
       })
     }).not.toThrow()
@@ -264,10 +264,10 @@ describe("with-changefeed: structural integrity under re-entry", () => {
       aFires++
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.a.set(1)
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.a.set(1)
     })
 

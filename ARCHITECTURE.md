@@ -120,7 +120,7 @@ useText(doc.title)'s text-adapter captures `input` event  (2)
      │
      ├─ diffText(oldValue, newValue, cursorHint) → TextChange
      ▼
-change(doc, d => d.title.insert(...))                     (3)
+batch(doc, d => d.title.insert(...))                     (3)
      │
      ├─ substrate.prepare → applyChangeToYjs → commit inside Y.transact
      ▼

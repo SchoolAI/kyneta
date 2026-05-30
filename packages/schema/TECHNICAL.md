@@ -20,7 +20,7 @@ Imported by every other Kyneta package that touches documents: the CRDT backends
 - What does a `Substrate` do that a `Replica` does not? → [The substrate / replica split](#the-substrate--replica-split)
 - What is `bind()` enforcing at compile time? → [Binding a schema to a substrate](#binding-a-schema-to-a-substrate)
 - What is the six-layer interpreter stack? → [The interpreter stack](#the-interpreter-stack)
-- How does `change(ref, fn)` end up as a wire `offer`? → [The write path](#the-write-path)
+- How does `batch(ref, fn)` end up as a wire `offer`? → [The write path](#the-write-path)
 - What is a `Position` and why can't I just use an integer index? → [Position algebra](#position-algebra)
 - How do migrations keep a document's identity stable across schema changes? → [Migration and identity](#migration-and-identity)
 - How does the exchange decide whether two peers' docs are compatible? → [`schemaHash` and compatibility](#schemahash-and-compatibility)
@@ -76,7 +76,7 @@ Five orthogonal sub-systems:
 
 Plus three cross-cutting facilities:
 
-- **Change** (`src/change.ts`, `src/step.ts`, `src/facade/change.ts`) — the universal delta vocabulary and `change(ref, fn)` transaction facade.
+- **Change** (`src/change.ts`, `src/step.ts`, `src/facade/batch.ts`) — the universal delta vocabulary and `batch(ref, fn)` transaction facade.
 - **Position** (`src/position.ts`) — cursor-stable references inside text and sequences.
 - **Observation** (`src/changefeed.ts`, `src/interpreters/with-changefeed.ts`, `src/facade/observe.ts`) — the composed changefeed layer over refs.
 
@@ -328,7 +328,7 @@ Mutations apply eagerly per the σ-eager design (jj:kqnkxrkl). For each `prepare
 
 The inverse stack belongs to the bracket primitive (`WritableContext.runBatch`'s wrapper). On the bracket's depth-0 success release, the frame's inverse range is discarded and `ctx.flush(opts)` fires. On a throw, the catch path replays the frame's inverses LIFO through `ctx.prepare(path, inverse, { compensating: true })` (the substrate skips inverse recording under the undo-replay handler), then flushes with `aborted: true`, then rethrows. The bracket's commit contains forward + inverse ops with net-zero delta when the outermost throws.
 
-This is how `change(doc, d => { d.title.insert(0, "hi"); d.items.push(x); })` becomes one atomic changefeed emission with read-your-writes inside the block, and how a throwing block becomes one batched native event with net-zero delta plus one `Changeset` with `aborted: true`.
+This is how `batch(doc, d => { d.title.insert(0, "hi"); d.items.push(x); })` becomes one atomic changefeed emission with read-your-writes inside the block, and how a throwing block becomes one batched native event with net-zero delta plus one `Changeset` with `aborted: true`.
 
 ### Path resolution and sum boundaries
 
@@ -510,24 +510,26 @@ Application code rarely touches `[NATIVE]`. Backends use it to dispatch to subst
 
 ## The write path
 
-Source: `packages/schema/src/facade/change.ts`, `src/step.ts`, `src/inverse.ts`, `src/interpreters/with-changefeed.ts`, `src/interpreters/writable.ts`.
+Source: `packages/schema/src/facade/batch.ts`, `src/step.ts`, `src/inverse.ts`, `src/interpreters/with-changefeed.ts`, `src/interpreters/writable.ts`.
 
-`change(doc, fn)` is the atomic mutation facade. Under the three-primitive substrate contract (jj:ryquprut), it is implemented as a thin `runWriter` / `execWriter` wrapper around `ctx.runBatch`:
+`batch(doc, fn)` is the atomic mutation facade. Under the three-primitive substrate contract (jj:ryquprut), it is implemented as a thin `runWriter` / `execWriter` wrapper around `ctx.runBatch`:
 
 ```ts
-change(doc, fn) = ctx.runBatch(() => {
+batch(doc, fn) = ctx.runBatch(() => {
   const marker = ctx[FORWARD_OPS_MARKER]()
   fn(doc)
   return ctx[FORWARD_OPS_SINCE](marker)
 }, opts)
 ```
 
+**Convention.** A single mutation needs no `batch()` — a bare helper call (`doc.x.set(v)`) opens an implicit single-op `runBatch` and auto-commits (jj:kqnkxrkl). Reach for `batch()` only to (a) group ≥2 writes into one atomic commit + one `Changeset`, (b) capture the returned `Op[]`, or (c) attach `origin`/`source` provenance. The name leads with batching; the atomic-abort guarantee (a throwing block compensates LIFO and emits one `Changeset` with `aborted: true`) is the contract that makes a multi-write batch safe — it is still a *transaction in the algebraic sense*, just not a DB-style transaction with isolation/durability.
+
 End-to-end flow:
 
 1. `change` resolves `ref[TRANSACT]` → the `WritableContext`.
 2. `ctx.runBatch(work, opts)` opens a frame (push on `frameStarts`/`inverseStack`). At depth-0 entry it invokes the substrate's `runBatch` bracket (Loro `doc.commit()`, Yjs `Y.transact`) wrapping the whole body.
 3. `fn(doc)` runs. Inside `fn`, each helper (`.set`, `.push`, `.insert`, …) routes through `ctx.dispatch(path, change)` — the depth-aware combinator. Inside a frame, dispatch is just `ctx.prepare`; outside any frame it opens an implicit single-op runBatch (auto-commit).
-4. `ctx.prepare` writes to the writer log (for `change()`'s return value), calls `substrate.prepare`. The substrate captures σ at the change's target path, computes the inverse via `invert(pre, change)` and records it on the active frame, then advances σ and λ in lockstep.
+4. `ctx.prepare` writes to the writer log (for `batch()`'s return value), calls `substrate.prepare`. The substrate captures σ at the change's target path, computes the inverse via `invert(pre, change)` and records it on the active frame, then advances σ and λ in lockstep.
 5. After `fn` returns, the bracket's depth-0 release calls `ctx.flush(opts)` exactly once → `wrappedFlush` → `planNotifications` → `deliverNotifications`. One `Changeset` per affected subscriber path.
 6. If `fn` throws, the catch path replays this frame's recorded inverses LIFO through `ctx.prepare(path, inverse, { compensating: true })`, then flushes with `aborted: true`, then rethrows. External observers see one batched native event whose ops net to zero.
 
@@ -535,7 +537,7 @@ The substrate's `runBatch` bracket invocation is gated on `frameStarts.length ==
 
 ### `applyChanges(ref, changes)`: declarative application
 
-Source: `src/facade/change.ts`.
+Source: `src/facade/batch.ts`.
 
 Sometimes changes arrive as data (from the network, from undo history, from tests). `applyChanges(ref, changes)` applies a `readonly Change[]` via the same substrate write path — no prepare facade, just direct substrate writes + notification planning.
 
@@ -547,15 +549,15 @@ For testing and reasoning, `step(state, change)` → `state` is the pure transit
 
 ### What the write path is NOT
 
-- **Read-your-writes inside `fn`** (post-jj:ryquprut). σ advances eagerly on every prepare, so reads inside `change(doc, fn)` reflect prior writes within the same block. `d.todos.push("a"); d.todos.push("b")` appends in order. Pre-refactor this silently reordered because length-derived helpers read a stale σ.
-- **Not async.** `change()` is synchronous. The substrate's writes happen synchronously during `fn`. Notifications for the originating transaction fire synchronously at commit; re-entrant `change()` calls from inside a subscriber land in the per-context dispatcher's pending queue and produce a separate `Changeset` in a fresh sub-tick of the same outer call — still synchronous from the caller's perspective.
+- **Read-your-writes inside `fn`** (post-jj:ryquprut). σ advances eagerly on every prepare, so reads inside `batch(doc, fn)` reflect prior writes within the same block. `d.todos.push("a"); d.todos.push("b")` appends in order. Pre-refactor this silently reordered because length-derived helpers read a stale σ.
+- **Not async.** `batch()` is synchronous. The substrate's writes happen synchronously during `fn`. Notifications for the originating transaction fire synchronously at commit; re-entrant `batch()` calls from inside a subscriber land in the per-context dispatcher's pending queue and produce a separate `Changeset` in a fresh sub-tick of the same outer call — still synchronous from the caller's perspective.
 - **Not an effect system.** Side effects inside `fn` (network calls, DOM writes) run where they are called. Only the substrate-writable mutations are captured.
 
-### Re-entrant `change()` inside subscriber callbacks (drain-to-quiescence)
+### Re-entrant `batch()` inside subscriber callbacks (drain-to-quiescence)
 
-Subscriber callbacks may mutate freely. `change()` invoked from inside `subscribe(doc, ...)` or `subscribeNode(doc.field, ...)` does *not* throw — `with-changefeed`'s per-context dispatcher (from `@kyneta/machine`'s `createDispatcher`) enqueues an `accumulate` Msg and the drain-to-quiescence loop processes it in a fresh sub-tick.
+Subscriber callbacks may mutate freely. `batch()` invoked from inside `subscribe(doc, ...)` or `subscribeNode(doc.field, ...)` does *not* throw — `with-changefeed`'s per-context dispatcher (from `@kyneta/machine`'s `createDispatcher`) enqueues an `accumulate` Msg and the drain-to-quiescence loop processes it in a fresh sub-tick.
 
-Substrate writes inside the re-entrant `change()` remain **synchronous** — subsequent reads see the new state. The sub-tick's mutations produce their own `Changeset` once the inner `change()` commits, delivered to subscribers after the originating Changeset.
+Substrate writes inside the re-entrant `batch()` remain **synchronous** — subsequent reads see the new state. The sub-tick's mutations produce their own `Changeset` once the inner `batch()` commits, delivered to subscribers after the originating Changeset.
 
 When the host is an `Exchange`, every per-doc dispatcher shares the Exchange's `Lease` with the Synchronizer. Cross-doc A→B→A cascades, and tick-induced re-entry through the synchronizer, are bounded by one cooperating budget. A runaway oscillation throws `BudgetExhaustedError` whose message names the cascade's entry-point frame, a top-N message-type histogram, and a recent-event tail — the label histogram is the cascade *topology* and the count distribution names the *hot path*, so users can locate the responsible subscriber without ad-hoc instrumentation (`jj:tozwpvuu`).
 
@@ -563,16 +565,16 @@ See `@kyneta/machine`'s TECHNICAL.md §"Drain to quiescence and shared leases" f
 
 ### Subscriber visibility of mid-batch re-entry
 
-`deliverNotifications` iterates subscribers `[S1, S2, S3]`. If S1 calls `change(doc, ...)` synchronously, S1's substrate writes land *before* S2 fires. S2 receives the `Changeset` describing the originating transaction, but reads from — and may write through — a substrate that already includes S1's mutations.
+`deliverNotifications` iterates subscribers `[S1, S2, S3]`. If S1 calls `batch(doc, ...)` synchronously, S1's substrate writes land *before* S2 fires. S2 receives the `Changeset` describing the originating transaction, but reads from — and may write through — a substrate that already includes S1's mutations.
 
 This invariant is uniform across all substrates — plain, Loro, Yjs — because every substrate now advances **both** of its state stores in lockstep at prepare-time:
 
 - σ (the shadow, the reader's view) advances eagerly via `applyChange(shadow, path, change)`.
 - λ (the native container tree, the change-mapping's view) advances eagerly too: PlainSubstrate has λ ≡ σ; CRDT substrates run their native mutation primitive immediately during `prepare` (Loro coalesces plain MapDiff writes and applies structural inserts on the spot; Yjs invokes `applyChangeToYjs` against the live `Y.Doc` inside the ambient transact opened by `runBatch`).
 
-Concretely, the projection law `σ ≡ Π(λ)` (the naturality condition of the materialisation catamorphism) holds at every prepare boundary. A re-entrant subscriber may either read through σ (via the Reader / the ref `[CALL]`) or write through λ (via re-entrant `change()`, which itself walks λ through `changeToDiff`/`applyChangeToYjs`) — both views are coherent.
+Concretely, the projection law `σ ≡ Π(λ)` (the naturality condition of the materialisation catamorphism) holds at every prepare boundary. A re-entrant subscriber may either read through σ (via the Reader / the ref `[CALL]`) or write through λ (via re-entrant `batch()`, which itself walks λ through `changeToDiff`/`applyChangeToYjs`) — both views are coherent.
 
-When the outer batch is a **replay** batch from a substrate event bridge (e.g. an incoming sync merge), S1's local re-entrant write inside the replay-batch delivery is *not* a replay (the user code constructs a normal `change(doc, ...)` with no `replay` flag), so the substrate's `prepare`/`afterBatch` apply it natively. Pre-fix this case was the source of a hidden invariant hole on CRDT substrates: an `inEventHandler`/`inOurTransaction` global flag wrapped the entire event-bridge call and caused the substrate to silently drop S1's write. Resolved by threading `BatchOptions.replay` as a typed parameter; see [§Origin vs replay](#origin-vs-replay).
+When the outer batch is a **replay** batch from a substrate event bridge (e.g. an incoming sync merge), S1's local re-entrant write inside the replay-batch delivery is *not* a replay (the user code constructs a normal `batch(doc, ...)` with no `replay` flag), so the substrate's `prepare`/`afterBatch` apply it natively. Pre-fix this case was the source of a hidden invariant hole on CRDT substrates: an `inEventHandler`/`inOurTransaction` global flag wrapped the entire event-bridge call and caused the substrate to silently drop S1's write. Resolved by threading `BatchOptions.replay` as a typed parameter; see [§Origin vs replay](#origin-vs-replay).
 
 Two guidances:
 
@@ -583,7 +585,7 @@ To derive "pure pre-mutation state," consume the `Changeset` semantically; do no
 
 ### `Changeset.aborted`
 
-A Changeset with `aborted: true` is the bracket's signal that the outermost `change(doc, fn)` block threw and was wholly compensated via inverse replay. The op list contains forward + inverse pairs that net to identity at every path. Inner `change()`s that threw and were caught by an outer `change()`'s try/catch produce a NON-aborted outermost Changeset; the absorbed forward + inverse pair sits in the op list alongside surviving outer ops. Consumers needing to identify absorbed inner aborts pair the ops semantically (the framework doesn't surface a separate flag for this).
+A Changeset with `aborted: true` is the bracket's signal that the outermost `batch(doc, fn)` block threw and was wholly compensated via inverse replay. The op list contains forward + inverse pairs that net to identity at every path. Inner `batch()`s that threw and were caught by an outer `batch()`'s try/catch produce a NON-aborted outermost Changeset; the absorbed forward + inverse pair sits in the op list alongside surviving outer ops. Consumers needing to identify absorbed inner aborts pair the ops semantically (the framework doesn't surface a separate flag for this).
 
 The `aborted` flag is tightened: `true` iff the outermost block threw. Auto-commit blocks and successful outermost blocks have `aborted: undefined` (== falsy). Replay batches have `aborted: undefined`.
 
@@ -599,7 +601,7 @@ Under the three-primitive substrate contract (jj:ryquprut), `ctx.runBatch` is **
 
 The three handlers are co-extensive — they all open and close at the same boundary. `executeBatch` invokes `ctx.runBatch` for local-write batches; replay batches bypass it (the substrate's native state already absorbed those ops at the event-bridge call site, so there's no need for a bracket).
 
-Substrate.runBatch is invoked at most once per outermost `change(doc, fn)` — re-entrant subscriber writes open their own outermost runBatch (frameStarts goes to 0 between outer flush and subscriber re-entry), each block is its own atomic abort unit and gets its own commit.
+Substrate.runBatch is invoked at most once per outermost `batch(doc, fn)` — re-entrant subscriber writes open their own outermost runBatch (frameStarts goes to 0 between outer flush and subscriber re-entry), each block is its own atomic abort unit and gets its own commit.
 
 **Gotcha: Compensation masking with buffered substrates.** If a substrate (like Loro) buffers changes (e.g., `coalesceBuffer`) or throws synchronously during `prepare`, Kyneta's eager inverse recording causes the compensation loop to apply inverses for changes that were never actually committed to the substrate. This can cause the compensation loop itself to crash (e.g., throwing "Index out of bound" when attempting to revert an uncommitted insert). A `try/catch` in the compensation loop ensures the original error is chained via `Error.cause`, but the architectural mismatch between eager inverse recording and buffered substrate application remains a known limitation.
 
@@ -613,13 +615,13 @@ Substrate.runBatch is invoked at most once per outermost `change(doc, fn)` — r
 
 - **`replay`** — kyneta-internal structural directive. `true` iff the batch represents state authored elsewhere: substrate event bridge replaying `doc.import`, a `merge` payload, or version travel. Substrates with external mutation paths (Loro, Yjs) skip native-side work in `prepare`/`onFlush` when `replay: true` (the native state already absorbed the change); the changefeed layer still delivers `Changeset` notifications, and surfaces `replay: true` to subscribers. The plain substrate ignores `replay` in `prepare` because it has no out-of-band mutation path. **User-facing APIs (`change`, `applyChanges`) never construct `replay: true`** — only substrate event bridges and `merge` paths do.
 
-- **`source`** — identity-typed echo-suppression token. Compared with `===` by subscribers that issued the change. Unlike `origin` (app vocabulary) and `replay` (kyneta-internal structural directive), `source` is a kyneta-managed handshake between writer and reader: the originating `change()` caller mints a token (`Symbol("...")` or `{}`), passes it via `options.source`, and the same token round-trips to `Changeset.source` so the caller's subscriber can identify and skip its own writes. The schema layer NEVER branches on `source`'s identity — it threads it through the pipeline unchanged, the same way it threads `origin`. **Substrate replay paths explicitly drop `source`** — `source` never survives a CRDT round-trip; any value reaching a subscriber is therefore from a local `change()` on this peer.
+- **`source`** — identity-typed echo-suppression token. Compared with `===` by subscribers that issued the change. Unlike `origin` (app vocabulary) and `replay` (kyneta-internal structural directive), `source` is a kyneta-managed handshake between writer and reader: the originating `batch()` caller mints a token (`Symbol("...")` or `{}`), passes it via `options.source`, and the same token round-trips to `Changeset.source` so the caller's subscriber can identify and skip its own writes. The schema layer NEVER branches on `source`'s identity — it threads it through the pipeline unchanged, the same way it threads `origin`. **Substrate replay paths explicitly drop `source`** — `source` never survives a CRDT round-trip; any value reaching a subscriber is therefore from a local `batch()` on this peer.
 
 - **`aborted`** — kyneta-internal outcome directive. See §"`Changeset.aborted`" above.
 
 These four fields are *orthogonal* — they form a two-axis classification (app-set / subscriber-set / kyneta-set × provenance / outcome). See `BatchMetadata` in `@kyneta/changefeed`'s TECHNICAL.md for the full table.
 
-Layered consumers that need to discriminate "echo from sync" from "local write" — notably `@kyneta/exchange`'s auto-subscribe filter — read `Changeset.replay` rather than parsing the `origin` string. This closes a fragile string-collision surface where `change(doc, fn, { origin: "sync" })` was accidentally suppressed and `doc.import(payload, "from-some-other-pubsub")` would echo to peers. Context: jj:qpultxsw.
+Layered consumers that need to discriminate "echo from sync" from "local write" — notably `@kyneta/exchange`'s auto-subscribe filter — read `Changeset.replay` rather than parsing the `origin` string. This closes a fragile string-collision surface where `batch(doc, fn, { origin: "sync" })` was accidentally suppressed and `doc.import(payload, "from-some-other-pubsub")` would echo to peers. Context: jj:qpultxsw.
 
 The "schema layer and exchange never branch on origin's value" invariant is again **structurally true** after jj:wpvtoxmw — the conflation that had crept into `text-adapter` (`origin === "local"` for echo suppression) and `Line` (a dead `origin === "local"` filter) was rectified by introducing the identity-typed `source` channel and removing the dead Line filter.
 
@@ -640,7 +642,7 @@ Kyneta's "bring your own doc" position is that the underlying CRDT remains fully
 Loro models commits as a discrete API call (`doc.commit()` is separate from the pending mutations); Yjs models transactions as a body callback (`Y.transact(body)` runs work inside an opened transaction object). The pre-commit hook is Loro's analog of "code that runs inside the transaction"; `transaction.meta` is Yjs's analog of "intrinsic per-commit identity that travels with the event." Same principle (origin-free, CRDT-native machinery), substrate-shaped expression.
 
 #### Known limitation (both substrates)
-Mixing raw CRDT mutations with kyneta `change()` calls inside the same atomic unit (Yjs `transact` body, or Loro pending ops accumulated before a kyneta-issued commit) is unsupported. The raw mutations will be silently absorbed into kyneta's own-commit skip and not bridged to the changefeed. Use separate transacts/commits for raw mutations. This is a fundamental limit of commit-level discrimination — no origin-free approach can address it without op-level provenance, which neither CRDT exposes.
+Mixing raw CRDT mutations with kyneta `batch()` calls inside the same atomic unit (Yjs `transact` body, or Loro pending ops accumulated before a kyneta-issued commit) is unsupported. The raw mutations will be silently absorbed into kyneta's own-commit skip and not bridged to the changefeed. Use separate transacts/commits for raw mutations. This is a fundamental limit of commit-level discrimination — no origin-free approach can address it without op-level provenance, which neither CRDT exposes.
 
 Context: jj:uvykupvx.
 
@@ -728,7 +730,7 @@ Two pure functions form the notification engine:
 
 This is how a transaction that modifies `doc.items[0].title` and `doc.items[0].count` delivers one changeset to `subscribe(doc)` (two ops), one to `subscribe(doc.items)` (two ops), one to `subscribe(doc.items[0])` (two ops), and one each to `subscribe(doc.items[0].title)` / `subscribe(doc.items[0].count)` (one op each) — all synchronously, all deduplicated.
 
-The per-context dispatcher (`createDispatcher<ChangefeedMsg>` inside `ensurePrepareWiring`) is what makes re-entrant `change()` calls from inside a subscriber safe: each call dispatches an `accumulate` Msg that drains in a fresh sub-tick. See [Re-entrant `change()` inside subscriber callbacks](#re-entrant-change-inside-subscriber-callbacks-drain-to-quiescence).
+The per-context dispatcher (`createDispatcher<ChangefeedMsg>` inside `ensurePrepareWiring`) is what makes re-entrant `batch()` calls from inside a subscriber safe: each call dispatches an `accumulate` Msg that drains in a fresh sub-tick. See [Re-entrant `batch()` inside subscriber callbacks](#re-entrant-batch-inside-subscriber-callbacks-drain-to-quiescence).
 
 ### `expandMapOpsToLeaves`
 
@@ -1003,7 +1005,7 @@ Note: `TextChange` and `SequenceChange` are parameterizations of the same positi
 
 ### `Change` flows both ways
 
-- **Inbound** (developer → substrate): the proxy in `change(doc, fn)` records changes describing *intent*.
+- **Inbound** (developer → substrate): the proxy in `batch(doc, fn)` records changes describing *intent*.
 - **Outbound** (substrate → subscribers): the substrate's changefeed emits changes describing *what happened*.
 
 The shapes are identical. The substrate's `prepare` pipeline consumes the inbound changes, applies them, and re-emits (potentially transformed) outbound changes.
@@ -1256,7 +1258,7 @@ dist/
 | `src/position.ts` | ~300 | `Position`, `Side`, `POSITION`, `HasPosition`, `PlainPosition`, `decodePlainPosition`. |
 | `src/tree-position.ts` | ~620 | Tree-position algebra: `nodeSize`, `contentSize`, `isLeaf`, `resolveTreePosition`, `flattenTreePosition`, `ResolvedTreePosition`. Pure functions over `Reader` + `Schema` for flat↔tree position mapping (ProseMirror convention). |
 | `src/changefeed.ts` | ~150 | `Op`, `RecursiveChangefeedProtocol`, `HasRecursiveChangefeed`, `expandMapOpsToLeaves`. |
-| `src/facade/change.ts` | ~250 | `change(ref, fn)`, `applyChanges`, `remove`, `CommitOptions`. |
+| `src/facade/batch.ts` | ~250 | `batch(ref, fn)`, `applyChanges`, `remove`, `CommitOptions`. |
 | `src/facade/observe.ts` | ~100 | `subscribe`, `subscribeNode`. |
 | `src/step.ts` | ~300 | Pure state transitions: `step`, per-change-type step functions. |
 | `src/reader.ts` | ~150 | `Reader`, `plainReader`, `writeByPath`, `applyChange`. |

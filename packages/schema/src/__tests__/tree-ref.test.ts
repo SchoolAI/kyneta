@@ -1,7 +1,7 @@
 // tree-ref.test.ts — read + write surface for `Schema.tree`.
 
 import { describe, expect, it } from "vitest"
-import { applyChanges, change, createDoc, Schema } from "../basic/index.js"
+import { applyChanges, batch, createDoc, Schema } from "../basic/index.js"
 
 const TodoSchema = Schema.struct({
   outline: Schema.tree(
@@ -37,7 +37,7 @@ describe("WritableTreeRef", () => {
   it(".create returns a fresh id and exposes the node via .node(id)", () => {
     const doc = createDoc(TodoSchema)
     let rootId = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       rootId = d.outline.create({ data: { label: "Root" } })
     })
     expect(typeof rootId).toBe("string")
@@ -49,7 +49,7 @@ describe("WritableTreeRef", () => {
     const doc = createDoc(TodoSchema)
     let rootId = ""
     let childId = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       rootId = d.outline.create({ data: { label: "Root" } })
       childId = d.outline.create({ parent: rootId, data: { label: "Child" } })
     })
@@ -64,12 +64,12 @@ describe("WritableTreeRef", () => {
     const doc = createDoc(TodoSchema)
     let rootId = ""
     let childId = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       rootId = d.outline.create({ data: { label: "Root" } })
       childId = d.outline.create({ parent: rootId, data: { label: "Child" } })
       d.outline.create({ parent: childId, data: { label: "Grandchild" } })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.outline.delete(childId)
     })
     expect((doc.outline as any).size).toBe(1)
@@ -85,7 +85,7 @@ describe("WritableTreeRef", () => {
     let rootId = ""
     let childId = ""
     let grandchildId = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       rootId = d.outline.create({ data: { label: "Root" } })
       childId = d.outline.create({ parent: rootId, data: { label: "C" } })
       grandchildId = d.outline.create({
@@ -93,7 +93,7 @@ describe("WritableTreeRef", () => {
         data: { label: "GC" },
       })
     })
-    const ops = change(doc, (d: any) => {
+    const ops = batch(doc, (d: any) => {
       d.outline.delete(rootId)
     })
     const targets = ops
@@ -111,12 +111,12 @@ describe("WritableTreeRef", () => {
     let a = ""
     let b = ""
     let target = ""
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       a = d.outline.create({ data: { label: "A" } })
       b = d.outline.create({ data: { label: "B" } })
       target = d.outline.create({ parent: a, data: { label: "Target" } })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.outline.move(target, { parent: b, index: 0 })
     })
     const roots = (doc.outline as any).roots
@@ -128,7 +128,7 @@ describe("WritableTreeRef", () => {
 })
 
 // ===========================================================================
-// Ops captured by `change()` replay deterministically
+// Ops captured by `batch()` replay deterministically
 // ===========================================================================
 
 describe("tree ops replay", () => {
@@ -139,15 +139,15 @@ describe("tree ops replay", () => {
     let aId = ""
     let bId = ""
     let cId = ""
-    const ops1 = change(docA, (d: any) => {
+    const ops1 = batch(docA, (d: any) => {
       aId = d.outline.create({ data: { label: "A" } })
       bId = d.outline.create({ parent: aId, data: { label: "B" } })
       cId = d.outline.create({ parent: aId, data: { label: "C" } })
     })
-    const ops2 = change(docA, (d: any) => {
+    const ops2 = batch(docA, (d: any) => {
       d.outline.move(cId, { parent: bId, index: 0 })
     })
-    const ops3 = change(docA, (d: any) => {
+    const ops3 = batch(docA, (d: any) => {
       d.outline.delete(bId) // removes B and C (now under B)
     })
     const docB = createDoc(TodoSchema)

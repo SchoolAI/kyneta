@@ -34,7 +34,7 @@ Imported by schema, exchange, index, react, compiler, cast, and both CRDT substr
 | `Changeset<C>` | `BatchMetadata & { changes: readonly C[] }` — the unit of delivery through `subscribe`. | A single change — a changeset *contains* changes |
 | `ChangeBase` | `{ type: string }` — the open base protocol that every change type extends. | A specific change type like `TextChange` (those live in `@kyneta/schema`) |
 | `origin` | App-level batch provenance label (e.g. `"sync"`, `"undo"`, `"migration"`). Free vocabulary for app code. | `source` — `origin` is app-level, `source` is kyneta-managed identity |
-| `source` | Identity-typed echo-suppression token compared with `===`. Set by originating `change()` caller. | `origin` — `source` cannot collide with app vocabulary |
+| `source` | Identity-typed echo-suppression token compared with `===`. Set by originating `batch()` caller. | `origin` — `source` cannot collide with app vocabulary |
 | `CallableChangefeed<S, C>` | A `Changefeed<S, C>` that is also callable — `feed()` returns `feed.current`. | A function that returns a changefeed |
 | `ReactiveMap<K, V, C>` | A `CallableChangefeed` over a `ReadonlyMap<K, V>`, with `.get`, `.has`, `.keys`, `.size`, iteration lifted to the top level. | A Signal, an Observable, or a MobX map |
 | `ReactiveMapHandle<K, V, C>` | The producer-side split of `ReactiveMap` — `set`, `delete`, `clear`, `emit`. | Any interface a consumer should hold |
@@ -134,9 +134,9 @@ The fields are **orthogonal**: a tagged local write that throws can simultaneous
 
 ### `Changeset.source` — identity-typed echo token
 
-An `unknown` value compared with `===`. Supplied by the originating `change()` via `options.source`, propagated unchanged to the delivered `Changeset.source`. Used by subscribers (notably `@kyneta/react`'s `text-adapter`) that need to recognize their own writes — string-based discrimination via `origin` is unreliable because `origin` is app-level free vocabulary that callers may set to anything (or omit). The identity-typed token gives writer and reader a kyneta-managed handshake that cannot collide with app-level vocabulary.
+An `unknown` value compared with `===`. Supplied by the originating `batch()` via `options.source`, propagated unchanged to the delivered `Changeset.source`. Used by subscribers (notably `@kyneta/react`'s `text-adapter`) that need to recognize their own writes — string-based discrimination via `origin` is unreliable because `origin` is app-level free vocabulary that callers may set to anything (or omit). The identity-typed token gives writer and reader a kyneta-managed handshake that cannot collide with app-level vocabulary.
 
-Substrate replay paths explicitly drop `source` — any value reaching a subscriber is therefore from a local `change()` call on this peer.
+Substrate replay paths explicitly drop `source` — any value reaching a subscriber is therefore from a local `batch()` call on this peer.
 
 Context: jj:wpvtoxmw.
 

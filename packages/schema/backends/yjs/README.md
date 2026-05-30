@@ -42,7 +42,7 @@ doc.title()           // "My Todos"
 doc.items.length      // 1
 
 // Write
-change(doc, (d) => {
+batch(doc, (d) => {
   d.title.insert(9, " (v2)")
   d.items.push({ name: "Walk dog", done: false })
 })
@@ -95,7 +95,7 @@ const docB = createDoc(MyDoc, snapshot)
 
 // After mutations on A, sync incrementally
 const vBefore = version(docB)
-change(docA, (d) => d.title.insert(5, " v2"))
+batch(docA, (d) => d.title.insert(5, " v2"))
 
 const delta = exportSince(docA, vBefore)
 importDelta(docB, delta!)
@@ -163,7 +163,7 @@ Because `yjs(doc)` returns a standard `Y.Doc`, the entire Yjs provider ecosystem
 | `exportEntirety(doc)` | Full state as `SubstratePayload` |
 | `exportSince(doc, since)` | Delta since version |
 | `merge(doc, payload, origin?)` | Apply delta from peer |
-| `change(doc, fn)` | Transactional mutation |
+| `batch(doc, fn)` | Transactional mutation |
 | `subscribe(doc, callback)` | Observe changes |
 | `yjs.bind(schema)` | Bind schema for exchange use |
 | `yjs(ref)` | Escape hatch → `Y.Doc` |

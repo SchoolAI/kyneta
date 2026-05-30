@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import type { Op, Substrate, SubstratePayload } from "../index.js"
 import {
   applyChanges,
-  change,
+  batch,
   interpret,
   observation,
   PlainVersion,
@@ -171,17 +171,17 @@ describe("PlainVersion.meet()", () => {
 // ===========================================================================
 
 describe("PlainSubstrate lifecycle", () => {
-  it("create(schema) then change() produces a substrate with initial values", () => {
+  it("create(schema) then batch() produces a substrate with initial values", () => {
     const substrate = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(substrate)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(0, "Hello")
       d.theme.set("dark")
     })
 
     const snap = snapshotOf(substrate)
-    // Values set via change()
+    // Values set via batch()
     expect(snap.title).toBe("Hello")
     expect(snap.theme).toBe("dark")
     // Defaults filled in
@@ -208,15 +208,15 @@ describe("PlainSubstrate lifecycle", () => {
 
     expect(substrate.version().value).toBe(1)
 
-    // Each change() call triggers one flush cycle → one version bump
-    change(doc, d => d.title.insert(0, "Hi"))
+    // Each batch() call triggers one flush cycle → one version bump
+    batch(doc, d => d.title.insert(0, "Hi"))
     expect(substrate.version().value).toBe(2)
 
-    change(doc, d => d.count.increment(5))
+    batch(doc, d => d.count.increment(5))
     expect(substrate.version().value).toBe(3)
 
     // A multi-op transaction is a single flush cycle → one version bump
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(2, " there")
       d.count.increment(3)
     })
@@ -246,9 +246,9 @@ describe("PlainSubstrate lifecycle", () => {
       observedVersions.push(substrate.version().value)
     })
 
-    change(doc, d => d.title.insert(0, "A"))
-    change(doc, d => d.count.increment(1))
-    change(doc, d => d.title.insert(1, "B"))
+    batch(doc, d => d.title.insert(0, "A"))
+    batch(doc, d => d.count.increment(1))
+    batch(doc, d => d.title.insert(1, "B"))
 
     // Each subscriber call should see the version AFTER the flush,
     // not the stale version from before.
@@ -273,8 +273,8 @@ describe("PlainSubstrate lifecycle", () => {
       prevVersion = currentVer
     })
 
-    change(doc, d => d.title.insert(0, "Hi"))
-    change(doc, d => d.count.increment(5))
+    batch(doc, d => d.title.insert(0, "Hi"))
+    batch(doc, d => d.count.increment(5))
 
     // Each callback should have been able to retrieve the ops for its own flush cycle
     expect(opsPerNotification).toHaveLength(2)
@@ -288,12 +288,12 @@ describe("PlainSubstrate lifecycle", () => {
     const substrate = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(substrate)
 
-    // Set initial values via change(), then mutate further
-    change(doc, d => {
+    // Set initial values via batch(), then mutate further
+    batch(doc, d => {
       d.title.insert(0, "Test")
       d.theme.set("light")
     })
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(4, "!")
       d.count.increment(10)
     })
@@ -318,7 +318,7 @@ describe("PlainSubstrate lifecycle", () => {
     const substrate = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(substrate)
 
-    change(doc, d => d.count.increment(1))
+    batch(doc, d => d.count.increment(1))
 
     const payload = substrate.exportSince(substrate.version())
     expect(payload).toBeNull()
@@ -329,8 +329,8 @@ describe("PlainSubstrate lifecycle", () => {
     const doc = interpretSubstrate(substrate)
 
     const f0 = substrate.version()
-    change(doc, d => d.title.insert(0, "A"))
-    change(doc, d => d.count.increment(1))
+    batch(doc, d => d.title.insert(0, "A"))
+    batch(doc, d => d.count.increment(1))
 
     const payload = substrate.exportSince(f0)
     expect(payload).not.toBeNull()
@@ -350,11 +350,11 @@ describe("PlainSubstrate lifecycle", () => {
     const substrate = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(substrate)
 
-    change(doc, d => d.title.insert(0, "A"))
+    batch(doc, d => d.title.insert(0, "A"))
     const f1 = substrate.version()
     expect(f1.value).toBe(2)
 
-    change(doc, d => d.count.increment(1))
+    batch(doc, d => d.count.increment(1))
     expect(substrate.version().value).toBe(3)
 
     // exportSince(f1) should only contain the second mutation
@@ -375,11 +375,11 @@ describe("Round-trip replication", () => {
     const docA = interpretSubstrate(substrateA)
 
     // Set initial values and apply mutations
-    change(docA, d => {
+    batch(docA, d => {
       d.title.insert(0, "Original")
       d.theme.set("dark")
     })
-    change(docA, d => {
+    batch(docA, d => {
       d.title.insert(8, " Title")
       d.count.increment(42)
       d.items.push({ name: "Item 1", done: false })
@@ -403,7 +403,7 @@ describe("Round-trip replication", () => {
     const docA = interpretSubstrate(substrateA)
 
     // Set shared initial state
-    change(docA, d => {
+    batch(docA, d => {
       d.title.insert(0, "Shared")
     })
 
@@ -415,7 +415,7 @@ describe("Round-trip replication", () => {
     const f0 = substrateA.version()
 
     // Mutate A
-    change(docA, d => {
+    batch(docA, d => {
       d.title.insert(6, "!")
       d.count.increment(10)
       d.items.push({ name: "New item", done: true })
@@ -441,7 +441,7 @@ describe("Round-trip replication", () => {
     const f0 = substrateA.version()
 
     // Mutate A
-    change(docA, d => d.title.insert(0, "Hello"))
+    batch(docA, d => d.title.insert(0, "Hello"))
 
     // Subscribe to B's changefeed before importing
     const received: Changeset<Op>[] = []
@@ -467,8 +467,8 @@ describe("Round-trip replication", () => {
 
     const f0 = substrateA.version()
 
-    change(docA, d => d.count.increment(1))
-    change(docA, d => d.count.increment(2))
+    batch(docA, d => d.count.increment(1))
+    batch(docA, d => d.count.increment(2))
 
     expect(substrateB.version().value).toBe(1)
 
@@ -505,8 +505,8 @@ describe("merge with entirety payload (PlainSubstrate)", () => {
     const substrate = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(substrate)
 
-    change(doc, d => d.title.insert(0, "Original"))
-    change(doc, d => d.count.increment(5))
+    batch(doc, d => d.title.insert(0, "Original"))
+    batch(doc, d => d.count.increment(5))
 
     // Build an entirety payload representing different state
     const entirety: SubstratePayload = {
@@ -534,7 +534,7 @@ describe("merge with entirety payload (PlainSubstrate)", () => {
     // Capture the ref before merge
     const refBefore = doc
 
-    change(doc, d => d.title.insert(0, "Before"))
+    batch(doc, d => d.title.insert(0, "Before"))
 
     const entirety: SubstratePayload = {
       kind: "entirety",
@@ -657,8 +657,8 @@ describe("merge with entirety payload (PlainReplica)", () => {
     // Now create a substrate, mutate, and send a since payload
     const source = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(source)
-    change(doc, d => d.title.insert(0, "Start"))
-    change(doc, d => d.count.increment(5))
+    batch(doc, d => d.title.insert(0, "Start"))
+    batch(doc, d => d.count.increment(5))
 
     const since = source.exportSince(new PlainVersion(0)) as any
     expect(since.kind).toBe("since")
@@ -678,13 +678,13 @@ describe("Epoch boundaries", () => {
     const docA = interpretSubstrate(substrateA)
 
     // Set initial values and apply several mutations to advance the version
-    change(docA, d => {
+    batch(docA, d => {
       d.title.insert(0, "Genesis")
       d.theme.set("light")
     })
-    change(docA, d => d.title.insert(7, " v2"))
-    change(docA, d => d.count.increment(100))
-    change(docA, d => d.items.push({ name: "Task", done: false }))
+    batch(docA, d => d.title.insert(7, " v2"))
+    batch(docA, d => d.count.increment(100))
+    batch(docA, d => d.items.push({ name: "Task", done: false }))
 
     expect(substrateA.version().value).toBe(5)
 
@@ -707,10 +707,10 @@ describe("Epoch boundaries", () => {
   it("new epoch substrate is fully functional: can mutate, version, export", () => {
     const substrateA = plainSubstrateFactory.create(TestSchema)
     const docA = interpretSubstrate(substrateA)
-    change(docA, d => {
+    batch(docA, d => {
       d.title.insert(0, "Source")
     })
-    change(docA, d => d.count.increment(50))
+    batch(docA, d => d.count.increment(50))
 
     // Create new substrate from snapshot
     const snapshot = substrateA.exportEntirety()
@@ -722,7 +722,7 @@ describe("Epoch boundaries", () => {
     expect(vAfterSnapshot).toBeGreaterThan(0)
 
     // Mutate the new substrate
-    change(docB, d => d.title.insert(6, "!"))
+    batch(docB, d => d.title.insert(6, "!"))
     expect(substrateB.version().value).toBe(vAfterSnapshot + 1)
     expect(snapshotOf(substrateB).title).toBe("Source!")
 
@@ -742,10 +742,10 @@ describe("Epoch boundaries", () => {
   it("old and new epoch substrates are independent", () => {
     const substrateA = plainSubstrateFactory.create(TestSchema)
     const docA = interpretSubstrate(substrateA)
-    change(docA, d => {
+    batch(docA, d => {
       d.title.insert(0, "Shared")
     })
-    change(docA, d => d.count.increment(10))
+    batch(docA, d => d.count.increment(10))
 
     // Snapshot and create B
     const snapshot = substrateA.exportEntirety()
@@ -753,12 +753,12 @@ describe("Epoch boundaries", () => {
     const docB = interpretSubstrate(substrateB)
 
     // Mutate A — should not affect B
-    change(docA, d => d.title.insert(6, " from A"))
+    batch(docA, d => d.title.insert(6, " from A"))
     expect(snapshotOf(substrateA).title).toBe("Shared from A")
     expect(snapshotOf(substrateB).title).toBe("Shared")
 
     // Mutate B — should not affect A
-    change(docB, d => d.title.insert(6, " from B"))
+    batch(docB, d => d.title.insert(6, " from B"))
     expect(snapshotOf(substrateB).title).toBe("Shared from B")
     expect(snapshotOf(substrateA).title).toBe("Shared from A")
   })
@@ -815,8 +815,8 @@ describe("PlainReplica.advance()", () => {
     const source = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(source)
 
-    change(doc, d => d.title.insert(0, "Hello"))
-    change(doc, d => d.count.increment(5))
+    batch(doc, d => d.title.insert(0, "Hello"))
+    batch(doc, d => d.count.increment(5))
 
     // Merge source ops into replica
     const delta = source.exportSince(new PlainVersion(0)) as any
@@ -847,10 +847,10 @@ describe("PlainReplica.advance()", () => {
     const source = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(source)
 
-    change(doc, d => d.title.insert(0, "A"))
+    batch(doc, d => d.title.insert(0, "A"))
     const v2 = source.version()
-    change(doc, d => d.count.increment(1))
-    change(doc, d => d.theme.set("dark"))
+    batch(doc, d => d.count.increment(1))
+    batch(doc, d => d.theme.set("dark"))
     const v4 = source.version()
 
     // Merge all ops into replica
@@ -881,7 +881,7 @@ describe("PlainReplica.advance()", () => {
     const source = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(source)
 
-    change(doc, d => d.title.insert(0, "Before"))
+    batch(doc, d => d.title.insert(0, "Before"))
     const v2 = source.version()
 
     const delta1 = source.exportSince(new PlainVersion(0)) as any
@@ -889,7 +889,7 @@ describe("PlainReplica.advance()", () => {
     replica.advance(v2)
 
     // New ops after advance
-    change(doc, d => d.count.increment(99))
+    batch(doc, d => d.count.increment(99))
     const delta2 = source.exportSince(v2) as any
     replica.merge(delta2)
 
@@ -913,10 +913,10 @@ describe("PlainReplica.advance()", () => {
     const source = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(source)
 
-    change(doc, d => d.title.insert(0, "A"))
+    batch(doc, d => d.title.insert(0, "A"))
     const v2 = source.version()
-    change(doc, d => d.count.increment(1))
-    change(doc, d => d.theme.set("dark"))
+    batch(doc, d => d.count.increment(1))
+    batch(doc, d => d.theme.set("dark"))
 
     replica.merge(source.exportSince(new PlainVersion(0)) as any)
 
@@ -943,8 +943,8 @@ describe("PlainReplica.advance()", () => {
     const source = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(source)
 
-    change(doc, d => d.title.insert(0, "Test"))
-    change(doc, d => d.count.increment(42))
+    batch(doc, d => d.title.insert(0, "Test"))
+    batch(doc, d => d.count.increment(42))
 
     replica.merge(source.exportSince(new PlainVersion(0)) as any)
     replica.advance(replica.version())
@@ -964,9 +964,9 @@ describe("PlainSubstrate.advance()", () => {
     const substrate = plainSubstrateFactory.create(TestSchema)
     const doc = interpretSubstrate(substrate)
 
-    change(doc, d => d.title.insert(0, "Hello"))
+    batch(doc, d => d.title.insert(0, "Hello"))
     const v2 = substrate.version()
-    change(doc, d => d.count.increment(5))
+    batch(doc, d => d.count.increment(5))
 
     // Advance the substrate
     substrate.advance(v2)
@@ -977,7 +977,7 @@ describe("PlainSubstrate.advance()", () => {
     expect(doc.count()).toBe(5)
 
     // New mutations still work
-    change(doc, d => d.theme.set("dark"))
+    batch(doc, d => d.theme.set("dark"))
     expect(doc.theme()).toBe("dark")
     expect(substrate.version().value).toBe(v2.value + 2)
   })

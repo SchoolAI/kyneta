@@ -4,7 +4,7 @@
 // React's ref callback mechanism. Thin tests — the core attach() logic
 // is already covered exhaustively by text-adapter.test.ts (Tier 1).
 
-import { change, createDoc, Schema } from "@kyneta/schema/basic"
+import { batch, createDoc, Schema } from "@kyneta/schema/basic"
 import { act, renderHook } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import type { TextRefLike } from "../text-adapter.js"
@@ -21,7 +21,7 @@ const TextDocSchema = Schema.struct({
 function createTestDoc(initialText: string = "") {
   const doc = createDoc(TextDocSchema)
   if (initialText) {
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(0, initialText)
     })
   }
@@ -127,7 +127,7 @@ describe("useText", () => {
       })
 
       // Remote changes should NOT flow to the element after detach
-      change(doc, d => {
+      batch(doc, d => {
         d.title.insert(0, "Z")
       })
 
@@ -141,7 +141,7 @@ describe("useText", () => {
       const textarea = document.createElement("textarea")
 
       // Mutate before attaching
-      change(doc, d => {
+      batch(doc, d => {
         d.title.insert(0, "pre-populated")
       })
 
@@ -170,7 +170,7 @@ describe("useText", () => {
       expect(textarea.value).toBe("hello")
 
       // Simulate remote change
-      change(doc, d => {
+      batch(doc, d => {
         d.title.insert(5, " world")
       })
 
@@ -205,13 +205,13 @@ describe("useText", () => {
       expect(textarea.value).toBe("doc2")
 
       // Verify the new binding is live: remote change on doc2 flows through
-      change(doc2, d => {
+      batch(doc2, d => {
         d.title.insert(4, "!")
       })
       expect(textarea.value).toBe("doc2!")
 
       // And old binding is dead: remote change on doc1 does NOT flow
-      change(doc1, d => {
+      batch(doc1, d => {
         d.title.insert(0, "Z")
       })
       expect(textarea.value).toBe("doc2!") // unchanged

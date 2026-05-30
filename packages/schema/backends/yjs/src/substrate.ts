@@ -10,7 +10,7 @@
 //   outermost logical action. Yjs's native transact nesting collapses
 //   inner re-entrant transacts into the outer one for free — no depth
 //   counter needed (unlike Loro). External `observeDeep` consumers see
-//   exactly one batched event per outermost `change(doc, fn)`.
+//   exactly one batched event per outermost `batch(doc, fn)`.
 // - JSON-boundary writes (struct.json/list.json/record.json subtrees)
 //   are buffered in a per-target-key coalescer and flushed in
 //   `afterBatch`. Non-boundary writes are applied directly to λ via
@@ -90,7 +90,7 @@ import { resolveYjsType } from "./yjs-resolve.js"
 // that Yjs hands to observeDeep, regardless of `transaction.origin`.
 // This frees the user-facing `origin` slot for `options.origin`
 // round-trip and correctly handles the case where external code
-// wraps `change(doc, fn)` in its own `Y.transact` (Yjs's nested-
+// wraps `batch(doc, fn)` in its own `Y.transact` (Yjs's nested-
 // transact collapse delivers the SAME Transaction object to both
 // outer and inner callbacks; verified by probe — see TECHNICAL.md
 // "Why transaction.meta mark").
@@ -447,7 +447,7 @@ export function createYjsSubstrate(
   rootMap.observeDeep((events, transaction) => {
     // Own-commit discriminator: kyneta's runBatch marks the transaction
     // via `tr.meta.set` inside the transact body. The mark survives Yjs's
-    // nested-transact collapse, so external code wrapping `change()` in
+    // nested-transact collapse, so external code wrapping `batch()` in
     // its own Y.transact is correctly classified as own.
     if (transaction.meta.get(KYNETA_MARK)) {
       return
@@ -486,7 +486,7 @@ export function createYjsSubstrate(
  *
  * - `create(schema)` — creates a fresh Y.Doc with empty containers
  *   matching the schema structure. No seed data — initial content
- *   should be applied via `change()` after construction.
+ *   should be applied via `batch()` after construction.
  * - `fromEntirety(payload, schema)` — creates a Y.Doc from an entirety
  *   payload, returns a substrate.
  * - `parseVersion(serialized)` — deserializes a YjsVersion.

@@ -1,5 +1,5 @@
 import { textChange } from "@kyneta/schema"
-import { change, createDoc, Schema } from "@kyneta/schema/basic"
+import { batch, createDoc, Schema } from "@kyneta/schema/basic"
 import { describe, expect, it, vi } from "vitest"
 import {
   attach,
@@ -161,7 +161,7 @@ const TextDocSchema = Schema.struct({
 function createTestDoc(initialText: string = "") {
   const doc = createDoc(TextDocSchema)
   if (initialText) {
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(0, initialText)
     })
   }
@@ -296,7 +296,7 @@ describe("attach", () => {
       input.selectionEnd = 3
 
       // Simulate a remote change (no "local" origin)
-      change(doc, d => {
+      batch(doc, d => {
         d.title.insert(0, "X")
       })
 
@@ -310,7 +310,7 @@ describe("attach", () => {
 
       const detach = attach(input, doc.title as unknown as TextRefLike)
 
-      change(doc, d => {
+      batch(doc, d => {
         d.title.delete(1, 1)
       })
 
@@ -329,7 +329,7 @@ describe("attach", () => {
       input.selectionEnd = 2
 
       // Remote inserts "XX" at position 0 → cursor should shift to 4
-      change(doc, d => {
+      batch(doc, d => {
         d.title.insert(0, "XX")
       })
 
@@ -497,7 +497,7 @@ describe("attach", () => {
       input.selectionEnd = 11
 
       // Remote inserts "XX" at position 0
-      change(doc, d => {
+      batch(doc, d => {
         d.title.insert(0, "XX")
       })
 
@@ -524,7 +524,7 @@ describe("attach", () => {
       expect(doc.title()).toBe("abc") // unchanged
 
       // Remote changes should not flow to the element
-      change(doc, d => {
+      batch(doc, d => {
         d.title.insert(0, "Z")
       })
 

@@ -283,7 +283,7 @@ Four cases, in order:
 | 3. Deferred from `present` | `DocRuntime.mode === "deferred"` | Upgrade to interpret; send `interest` to the peer that presented; run sync. |
 | 4. New doc | No entry | Create `DocRuntime`, register with `Store[]`, broadcast `present`, return fresh `Ref<S>`. |
 
-The return is always a `Ref<S>` — a typed, callable, navigable, observable, writable reference from the interpreter stack. Application code reads `doc.title()`, writes `change(doc, d => d.title("new"))`, subscribes `subscribe(doc, changeset => …)`. Everything downstream of `get` is identical regardless of which case fired.
+The return is always a `Ref<S>` — a typed, callable, navigable, observable, writable reference from the interpreter stack. Application code reads `doc.title()`, writes `batch(doc, d => d.title("new"))`, subscribes `subscribe(doc, changeset => …)`. Everything downstream of `get` is identical regardless of which case fired.
 
 ### Suspend vs destroy
 
@@ -346,10 +346,10 @@ The `resolveLease` pure core is independently tested. Storage keys (`key`, `key 
 
 Source: `src/synchronizer.ts` → `#wireLocalChanges`, `src/exchange.ts` → changefeed subscription.
 
-Every local mutation — `change(doc, fn)`, direct writes on a ref, `applyChanges` — flows through the substrate's changefeed. The Synchronizer subscribes once per `DocRuntime` and filters by the structural `replay` flag:
+Every local mutation — `batch(doc, fn)`, direct writes on a ref, `applyChanges` — flows through the substrate's changefeed. The Synchronizer subscribes once per `DocRuntime` and filters by the structural `replay` flag:
 
 ```
-change(doc, d => d.title.insert(0, "hi"))
+batch(doc, d => d.title.insert(0, "hi"))
   │
   ├─ substrate.prepare → applyChangeToYjs / applyDiff / etc.
   │  onFlush → changefeed emits Changeset with origin: undefined, replay: undefined
@@ -372,7 +372,7 @@ change(doc, d => d.title.insert(0, "hi"))
 
 Remote `offer` messages go through `substrate.merge(payload, { origin: "sync" })`. The substrate's event bridge replays the merge through `executeBatch(ctx, ops, { origin: "sync", replay: true })`, so every `Changeset` emitted during that merge carries `replay: true`. The Synchronizer's subscriber checks `changeset.replay` and **skips** `notifyLocalChange(docId)`. Without this skip, every incoming `offer` would re-emit a local `offer` back to all peers — an infinite feedback loop.
 
-Pre-1.6.x the filter checked `changeset.origin === "sync"` — fragile because `origin` is a free-vocabulary app label, so a `change(doc, fn, { origin: "sync" })` happened to be suppressed (wrong), and a `doc.import(payload, "from-some-other-pubsub")` would echo back to peers (also wrong). `replay` is a structural directive set by substrate event bridges and `merge` paths — apps never construct it, the schema layer never reads `origin`'s value, and the discrimination is correct regardless of what labels apps use. Context: jj:qpultxsw.
+Pre-1.6.x the filter checked `changeset.origin === "sync"` — fragile because `origin` is a free-vocabulary app label, so a `batch(doc, fn, { origin: "sync" })` happened to be suppressed (wrong), and a `doc.import(payload, "from-some-other-pubsub")` would echo back to peers (also wrong). `replay` is a structural directive set by substrate event bridges and `merge` paths — apps never construct it, the schema layer never reads `origin`'s value, and the discrimination is correct regardless of what labels apps use. Context: jj:qpultxsw.
 
 The `replay` propagation is the substrate's responsibility (every substrate in `@kyneta/schema` correctly threads it through `executeBatch` and `deliverNotifications`). The sync-side check is *this* package's responsibility.
 
@@ -384,13 +384,13 @@ The "exchange never branches on `origin`'s value" invariant is now globally true
 
 ### Same-doc re-entry inside subscribers (post-1.6.0)
 
-`change(doc, fn)` called from inside a `subscribe(doc, ...)` / `subscribeNode(doc.field, ...)` callback no longer requires `queueMicrotask` (`jj:yksllknw`). The per-doc changefeed dispatcher in `@kyneta/schema` shares the Exchange's `Lease` (`jj:qlvnvxox` extended this slice), so re-entrant doc-layer mutations drain in a fresh sub-tick of the same outer dispatch call, while the cascade is budget-bounded.
+`batch(doc, fn)` called from inside a `subscribe(doc, ...)` / `subscribeNode(doc.field, ...)` callback no longer requires `queueMicrotask` (`jj:yksllknw`). The per-doc changefeed dispatcher in `@kyneta/schema` shares the Exchange's `Lease` (`jj:qlvnvxox` extended this slice), so re-entrant doc-layer mutations drain in a fresh sub-tick of the same outer dispatch call, while the cascade is budget-bounded.
 
 This closes the third instance of the "one-pass-only drain" structural flaw called out in `jj:qlvnvxox`'s Learnings — input-phase synchronizer (#1), output-phase synchronizer (#2), and now the doc layer (#3). A `BudgetExhaustedError` emitted anywhere in the stack carries history entries labeled `"synchronizer:session"`, `"synchronizer:sync"`, `"synchronizer:outer"`, and `"changefeed"` — the label set is the cascade topology.
 
 ### What the local-write path is NOT
 
-- **Not synchronous with send.** `change(doc, fn)` returns as soon as the substrate's `onFlush` completes. The wire `offer` fires in the next quiescence drain, which may be the same tick or later depending on re-entrant dispatch.
+- **Not synchronous with send.** `batch(doc, fn)` returns as soon as the substrate's `onFlush` completes. The wire `offer` fires in the next quiescence drain, which may be the same tick or later depending on re-entrant dispatch.
 - **Not per-mutation.** A transaction containing N mutations emits one changefeed entry, which produces one `sync/local-doc-change` input, which produces one `exportSince` call (one payload) per synced peer.
 - **Not guaranteed-delivery.** The payload is queued on the transport; delivery depends on the transport.
 

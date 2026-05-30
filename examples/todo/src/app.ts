@@ -20,7 +20,6 @@
 /// <reference types="@kyneta/cast/types/elements" />
 /// <reference types="@kyneta/cast/types/reactive-view" />
 
-import { change } from "@kyneta/schema"
 import type { TodoDocRef } from "./schema.js"
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -53,9 +52,8 @@ export function createApp(doc: TodoDocRef) {
           const text = inputEl.value.trim()
           if (!text) return
 
-          change(doc, d => {
-            d.todos.push({ text, done: false })
-          })
+          // Single mutation: write directly — a bare helper call auto-commits.
+          doc.todos.push({ text, done: false })
           formEl.reset()
         },
       },
@@ -85,10 +83,9 @@ export function createApp(doc: TodoDocRef) {
             onChange: () => {
               const idx = [...doc.todos].indexOf(todo)
               if (idx < 0) return
-              change(doc, d => {
-                const current = d.todos.at(idx)
-                if (current) current.done.set(!current.done())
-              })
+              // Single mutation (read + set) — no batch needed.
+              const current = doc.todos.at(idx)
+              if (current) current.done.set(!current.done())
             },
           })
 
@@ -102,9 +99,8 @@ export function createApp(doc: TodoDocRef) {
               onClick: () => {
                 const idx = [...doc.todos].indexOf(todo)
                 if (idx < 0) return
-                change(doc, d => {
-                  d.todos.delete(idx, 1)
-                })
+                // Single mutation: write directly.
+                doc.todos.delete(idx, 1)
               },
             },
             "×",

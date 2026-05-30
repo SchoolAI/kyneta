@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest"
 import {
-  change,
+  batch,
   createDoc,
   exportEntirety,
   exportSince,
@@ -63,7 +63,7 @@ describe("record-of-struct (plain baseline)", () => {
   it("set a record entry and read it back", () => {
     const doc = createDoc(boundPlainScoreboard)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000", points: 0 })
     })
 
@@ -76,7 +76,7 @@ describe("record-of-struct (plain baseline)", () => {
   it("set multiple entries and read all back", () => {
     const doc = createDoc(boundPlainScoreboard)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000", points: 0 })
       d.scores.set("bob", { name: "Bob", color: "#0000FF", points: 0 })
     })
@@ -91,7 +91,7 @@ describe("record-of-struct (plain baseline)", () => {
   it("navigate into a record entry via .at()", () => {
     const doc = createDoc(boundPlainScoreboard)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000", points: 0 })
     })
 
@@ -105,11 +105,11 @@ describe("record-of-struct (plain baseline)", () => {
   it("mutate a field inside a record entry via .at().field.set()", () => {
     const doc = createDoc(boundPlainScoreboard)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000", points: 0 })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.at("alice").points.set(5)
     })
 
@@ -119,7 +119,7 @@ describe("record-of-struct (plain baseline)", () => {
   it("syncs record-of-struct between two peers", () => {
     const docA = createDoc(boundPlainScoreboard)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000", points: 3 })
     })
 
@@ -132,7 +132,7 @@ describe("record-of-struct (plain baseline)", () => {
 
     // Mutate on A, sync delta to B
     const v0 = version(docB)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.scores.set("bob", { name: "Bob", color: "#0000FF", points: 1 })
     })
     const delta = exportSince(docA, v0)
@@ -150,7 +150,7 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
   it("set a record entry with counter and read it back", () => {
     const doc = createDoc(boundScoreboard)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000" })
     })
 
@@ -163,7 +163,7 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
   it("navigate into a record entry and read the counter", () => {
     const doc = createDoc(boundScoreboard)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000" })
     })
 
@@ -177,11 +177,11 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
   it("increment a counter inside a record entry via .at().bumps.increment()", () => {
     const doc = createDoc(boundScoreboard)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000" })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       const score = d.scores.at("alice")
       score.bumps.increment(1)
     })
@@ -192,13 +192,13 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
   it("multiple increments accumulate", () => {
     const doc = createDoc(boundScoreboard)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000" })
     })
 
-    change(doc, (d: any) => d.scores.at("alice").bumps.increment(1))
-    change(doc, (d: any) => d.scores.at("alice").bumps.increment(1))
-    change(doc, (d: any) => d.scores.at("alice").bumps.increment(3))
+    batch(doc, (d: any) => d.scores.at("alice").bumps.increment(1))
+    batch(doc, (d: any) => d.scores.at("alice").bumps.increment(1))
+    batch(doc, (d: any) => d.scores.at("alice").bumps.increment(3))
 
     expect((doc as any).scores.at("alice").bumps()).toBe(5)
 
@@ -209,12 +209,12 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
   it("increment counters on multiple entries independently", () => {
     const doc = createDoc(boundScoreboard)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000" })
       d.scores.set("bob", { name: "Bob", color: "#0000FF" })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.at("alice").bumps.increment(3)
       d.scores.at("bob").bumps.increment(7)
     })
@@ -232,7 +232,7 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
   it("subscribe fires on counter increment inside record entry", () => {
     const doc = createDoc(boundScoreboard)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000" })
     })
 
@@ -241,7 +241,7 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
       fired = true
     })
 
-    change(doc, (d: any) => d.scores.at("alice").bumps.increment(1))
+    batch(doc, (d: any) => d.scores.at("alice").bumps.increment(1))
 
     expect(fired).toBe(true)
   })
@@ -249,10 +249,10 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
   it("syncs record-with-counter between two peers via snapshot", () => {
     const docA = createDoc(boundScoreboard)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000" })
     })
-    change(docA, (d: any) => d.scores.at("alice").bumps.increment(5))
+    batch(docA, (d: any) => d.scores.at("alice").bumps.increment(5))
 
     const snapshot = exportEntirety(docA)
     const docB = createDoc(boundScoreboard, snapshot)
@@ -271,10 +271,10 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
 
     const v0 = version(docB)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000" })
     })
-    change(docA, (d: any) => d.scores.at("alice").bumps.increment(3))
+    batch(docA, (d: any) => d.scores.at("alice").bumps.increment(3))
 
     const delta = exportSince(docA, v0)
     expect(delta).not.toBeNull()
@@ -285,7 +285,7 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
     })
 
     // Counter on B is functional — can increment independently
-    change(docB, (d: any) => d.scores.at("alice").bumps.increment(2))
+    batch(docB, (d: any) => d.scores.at("alice").bumps.increment(2))
     expect((docB as any).scores.at("alice").bumps()).toBe(5)
   })
 
@@ -294,7 +294,7 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
     const docB = createDoc(boundScoreboard)
 
     // Sync initial state: A creates the entry, syncs to B
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.scores.set("alice", { name: "Alice", color: "#FF0000" })
     })
 
@@ -305,8 +305,8 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
     const vA = version(docA)
     const vB = version(docB)
 
-    change(docA, (d: any) => d.scores.at("alice").bumps.increment(3))
-    change(docB, (d: any) => d.scores.at("alice").bumps.increment(7))
+    batch(docA, (d: any) => d.scores.at("alice").bumps.increment(3))
+    batch(docB, (d: any) => d.scores.at("alice").bumps.increment(7))
 
     // Sync A → B
     const deltaAB = exportSince(docA, vB)
@@ -329,7 +329,7 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
     const clientB = createDoc(boundScoreboard)
 
     // Server creates entries for both players
-    change(server, (d: any) => {
+    batch(server, (d: any) => {
       d.scores.set("peerA", { name: "Alice", color: "#FF6B6B" })
       d.scores.set("peerB", { name: "Bob", color: "#54A0FF" })
     })
@@ -343,7 +343,7 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
     const v0A = version(clientA)
     const _v0B = version(clientB)
 
-    change(server, (d: any) => {
+    batch(server, (d: any) => {
       d.scores.at("peerA").bumps.increment(1)
     })
 
@@ -358,10 +358,10 @@ describe("record-of-struct-with-counter (bumper-cars scoreboard)", () => {
 
     // More collisions — peerB scores twice
     const v1A = version(clientA)
-    change(server, (d: any) => {
+    batch(server, (d: any) => {
       d.scores.at("peerB").bumps.increment(1)
     })
-    change(server, (d: any) => {
+    batch(server, (d: any) => {
       d.scores.at("peerB").bumps.increment(1)
     })
 
@@ -399,7 +399,7 @@ describe("list-of-struct-with-counter (generality check)", () => {
   it("push a struct with counter into a list and read it back", () => {
     const doc = createDoc(boundListScore)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.push({ name: "Alice" })
     })
 
@@ -411,11 +411,11 @@ describe("list-of-struct-with-counter (generality check)", () => {
   it("increment a counter inside a list item", () => {
     const doc = createDoc(boundListScore)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.push({ name: "Alice" })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.at(0).bumps.increment(3)
     })
 
@@ -425,7 +425,7 @@ describe("list-of-struct-with-counter (generality check)", () => {
   it("push with explicit counter value", () => {
     const doc = createDoc(boundListScore)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.push({ name: "Alice", bumps: 5 })
     })
 
@@ -435,12 +435,12 @@ describe("list-of-struct-with-counter (generality check)", () => {
   it("multiple list items with independent counters", () => {
     const doc = createDoc(boundListScore)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.push({ name: "Alice" })
       d.players.push({ name: "Bob" })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.at(0).bumps.increment(2)
       d.players.at(1).bumps.increment(7)
     })
@@ -455,10 +455,10 @@ describe("list-of-struct-with-counter (generality check)", () => {
 
     const v0 = version(docB)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.players.push({ name: "Alice" })
     })
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.players.at(0).bumps.increment(4)
     })
 
@@ -489,7 +489,7 @@ describe("text-inside-struct-inside-record (generality check)", () => {
   it("set a record entry with text and read it back", () => {
     const doc = createDoc(boundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
 
@@ -502,7 +502,7 @@ describe("text-inside-struct-inside-record (generality check)", () => {
   it("navigate into a record entry and read the text", () => {
     const doc = createDoc(boundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
 
@@ -512,11 +512,11 @@ describe("text-inside-struct-inside-record (generality check)", () => {
   it("insert text into a text field inside a record entry", () => {
     const doc = createDoc(boundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "Hello world")
     })
 
@@ -526,7 +526,7 @@ describe("text-inside-struct-inside-record (generality check)", () => {
   it("set entry with initial text value", () => {
     const doc = createDoc(boundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice", bio: "Hi there" })
     })
 
@@ -539,10 +539,10 @@ describe("text-inside-struct-inside-record (generality check)", () => {
 
     const v0 = version(docB)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "Collaborative bio")
     })
 
@@ -557,7 +557,7 @@ describe("text-inside-struct-inside-record (generality check)", () => {
     const docB = createDoc(boundProfile)
 
     // Sync initial state
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
     const snapshot = exportEntirety(docA)
@@ -567,10 +567,10 @@ describe("text-inside-struct-inside-record (generality check)", () => {
     const vA = version(docA)
     const vB = version(docB)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "Hello ")
     })
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "World")
     })
 

@@ -11,7 +11,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
-  change,
+  batch,
   createDoc,
   exportEntirety,
   exportSince,
@@ -85,7 +85,7 @@ log(`
 
 section(3, "Mutate and Read")
 
-change(doc, d => {
+batch(doc, d => {
   d.title.insert(0, "Meeting Notes")
   d.title.insert(13, " (Q4)")
   d.likes.increment(3)
@@ -94,7 +94,7 @@ change(doc, d => {
 })
 
 log(`
-    change(doc, d => {
+    batch(doc, d => {
       d.title.insert(0, "Meeting Notes")
       d.title.insert(13, " (Q4)")
       d.likes.increment(3)
@@ -130,14 +130,14 @@ log(`Two peers created from the same snapshot.`)
 log(`Both start with: title="${peerA.title()}", likes=${peerA.likes()}\n`)
 
 // Peer A: edits the title and adds a tag
-change(peerA, d => {
+batch(peerA, d => {
   d.title.insert(0, "📋 ")
   d.tags.push("important")
 })
 peer("A", `title="${peerA.title()}", tags=[${peerA.tags.length} items]`)
 
 // Peer B: increments likes and adds a task
-change(peerB, d => {
+batch(peerB, d => {
   d.likes.increment(10)
   d.tasks.push({ text: "Send invites", done: false })
 })
@@ -221,7 +221,7 @@ subscribe(peerB, () => {
 })
 
 // Peer A makes a new edit
-change(peerA, d => d.title.insert(peerA.title().length, " ✅"))
+batch(peerA, d => d.title.insert(peerA.title().length, " ✅"))
 
 // Sync A → B
 const newDelta = exportSince(peerA, version(peerB))
@@ -271,7 +271,7 @@ log(`
 `)
 
 // Peer C can immediately start editing
-change(peerC, d => d.title.insert(0, "🆕 "))
+batch(peerC, d => d.title.insert(0, "🆕 "))
 log(`    Peer C edits: d.title.insert(0, "🆕 ")`)
 log(`    peerC.title() → "${peerC.title()}"`)
 

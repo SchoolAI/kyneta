@@ -4,7 +4,7 @@
 // protocols into the { subscribe, getSnapshot } contract consumed by
 // React's useSyncExternalStore (and any other external-store consumer).
 //
-// Zero React imports. Independently testable with createDoc + change().
+// Zero React imports. Independently testable with createDoc + batch().
 //
 // createChangefeedStore(ref) — subscribes to a ref's [CHANGEFEED],
 //   caches the snapshot for referential stability. Dispatches deep

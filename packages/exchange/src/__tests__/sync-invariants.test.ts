@@ -1,7 +1,7 @@
 // sync-invariants — high-value regression tests for sync protocol invariants.
 //
 // These tests protect against bugs discovered during development:
-// 1. Initial content via change() syncs to peers (post-seed-removal)
+// 1. Initial content via batch() syncs to peers (post-seed-removal)
 // 2. Snapshot import preserves ref object identity
 // 3. Ephemeral stale rejection discards out-of-order arrivals
 // 4. Collaborative sync uses deltas after initial sync
@@ -11,7 +11,7 @@
 import { Bridge, createBridgeTransport } from "@kyneta/bridge-transport"
 import { loro } from "@kyneta/loro-schema"
 import {
-  change,
+  batch,
   ephemeral,
   Interpret,
   json,
@@ -92,15 +92,15 @@ const loroSchema = Schema.struct({
 const LoroDoc = loro.bind(loroSchema)
 
 // ---------------------------------------------------------------------------
-// 1. Initial content via change() syncs to peers
+// 1. Initial content via batch() syncs to peers
 //
-// After seed removal, initial content is applied via change() which
+// After seed removal, initial content is applied via batch() which
 // produces real operations (version > 0). This test verifies that
-// change()-applied content syncs correctly to a peer.
+// batch()-applied content syncs correctly to a peer.
 // ---------------------------------------------------------------------------
 
-describe("initial content via change() syncs to peers", () => {
-  it("change()-applied content syncs to peer via delta", async () => {
+describe("initial content via batch() syncs to peers", () => {
+  it("batch()-applied content syncs to peer via delta", async () => {
     const bridge = new Bridge()
 
     const exchangeA = createExchange({
@@ -112,9 +112,9 @@ describe("initial content via change() syncs to peers", () => {
       transports: [createBridgeTransport({ transportId: "bob", bridge })],
     })
 
-    // Alice creates a doc and applies initial content via change()
+    // Alice creates a doc and applies initial content via batch()
     const docA = exchangeA.get("doc-1", SeededDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("Initial")
       d.count.set(99)
     })
@@ -154,7 +154,7 @@ describe("snapshot import preserves ref identity", () => {
     })
 
     const docA = exchangeA.get("doc-1", SimpleDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("Hello")
     })
     const docB = exchangeB.get("doc-1", SimpleDoc)
@@ -217,7 +217,7 @@ describe("ephemeral stale rejection", () => {
 
     // Alice sets initial presence
     const presA = exchangeA.get("presence", PresenceDoc)
-    change(presA, (d: any) => {
+    batch(presA, (d: any) => {
       d.name.set("Alice")
       d.x.set(100)
     })
@@ -229,13 +229,13 @@ describe("ephemeral stale rejection", () => {
     expect(presB.x()).toBe(100)
 
     // Bob makes his OWN local change — this gives Bob a newer timestamp
-    change(presB, (d: any) => {
+    batch(presB, (d: any) => {
       d.name.set("Bob")
       d.x.set(999)
     })
 
     // Alice sends another update
-    change(presA, (d: any) => {
+    batch(presA, (d: any) => {
       d.x.set(200)
     })
     await drain()
@@ -297,7 +297,7 @@ describe("collaborative sync uses deltas when sender is ahead", () => {
     await drain()
 
     // Alice makes a change after initial sync
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "First")
     })
     await drain()
@@ -305,7 +305,7 @@ describe("collaborative sync uses deltas when sender is ahead", () => {
     expect(docB.title()).toBe("First")
 
     // Another change — this should use delta, not snapshot
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(5, " Second")
     })
     await drain()
@@ -341,7 +341,7 @@ describe("universal version comparison rejects stale offers for all strategies",
     const docB = exchangeB.get("doc-1", SequentialDoc)
 
     // Alice writes first — version advances to 1
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("V1")
       d.count.set(1)
     })
@@ -352,13 +352,13 @@ describe("universal version comparison rejects stale offers for all strategies",
     expect(docB.count()).toBe(1)
 
     // Bob writes — Bob's version advances to 2
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       d.title.set("V2")
       d.count.set(2)
     })
 
     // Alice writes again — Alice's version also advances to 2
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("V2-alice")
       d.count.set(99)
     })
@@ -423,7 +423,7 @@ describe("plain replica snapshot import falls back to replicaFactory.fromSnapsho
 
     // Alice writes data
     const docA = exchangeA.get("config", SequentialDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("Important Config")
       d.count.set(42)
     })
@@ -507,7 +507,7 @@ describe("schema hash compatibility", () => {
     const refB = exchangeB.get("doc-1", SchemaB)
 
     // Write data on A
-    change(refA, (d: any) => {
+    batch(refA, (d: any) => {
       d.title.insert(0, "Hello")
     })
 
@@ -562,7 +562,7 @@ describe("schema hash compatibility", () => {
 
     // A creates and writes
     const refA = exchangeA.get("doc-1", TodoDoc)
-    change(refA, (d: any) => {
+    batch(refA, (d: any) => {
       d.title.insert(0, "Through the relay")
     })
 

@@ -527,7 +527,7 @@ Today's `TypedRef` combines both:
 
 A feed is Readable + Subscribable. The Kyneta compiler only needs feeds
 — it reads heads and subscribes to tails but never mutates. The
-`change()` blocks need the Writable capability. `toJSON()` only needs
+`batch()` blocks need the Writable capability. `toJSON()` only needs
 the Readable capability.
 
 ---
@@ -746,10 +746,10 @@ clamp(doc2.settings.volume, 0, 50)   // works — different doc's context
 
 ### 8.2. Transparent batching (commit policy as context)
 
-Whether you're inside `change()` or not, the same `.set()` call works.
+Whether you're inside `batch()` or not, the same `.set()` call works.
 The difference is in the context:
 
-| | Outside `change()` | Inside `change()` |
+| | Outside `batch()` | Inside `batch()` |
 |---|---|---|
 | `autoCommit` | `true` | `false` |
 | `batchedMutation` | `false` | `true` |
@@ -773,14 +773,14 @@ function resetSettings(settings: StructRef<SettingsShape>) {
   settings.fontSize.set(14)
 }
 
-// Works outside change() — two auto-commits:
+// Works outside batch() — two auto-commits:
 resetSettings(doc.settings)
 
-// Works inside change() — zero commits (batched):
-change(doc, draft => { resetSettings(draft.settings) })
+// Works inside batch() — zero commits (batched):
+batch(doc, draft => { resetSettings(draft.settings) })
 ```
 
-**Read-your-writes in batches.** Inside `change()`, reads must reflect
+**Read-your-writes in batches.** Inside `batch()`, reads must reflect
 pending writes. Today this works because mutations execute immediately
 against the CRDT (just uncommitted). In a future architecture with
 reified actions, `step` provides the mechanism: the draft overlays
@@ -1121,7 +1121,7 @@ We explored making every `ref.set()` / `ref.insert()` produce data
 enable pure mutation capture, undo/redo as program inversion, and
 multi-backend replay. However, read-your-writes (`const size =
 draft.settings.fontSize.get()` immediately after `.set(16)`) is deeply
-relied upon in existing `change()` blocks. The free monad requires either
+relied upon in existing `batch()` blocks. The free monad requires either
 a monadic DSL (hostile devX), a shadow state (complexity), or a compiler
 transform. **Rejected** in favor of: mutations execute immediately, but
 the Action type unifies the vocabulary so the same structure flows in

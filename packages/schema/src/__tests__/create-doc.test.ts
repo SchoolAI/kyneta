@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest"
 import { json } from "../bind.js"
 import { createDoc } from "../create-doc.js"
-import { change } from "../facade/change.js"
+import { batch } from "../facade/batch.js"
 import { subscribe } from "../facade/observe.js"
 import { NATIVE } from "../native.js"
 import { Schema } from "../schema.js"
@@ -38,9 +38,9 @@ describe("createDoc(json.bind(schema))", () => {
     })
   })
 
-  it("supports change() mutations", () => {
+  it("supports batch() mutations", () => {
     const doc = createDoc(json.bind(TestSchema))
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.set("Hello")
       d.count.set(42)
     })
@@ -52,7 +52,7 @@ describe("createDoc(json.bind(schema))", () => {
     const doc = createDoc(json.bind(TestSchema))
     const events: unknown[] = []
     subscribe(doc, cs => events.push(cs))
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.set("Updated")
     })
     expect(events.length).toBe(1)
@@ -78,7 +78,7 @@ describe("createDoc round-trip with exportEntirety", () => {
   it("round-trips via exportEntirety and createDoc(bound, payload)", () => {
     const bound = json.bind(TestSchema)
     const doc1 = createDoc(bound)
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.set("Round-trip")
       d.count.set(99)
       d.items.push({ name: "item1" })
@@ -103,7 +103,7 @@ describe("generic sync functions", () => {
   it("version() advances after change", () => {
     const doc = createDoc(json.bind(TestSchema))
     const v1 = version(doc)
-    change(doc, (d: any) => d.title.set("updated"))
+    batch(doc, (d: any) => d.title.set("updated"))
     const v2 = version(doc)
     // PlainVersion is a monotonic integer — v2 should be greater
     expect((v2 as any).value).toBeGreaterThan((v1 as any).value)
@@ -114,7 +114,7 @@ describe("generic sync functions", () => {
     const doc1 = createDoc(bound)
     const doc2 = createDoc(bound)
 
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.set("From doc1")
     })
 

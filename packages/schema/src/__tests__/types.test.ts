@@ -2,11 +2,11 @@ import { CHANGEFEED, type HasChangefeed } from "@kyneta/changefeed"
 import { describe, expect, expectTypeOf, it } from "vitest"
 import {
   BACKING_DOC,
+  batch,
   bottomInterpreter,
   type ChangefeedBrand,
   type CounterRef,
   type CounterSchema,
-  change,
   type ExtractLaws,
   type HasCaching,
   type HasCall,
@@ -1602,10 +1602,10 @@ describe("type-level: InterpretBuilder<S, Ctx, Brands>", () => {
 })
 
 // ===========================================================================
-// change() callback inference from fluent-built docs
+// batch() callback inference from fluent-built docs
 // ===========================================================================
 
-describe("type-level: change() callback infers draft type from fluent-built doc", () => {
+describe("type-level: batch() callback infers draft type from fluent-built doc", () => {
   const docSchema = Schema.struct({
     title: Schema.text(),
     count: Schema.counter(),
@@ -1615,7 +1615,7 @@ describe("type-level: change() callback infers draft type from fluent-built doc"
     }),
   })
 
-  it("full-stack .done() result is accepted by change() without cast", () => {
+  it("full-stack .done() result is accepted by batch() without cast", () => {
     const ctx = plainContext({
       title: "",
       count: 0,
@@ -1628,8 +1628,8 @@ describe("type-level: change() callback infers draft type from fluent-built doc"
       .with(observation)
       .done()
 
-    // change() should accept doc without any cast — D is inferred as Ref<S>
-    expectTypeOf(change).toBeCallableWith(doc, () => {})
+    // batch() should accept doc without any cast — D is inferred as Ref<S>
+    expectTypeOf(batch).toBeCallableWith(doc, () => {})
   })
 
   it("callback parameter d has typed field access (not any)", () => {
@@ -1648,7 +1648,7 @@ describe("type-level: change() callback infers draft type from fluent-built doc"
     // The callback d should have the same type as doc — verify typed methods exist.
     // If d were `any`, these assertions would vacuously pass, so we also
     // check that a non-existent field is NOT present.
-    change(doc, d => {
+    batch(doc, d => {
       expectTypeOf(d.title.insert).toBeFunction()
       expectTypeOf(d.count.increment).toBeFunction()
       expectTypeOf(d.items.push).toBeFunction()
@@ -1659,7 +1659,7 @@ describe("type-level: change() callback infers draft type from fluent-built doc"
     })
   })
 
-  it("RWRef .done() result is accepted by change() (has HasTransact)", () => {
+  it("RWRef .done() result is accepted by batch() (has HasTransact)", () => {
     const ctx = plainContext({
       title: "",
       count: 0,
@@ -1668,8 +1668,8 @@ describe("type-level: change() callback infers draft type from fluent-built doc"
     })
     const doc = interpret(docSchema, ctx).with(readable).with(writable).done()
 
-    // RWRef<S> has HasTransact — change() should accept it
-    expectTypeOf(change).toBeCallableWith(doc, () => {})
+    // RWRef<S> has HasTransact — batch() should accept it
+    expectTypeOf(batch).toBeCallableWith(doc, () => {})
   })
 })
 

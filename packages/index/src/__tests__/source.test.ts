@@ -1,4 +1,4 @@
-import { change, createDoc, json, Schema } from "@kyneta/schema"
+import { batch, createDoc, json, Schema } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
 import { Collection } from "../collection.js"
 import type { SourceEvent } from "../source.js"
@@ -118,7 +118,7 @@ const RecordDoc = json.bind(recordSchema)
 describe("Source.fromRecord", () => {
   it("snapshot reflects initial record state", () => {
     const doc = createDoc(RecordDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.members.set("alice", { role: "admin" })
       d.members.set("bob", { role: "viewer" })
     })
@@ -133,7 +133,7 @@ describe("Source.fromRecord", () => {
 
   it("adding a key emits delta with +1", () => {
     const doc = createDoc(RecordDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.members.set("alice", { role: "admin" })
     })
 
@@ -141,7 +141,7 @@ describe("Source.fromRecord", () => {
     const events: SourceEvent<any>[] = []
     source.subscribe(e => events.push(e))
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.members.set("bob", { role: "viewer" })
     })
 
@@ -152,7 +152,7 @@ describe("Source.fromRecord", () => {
 
   it("removing a key emits delta with -1", () => {
     const doc = createDoc(RecordDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.members.set("alice", { role: "admin" })
       d.members.set("bob", { role: "viewer" })
     })
@@ -161,7 +161,7 @@ describe("Source.fromRecord", () => {
     const events: SourceEvent<any>[] = []
     source.subscribe(e => events.push(e))
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.members.delete("alice")
     })
 
@@ -172,7 +172,7 @@ describe("Source.fromRecord", () => {
 
   it("mutating a value inside a record member does NOT emit (subscribeNode fix)", () => {
     const doc = createDoc(RecordDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.members.set("alice", { role: "admin" })
     })
 
@@ -181,7 +181,7 @@ describe("Source.fromRecord", () => {
     source.subscribe(e => events.push(e))
 
     // Mutate the role of an existing member — should NOT fire
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.members.at("alice").role.set("viewer")
     })
 
@@ -190,7 +190,7 @@ describe("Source.fromRecord", () => {
 
   it("dispose stops subscription", () => {
     const doc = createDoc(RecordDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.members.set("alice", { role: "admin" })
     })
 
@@ -200,7 +200,7 @@ describe("Source.fromRecord", () => {
 
     source.dispose()
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.members.set("bob", { role: "viewer" })
     })
 
@@ -224,7 +224,7 @@ const ListDoc = json.bind(listSchema)
 describe("Source.fromList", () => {
   it("snapshot reflects initial list state", () => {
     const doc = createDoc(ListDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ id: "a", name: "Alice" })
       d.items.push({ id: "b", name: "Bob" })
     })
@@ -239,7 +239,7 @@ describe("Source.fromList", () => {
 
   it("pushing an item emits delta with +1", () => {
     const doc = createDoc(ListDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ id: "a", name: "Alice" })
     })
 
@@ -247,7 +247,7 @@ describe("Source.fromList", () => {
     const events: SourceEvent<any>[] = []
     source.subscribe(e => events.push(e))
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ id: "b", name: "Bob" })
     })
 
@@ -258,7 +258,7 @@ describe("Source.fromList", () => {
 
   it("deleting an item emits delta with -1", () => {
     const doc = createDoc(ListDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ id: "a", name: "Alice" })
     })
 
@@ -266,7 +266,7 @@ describe("Source.fromList", () => {
     const events: SourceEvent<any>[] = []
     source.subscribe(e => events.push(e))
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.delete(0)
     })
 
@@ -277,7 +277,7 @@ describe("Source.fromList", () => {
 
   it("mutating the key field re-keys: emits paired -1/+1 delta", () => {
     const doc = createDoc(ListDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ id: "old-key", name: "Alice" })
     })
 
@@ -287,7 +287,7 @@ describe("Source.fromList", () => {
 
     // Get the first item ref and change its key
     const itemRef = [...doc.items][0]
-    change(doc, (_d: any) => {
+    batch(doc, (_d: any) => {
       itemRef.id.set("new-key")
     })
 
@@ -300,7 +300,7 @@ describe("Source.fromList", () => {
 
   it("mutating a non-key field does NOT emit", () => {
     const doc = createDoc(ListDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ id: "a", name: "Alice" })
     })
 
@@ -310,7 +310,7 @@ describe("Source.fromList", () => {
 
     // Mutate name, not id — should not emit
     const itemRef = [...doc.items][0]
-    change(doc, (_d: any) => {
+    batch(doc, (_d: any) => {
       itemRef.name.set("Alicia")
     })
 
@@ -319,7 +319,7 @@ describe("Source.fromList", () => {
 
   it("dispose stops all subscriptions", () => {
     const doc = createDoc(ListDoc) as any
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ id: "a", name: "Alice" })
     })
 
@@ -329,7 +329,7 @@ describe("Source.fromList", () => {
 
     source.dispose()
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ id: "b", name: "Bob" })
     })
 

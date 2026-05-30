@@ -10,7 +10,7 @@
 import { Bridge, createBridgeTransport } from "@kyneta/bridge-transport"
 import { loro } from "@kyneta/loro-schema"
 import {
-  change,
+  batch,
   Defer,
   ephemeral,
   Interpret,
@@ -114,9 +114,9 @@ describe("Authoritative sync (PlainSubstrate)", () => {
       transports: [createBridgeTransport({ transportId: "bob", bridge })],
     })
 
-    // Alice creates a doc and populates via change()
+    // Alice creates a doc and populates via batch()
     const docA = exchangeA.get("doc-1", SequentialDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("Hello from Alice")
       d.count.set(42)
     })
@@ -149,7 +149,7 @@ describe("Authoritative sync (PlainSubstrate)", () => {
     })
 
     const docA = exchangeA.get("doc-1", SequentialDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("V1")
       d.count.set(1)
     })
@@ -160,7 +160,7 @@ describe("Authoritative sync (PlainSubstrate)", () => {
     expect(docB.title()).toBe("V1")
 
     // Alice mutates
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("V2")
       d.count.set(2)
     })
@@ -197,7 +197,7 @@ describe("Collaborative sync (LoroSubstrate)", () => {
     const docA = exchangeA.get("doc-1", LoroDoc)
 
     // Insert text
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "Hello CRDT")
     })
 
@@ -233,11 +233,11 @@ describe("Collaborative sync (LoroSubstrate)", () => {
     await drain()
 
     // Both insert concurrently
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "Alice")
     })
 
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       d.title.insert(0, "Bob")
     })
 
@@ -278,7 +278,7 @@ describe("Collaborative sync: Yjs delete propagation", () => {
     const docB = exchangeB.get("doc-1", YjsDoc)
 
     // Seed text and sync
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "hello")
     })
     await drain()
@@ -287,7 +287,7 @@ describe("Collaborative sync: Yjs delete propagation", () => {
     // Delete a character — this must sync to peer B.
     // Before the fix, Yjs's state vector did not advance on delete,
     // so the sync protocol saw "no gap" and skipped the push.
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.delete(1, 1)
     })
     await drain()
@@ -314,17 +314,17 @@ describe("Collaborative sync: Yjs delete propagation", () => {
     const docA = exchangeA.get("doc-1", YjsDoc)
     const docB = exchangeB.get("doc-1", YjsDoc)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "abcd")
     })
     await drain()
     expect(docB.title()).toBe("abcd")
 
     // Alice deletes first char, Bob deletes last char — concurrently
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.delete(0, 1)
     })
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       d.title.delete(3, 1)
     })
     await drain()
@@ -353,10 +353,10 @@ describe("Ephemeral sync (Ephemeral/Presence)", () => {
       transports: [createBridgeTransport({ transportId: "bob", bridge })],
     })
 
-    // Alice sets presence with change() so the version bumps
+    // Alice sets presence with batch() so the version bumps
     const presA = exchangeA.get("presence", PresenceDoc)
 
-    change(presA, (d: any) => {
+    batch(presA, (d: any) => {
       d.cursor.x.set(100)
       d.cursor.y.set(200)
       d.name.set("Alice")
@@ -389,8 +389,8 @@ describe("Ephemeral sync (Ephemeral/Presence)", () => {
     const presA = exchangeA.get("presence", PresenceDoc)
     const presB = exchangeB.get("presence", PresenceDoc)
 
-    // Set initial values via change() so version bumps
-    change(presA, (d: any) => {
+    // Set initial values via batch() so version bumps
+    batch(presA, (d: any) => {
       d.cursor.x.set(0)
       d.cursor.y.set(0)
       d.name.set("Alice")
@@ -400,7 +400,7 @@ describe("Ephemeral sync (Ephemeral/Presence)", () => {
     expect(presB.name()).toBe("Alice")
 
     // Alice moves cursor
-    change(presA, (d: any) => {
+    batch(presA, (d: any) => {
       d.cursor.x.set(500)
       d.cursor.y.set(600)
     })
@@ -445,13 +445,13 @@ describe("Heterogeneous documents", () => {
 
     // Alice: plain config doc
     const configA = exchangeA.get("config", ConfigDoc)
-    change(configA, (d: any) => {
+    batch(configA, (d: any) => {
       d.config.set("dark-mode")
     })
 
     // Alice: loro collaborative doc
     const textA = exchangeA.get("collab", CollabDoc)
-    change(textA, (d: any) => {
+    batch(textA, (d: any) => {
       d.text.insert(0, "collaborative text")
     })
     // Bob: create both docs
@@ -510,7 +510,7 @@ describe("Multi-hop relay (three-peer topology)", () => {
     await drain()
 
     // Alice inserts text
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "hello from alice")
     })
 
@@ -551,7 +551,7 @@ describe("Multi-hop relay (three-peer topology)", () => {
 
     // Hub creates the doc with initial state (authoritative needs a populated source)
     const docHub = exchangeHub.get("doc-1", SequentialDoc)
-    change(docHub, (d: any) => {
+    batch(docHub, (d: any) => {
       d.title.set("initial")
       d.count.set(0)
     })
@@ -566,7 +566,7 @@ describe("Multi-hop relay (three-peer topology)", () => {
     expect(docB.title()).toBe("initial")
 
     // Alice mutates
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("updated by alice")
       d.count.set(99)
     })
@@ -607,7 +607,7 @@ describe("resolve (dynamic document creation)", () => {
 
     // Alice creates a doc that Bob doesn't have yet
     const docA = exchangeA.get("dynamic-doc", SequentialDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("created by alice")
       d.count.set(7)
     })
@@ -662,7 +662,7 @@ describe("resolve (dynamic document creation)", () => {
 
     // Alice creates an ephemeral doc
     const presA = exchangeA.get("presence", PresenceDoc)
-    change(presA, (d: any) => {
+    batch(presA, (d: any) => {
       d.cursor.x.set(100)
       d.cursor.y.set(200)
       d.name.set("Alice")
@@ -678,7 +678,7 @@ describe("resolve (dynamic document creation)", () => {
     expect(presB.cursor.y()).toBe(200)
 
     // Alice updates — ephemeral broadcasts snapshot
-    change(presA, (d: any) => {
+    batch(presA, (d: any) => {
       d.cursor.x.set(500)
       d.cursor.y.set(600)
     })
@@ -749,7 +749,7 @@ describe("canShare predicate", () => {
 
     // Hub creates doc
     const docHub = exchangeHub.get("private-doc", SequentialDoc)
-    change(docHub, (d: any) => {
+    batch(docHub, (d: any) => {
       d.title.set("hub data")
       d.count.set(42)
     })
@@ -789,7 +789,7 @@ describe("canAccept predicate", () => {
     const docA = exchangeA.get("doc-1", SequentialDoc)
     const docB = exchangeB.get("doc-1", SequentialDoc)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("from alice")
       d.count.set(99)
     })
@@ -830,7 +830,7 @@ describe("destroy", () => {
     expect(exchangeA.has("doc-1")).toBe(false)
 
     // Bob writes
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       d.title.set("bob update")
     })
 
@@ -919,7 +919,7 @@ describe("relay via exchange.replicate()", () => {
 
     // Alice creates the doc and writes
     const docA = exchangeA.get("shared", LoroDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "Hello from Alice")
     })
 
@@ -966,7 +966,7 @@ describe("relay via exchange.replicate()", () => {
     })
 
     const docA = exchangeA.get("config", SequentialDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("Config Value")
       d.count.set(42)
     })
@@ -1012,7 +1012,7 @@ describe("relay via exchange.replicate()", () => {
     })
 
     const docA = exchangeA.get("presence", PresenceDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.cursor.x.set(100)
       d.cursor.y.set(200)
       d.name.set("Alice")
@@ -1080,7 +1080,7 @@ describe("relay via exchange.replicate()", () => {
     })
 
     const docA = exchangeA.get("shared", LoroDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "Written before Bob joined")
     })
 
@@ -1141,11 +1141,11 @@ describe("relay via exchange.replicate()", () => {
     const appDoc = exchangeA.get("app-doc", SequentialDoc)
     const loroDoc = exchangeA.get("relay-doc", LoroDoc)
 
-    change(appDoc, (d: any) => {
+    batch(appDoc, (d: any) => {
       d.title.set("App Data")
       d.count.set(7)
     })
-    change(loroDoc, (d: any) => {
+    batch(loroDoc, (d: any) => {
       d.title.insert(0, "Loro Data")
     })
 
@@ -1212,18 +1212,18 @@ describe("relay via exchange.replicate()", () => {
     })
 
     // Alice creates a doc with nested structure and writes data.
-    // Separate change() calls so each push is its own flush cycle —
+    // Separate batch() calls so each push is its own flush cycle —
     // sequence ops within a single batch may reorder during
     // serialization round-trips.
     const docA = exchangeA.get("nested", NestedDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("Task List")
       d.count.set(2)
     })
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.items.push({ name: "Buy milk", done: false })
     })
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.items.push({ name: "Write tests", done: true })
     })
 
@@ -1264,7 +1264,7 @@ describe("waitForSync", () => {
     })
 
     const docA = exchangeA.get("doc-1", SequentialDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("hello")
       d.count.set(1)
     })
@@ -1293,9 +1293,9 @@ describe("waitForSync", () => {
 
     // Alice has two docs
     const docA1 = exchangeA.get("doc-1", SequentialDoc)
-    change(docA1, (d: any) => d.title.set("first"))
+    batch(docA1, (d: any) => d.title.set("first"))
     const docA2 = exchangeA.get("doc-2", SequentialDoc)
-    change(docA2, (d: any) => d.title.set("second"))
+    batch(docA2, (d: any) => d.title.set("second"))
 
     // Bob has both docs
     exchangeB.get("doc-1", SequentialDoc)
@@ -1409,7 +1409,7 @@ describe("two-tiered default", () => {
 
     // A creates both docs
     const seqA = exchangeA.get("seq-doc", SequentialDoc)
-    change(seqA, (d: any) => d.title.set("hello"))
+    batch(seqA, (d: any) => d.title.set("hello"))
     exchangeA.get("loro-doc", LoroDoc)
 
     await drain(40)
@@ -1457,7 +1457,7 @@ describe("auto-interpretation from schema registry", () => {
     })
 
     const docA = exchangeA.get("auto-doc", SequentialDoc)
-    change(docA, (d: any) => d.title.set("hello"))
+    batch(docA, (d: any) => d.title.set("hello"))
 
     await drain(40)
 
@@ -1490,7 +1490,7 @@ describe("deferred document lifecycle", () => {
     })
 
     const docA = exchangeA.get("deferred-doc", SequentialDoc)
-    change(docA, (d: any) => d.title.set("deferred-value"))
+    batch(docA, (d: any) => d.title.set("deferred-value"))
 
     await drain(40)
 
@@ -1524,7 +1524,7 @@ describe("deferred document lifecycle", () => {
     })
 
     const docA = exchangeA.get("auto-promote-doc", SequentialDoc)
-    change(docA, (d: any) => d.title.set("auto-promoted"))
+    batch(docA, (d: any) => d.title.set("auto-promoted"))
 
     await drain(40)
 
@@ -1620,7 +1620,7 @@ describe("waitForSync semantics", () => {
     })
 
     const docA = exchangeA.get("config", SequentialDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("dark")
       d.count.set(42)
     })
@@ -1649,7 +1649,7 @@ describe("waitForSync semantics", () => {
     })
 
     const docA = exchangeA.get("collab", LoroDoc)
-    change(docA, (d: any) => d.title.insert(0, "hello"))
+    batch(docA, (d: any) => d.title.insert(0, "hello"))
 
     const docB = exchangeB.get("collab", LoroDoc)
     await sync(docB).waitForSync({ timeout: 5000 })
@@ -1688,7 +1688,7 @@ describe("waitForSync semantics", () => {
     })
 
     const docA = exchangeA.get("config", SequentialDoc)
-    change(docA, (d: any) => d.title.set("dark"))
+    batch(docA, (d: any) => d.title.set("dark"))
 
     const docB = exchangeB.get("config", SequentialDoc)
     await sync(docB).waitForSync({ timeout: 5000 })
@@ -1734,7 +1734,7 @@ describe("waitForSync semantics", () => {
     })
 
     const docA = exchangeA.get("collab", LoroDoc)
-    change(docA, (d: any) => d.title.insert(0, "hello from alice"))
+    batch(docA, (d: any) => d.title.insert(0, "hello from alice"))
 
     exchangeHub.get("collab", LoroDoc)
     const docB = exchangeB.get("collab", LoroDoc)
@@ -1804,7 +1804,7 @@ describe("suspend / resume sync convergence", () => {
 
     // Alice creates a collaborative (Loro CRDT) doc and writes
     const docA = exchangeA.get("shared", LoroDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(0, "hello")
     })
 
@@ -1820,14 +1820,14 @@ describe("suspend / resume sync convergence", () => {
     await drain(40)
 
     // Alice mutates while suspended — Bob should NOT see this yet
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.insert(5, " world")
     })
     await drain(40)
     expect(docB.title()).toBe("hello") // Bob unchanged
 
     // Bob mutates — Alice won't see this until resume
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       d.items.push({ name: "bob-item" })
     })
     await drain(40)

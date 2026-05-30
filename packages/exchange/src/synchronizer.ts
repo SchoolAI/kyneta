@@ -560,7 +560,7 @@ export class Synchronizer {
 
   /**
    * Normally fired automatically by the Exchange's changefeed
-   * subscription after `change(doc, ...)`. Call directly only when
+   * subscription after `batch(doc, ...)`. Call directly only when
    * mutating the substrate outside the changefeed (e.g., via `unwrap`).
    */
   notifyLocalChange(docId: DocId): void {

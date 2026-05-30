@@ -1,6 +1,6 @@
 // abort-compensation.test — pin atomic abort via inverse compensation.
 //
-// When the outermost change() block throws, the bracket replays this
+// When the outermost batch() block throws, the bracket replays this
 // frame's recorded inverses LIFO inside the same commit. External
 // observers see one batched event with net-zero delta and one Changeset
 // with `aborted: true`.
@@ -9,7 +9,7 @@ import type { Changeset } from "@kyneta/changefeed"
 import { CHANGEFEED } from "@kyneta/changefeed"
 import { describe, expect, it } from "vitest"
 import {
-  change,
+  batch,
   interpret,
   observation,
   plainContext,
@@ -41,7 +41,7 @@ describe("abort compensation: outermost throw restores state", () => {
     const { doc, store } = buildDoc(schema, { a: 0, b: "" })
 
     expect(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.a.set(42)
         d.b.set("hello")
         throw new Error("user threw")
@@ -67,7 +67,7 @@ describe("abort compensation: outermost throw restores state", () => {
     })
 
     expect(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.count.set(99)
         d.items.push("y")
         d.meta.set("v", 100)
@@ -88,7 +88,7 @@ describe("abort compensation: outermost throw restores state", () => {
     doc.a[CHANGEFEED].subscribe((cs: Changeset) => seen.push(cs))
 
     expect(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.a.set(1)
         d.a.set(2)
         throw new Error("abort it")
@@ -114,10 +114,10 @@ describe("abort compensation: re-entrant aborts", () => {
     const seen: Changeset[] = []
     doc.outer[CHANGEFEED].subscribe((cs: Changeset) => seen.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.outer.set("outer-write")
       try {
-        change(d, dd => {
+        batch(d, dd => {
           dd.inner.set("will-be-reverted")
           throw new Error("inner-throw")
         })
@@ -148,9 +148,9 @@ describe("abort compensation: re-entrant aborts", () => {
     doc.outer[CHANGEFEED].subscribe((cs: Changeset) => seen.push(cs))
 
     expect(() => {
-      change(doc, d => {
+      batch(doc, d => {
         d.outer.set("outer-1")
-        change(d, dd => {
+        batch(d, dd => {
           dd.inner.set("inner")
           throw new Error("inner-throw")
         })
@@ -166,21 +166,21 @@ describe("abort compensation: re-entrant aborts", () => {
   })
 })
 
-describe("abort compensation: change() return value on throw is moot", () => {
-  it("change() doesn't return an Op[] when fn throws (the throw propagates)", () => {
+describe("abort compensation: batch() return value on throw is moot", () => {
+  it("batch() doesn't return an Op[] when fn throws (the throw propagates)", () => {
     const schema = Schema.struct({ count: Schema.number() })
     const { doc } = buildDoc(schema, { count: 0 })
 
     let result: unknown = "not-set"
     try {
-      result = change(doc, d => {
+      result = batch(doc, d => {
         d.count.set(1)
         throw new Error("abort")
       })
     } catch {
       // expected
     }
-    // result was never assigned — change() rethrew before returning
+    // result was never assigned — batch() rethrew before returning
     expect(result).toBe("not-set")
     expect(doc.count()).toBe(0)
   })

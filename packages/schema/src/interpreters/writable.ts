@@ -92,7 +92,7 @@ type WritableDiscriminantProductRef<F extends Record<string, Schema>> = {
 
 /**
  * Symbol that refs carry to expose their originating `WritableContext`.
- * This enables `change()` and other utilities to discover the context
+ * This enables `batch()` and other utilities to discover the context
  * from any ref without a WeakMap or re-interpretation.
  *
  * Follows the same pattern as `INVALIDATE` in `with-caching.ts` — a
@@ -162,7 +162,7 @@ export function hasRemove(value: unknown): value is HasRemove {
 // ---------------------------------------------------------------------------
 
 /**
- * Snapshot the current writer-log marker. `change(doc, fn)` calls this
+ * Snapshot the current writer-log marker. `batch(doc, fn)` calls this
  * before running `fn` to capture a starting position; `FORWARD_OPS_SINCE`
  * with the same marker returns the forward ops added during `fn`.
  *
@@ -173,7 +173,7 @@ export function hasRemove(value: unknown): value is HasRemove {
  * The accessor is attached to `WritableContext` by the changefeed layer
  * (`with-changefeed.ts`) where the accumulator is in scope. On a
  * read-only stack (no changefeed wrapping), the base implementation
- * returns `0` and `[FORWARD_OPS_SINCE]` returns `[]` — `change()`
+ * returns `0` and `[FORWARD_OPS_SINCE]` returns `[]` — `batch()`
  * returns an empty Op[], consistent with "no Changesets are delivered."
  */
 export const FORWARD_OPS_MARKER: unique symbol = Symbol.for(
@@ -233,7 +233,7 @@ export const FORWARD_OPS_SINCE: unique symbol = Symbol.for(
  *   single-op `runBatch` (auto-commit) — subscribers see a degenerate
  *   Changeset of one change.
  * - Inside a frame: forwards to `prepare`. The outer frame owns the
- *   flush boundary, so helpers in a `change()` block collapse into one
+ *   flush boundary, so helpers in a `batch()` block collapse into one
  *   Changeset.
  *
  * The "where am I" information comes from the catamorphism's `path`
@@ -263,7 +263,7 @@ export interface WritableContext extends RefContext {
    * Inner frames (depth > 0 at entry) push/pop without invoking the
    * substrate bracket and without flushing — the depth-0 transition is
    * the single delivery point per outermost block. This preserves the
-   * "one Changeset per outermost `change(doc, fn)` per affected
+   * "one Changeset per outermost `batch(doc, fn)` per affected
    * subscriber path" contract.
    */
   readonly runBatch: (work: () => void, options?: BatchOptions) => void
@@ -299,7 +299,7 @@ export interface WritableContext extends RefContext {
  * `runBatch` wrapper owns the substrate bracket, the inverse-stack
  * frame, and the depth-0 `ctx.flush` call — `executeBatch` does NOT
  * call `ctx.flush` directly on this path. Nested under an outer
- * `change(doc, fn)` block, this contributes only prepares; the outer
+ * `batch(doc, fn)` block, this contributes only prepares; the outer
  * frame still owns the flush boundary.
  *
  * **Replay batches** (`options.replay === true`) bypass the substrate
@@ -383,13 +383,13 @@ export function buildWritableContext(
   const frameStarts: number[] = []
 
   // Writer log for the change-Writer monad. Every `prepare` (under both
-  // the normal and undo-replay handlers) appends an entry; `change()`
+  // the normal and undo-replay handlers) appends an entry; `batch()`
   // slices the log via FORWARD_OPS_MARKER/SINCE to recover its forward
   // Op[] return value. The log is cleared at the outermost runBatch
   // release (success or aborted) so it doesn't grow without bound.
   //
   // This log is INDEPENDENT of the with-changefeed accumulator (which
-  // handles notification grouping). Two concerns, two logs — `change()`'s
+  // handles notification grouping). Two concerns, two logs — `batch()`'s
   // return value works on any writable stack, with or without observation.
   type WriterLogEntry = { readonly op: Op; readonly compensating: boolean }
   const writerLog: WriterLogEntry[] = []
@@ -402,14 +402,14 @@ export function buildWritableContext(
   }
 
   // Base prepare: append to the writer log (tagged with `compensating`
-  // so FORWARD_OPS_SINCE can filter inverse entries out of `change()`'s
+  // so FORWARD_OPS_SINCE can filter inverse entries out of `batch()`'s
   // forward-only return value), attach the RECORD_INVERSE callback to
   // options, then delegate to the substrate. Layers like withChangefeed
   // wrap this (replacing `ctx.prepare`) to accumulate notification
   // entries; layers like withCaching wrap it to invalidate caches at
   // the target path.
   //
-  // Replay batches do NOT write to the writer log — `change()`'s return
+  // Replay batches do NOT write to the writer log — `batch()`'s return
   // value is forward ops authored locally, not state authored elsewhere.
   const prepare = (
     path: Path,
@@ -515,7 +515,7 @@ export function buildWritableContext(
   // - frameStarts.length === 0 (outside any runBatch frame): open an
   //   implicit single-op runBatch — auto-commit semantics. Subscribers
   //   see a degenerate Changeset of one change.
-  // - frameStarts.length > 0 (inside a frame, e.g. a change(doc, fn)
+  // - frameStarts.length > 0 (inside a frame, e.g. a batch(doc, fn)
   //   body): just call prepare. The outer frame owns the flush boundary,
   //   so multi-helper blocks collapse into one Changeset.
   const dispatch = (path: Path, change: ChangeBase): void => {
@@ -535,7 +535,7 @@ export function buildWritableContext(
     runBatch,
     dispatch,
     // Writer-log accessors over `writerLog` (the change-Writer monad's
-    // log). Always live regardless of stack composition — `change()`
+    // log). Always live regardless of stack composition — `batch()`
     // works whether or not the observation layer is in play.
     [FORWARD_OPS_MARKER]: () => writerLog.length,
     [FORWARD_OPS_SINCE]: (marker: number) => {

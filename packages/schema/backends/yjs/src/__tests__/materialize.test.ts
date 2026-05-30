@@ -9,7 +9,7 @@
 import type { ProductSchema, SchemaBinding } from "@kyneta/schema"
 import {
   BACKING_DOC,
-  change,
+  batch,
   createDoc,
   deriveSchemaBinding,
   KIND,
@@ -80,7 +80,7 @@ const FullSchema = Schema.struct({
 describe("materializeYjsShadow", () => {
   it("materializes text fields", () => {
     const doc = createDoc(yjs.bind(TextSchema))
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.insert(0, "hello")
     })
 
@@ -93,7 +93,7 @@ describe("materializeYjsShadow", () => {
 
   it("materializes scalar fields", () => {
     const doc = createDoc(yjs.bind(ScalarSchema))
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.name.set("Alice")
       d.age.set(30)
       d.active.set(true)
@@ -108,11 +108,11 @@ describe("materializeYjsShadow", () => {
 
   it("materializes sequence fields", () => {
     const doc = createDoc(yjs.bind(SequenceSchema))
-    // Separate change() calls for list pushes to preserve order
+    // Separate batch() calls for list pushes to preserve order
     // (Yjs reverses order within a single transaction)
-    change(doc, (d: any) => d.items.push("alpha"))
-    change(doc, (d: any) => d.items.push("beta"))
-    change(doc, (d: any) => d.items.push("gamma"))
+    batch(doc, (d: any) => d.items.push("alpha"))
+    batch(doc, (d: any) => d.items.push("beta"))
+    batch(doc, (d: any) => d.items.push("gamma"))
 
     const yDoc = getYDoc(doc)
     const binding = trivialBinding(SequenceSchema)
@@ -123,7 +123,7 @@ describe("materializeYjsShadow", () => {
 
   it("materializes nested struct fields", () => {
     const doc = createDoc(yjs.bind(NestedSchema))
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.meta.author.set("Bob")
       d.meta.version.set(42)
     })
@@ -154,7 +154,7 @@ describe("materializeYjsShadow", () => {
 
   it("uses raw field names, not identity hashes", () => {
     const doc = createDoc(yjs.bind(TextSchema))
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.insert(0, "test")
     })
 
@@ -175,14 +175,14 @@ describe("materializeYjsShadow", () => {
   it("materializes a complex document with multiple field types", () => {
     const doc = createDoc(yjs.bind(FullSchema))
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.insert(0, "My Doc")
       d.theme.set("dark")
       d.settings.darkMode.set(true)
       d.settings.fontSize.set(16)
     })
-    change(doc, (d: any) => d.tags.push("important"))
-    change(doc, (d: any) => d.tags.push("urgent"))
+    batch(doc, (d: any) => d.tags.push("important"))
+    batch(doc, (d: any) => d.tags.push("urgent"))
 
     const yDoc = getYDoc(doc)
     const binding = trivialBinding(FullSchema)
@@ -198,7 +198,7 @@ describe("materializeYjsShadow", () => {
 
   it("materializes without binding (undefined binding)", () => {
     const doc = createDoc(yjs.bind(TextSchema))
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.insert(0, "no binding")
     })
 

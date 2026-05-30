@@ -7,7 +7,7 @@
 //   every prepare boundary.
 // - `runBatch` brackets the prepare-loop-plus-flush block with a single
 //   `doc.commit()` per outermost logical action (depth-counter design;
-//   inner re-entrant change()s collapse into the outer commit).
+//   inner re-entrant batch()s collapse into the outer commit).
 // - `afterBatch` flushes the coalescing buffer on local writes; on
 //   replay it re-materialises σ from λ (CRDT merge is a lattice join
 //   that has no incremental σ-step decomposition).
@@ -431,7 +431,7 @@ export function createLoroSubstrate(
     runBatch(work: () => void, options?: BatchOptions): void {
       // Ctx-level outermost detection (frameStarts.length === 0)
       // means substrate.runBatch is invoked at most once per outermost
-      // change(doc, fn). No per-substrate depth counter needed.
+      // batch(doc, fn). No per-substrate depth counter needed.
       nextIsOurs = true
       try {
         work()
@@ -756,7 +756,7 @@ export const loroReplicaFactory: ReplicaFactory<LoroVersion> = {
  *
  * - `create(schema)` — creates a fresh LoroDoc with empty containers
  *   matching the schema structure. No seed data — initial content
- *   should be applied via `change()` after construction.
+ *   should be applied via `batch()` after construction.
  * - `fromEntirety(payload, schema)` — creates a LoroDoc from an entirety
  *   payload, returns a substrate.
  * - `parseVersion(serialized)` — deserializes a LoroVersion.

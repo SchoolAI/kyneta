@@ -1,6 +1,6 @@
 // native — integration tests for [NATIVE] on Loro substrate.
 
-import { change, NATIVE, Schema, unwrap } from "@kyneta/schema"
+import { batch, NATIVE, Schema, unwrap } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
 import { createDoc, loro } from "../index.js"
 
@@ -93,7 +93,7 @@ describe("unwrap() with Loro", () => {
 
   it("native text reflects mutations", () => {
     const doc = createDoc(bound)
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.insert(0, "Hello")
     })
     const native = (doc.title as any)[NATIVE]

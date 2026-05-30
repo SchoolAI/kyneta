@@ -16,7 +16,7 @@ import { hasChangefeed } from "@kyneta/changefeed"
 import type { Ref, RRef } from "../../src/index.js"
 import {
   applyChanges,
-  change,
+  batch,
   describe,
   formatPath,
   hasRecursiveChangefeed,
@@ -241,13 +241,13 @@ log(`
 `)
 
 // Demonstrate TRANSACT discovery
-const ops = change(doc, d => {
+const ops = batch(doc, d => {
   d.stars.increment(1)
 })
 
 log(`
-    change(doc, d => d.stars.increment(1)) → ${ops.length} op
-    change() found WritableContext via doc[TRANSACT].
+    batch(doc, d => d.stars.increment(1)) → ${ops.length} op
+    batch() found WritableContext via doc[TRANSACT].
     No WeakMap, no global registry — just symbol-keyed discovery.
 `)
 
@@ -382,7 +382,7 @@ log(`
 section(10, "The Round-Trip at the Algebra Level")
 
 log(`
-    change() captures Ops. applyChanges() replays them on any doc.
+    batch() captures Ops. applyChanges() replays them on any doc.
     Ops are (Path, Change) pairs — no reference to originating interpreter.
 `)
 
@@ -407,7 +407,7 @@ log(`
     .with(observation)
     .done() as any
 
-  const syncOps = change(docA, d => {
+  const syncOps = batch(docA, d => {
     d.name.insert(d.name().length, " (synced)")
     d.stars.increment(100)
     d.tasks.push({ title: "Synced task", done: false, priority: 1 })
@@ -416,7 +416,7 @@ log(`
   applyChanges(docB, syncOps, { origin: "sync" })
 
   log(`
-    change(docA, ...) → ${syncOps.length} ops
+    batch(docA, ...) → ${syncOps.length} ops
     applyChanges(docB, ops, { origin: "sync" })
 
     docA() deep-equals docB() → ${json(docA()) === json(docB())} ✓

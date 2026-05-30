@@ -6,7 +6,7 @@
 
 import { Bridge, createBridgeTransport } from "@kyneta/bridge-transport"
 import {
-  change,
+  batch,
   json,
   plainReplicaFactory,
   Replicate,
@@ -168,7 +168,7 @@ describe("Exchange storage persistence", () => {
     await exchange.flush() // wait for hydration
 
     // Mutate locally
-    change(doc, d => {
+    batch(doc, d => {
       d.title.set("hello world")
       d.count.set(99)
     })
@@ -218,7 +218,7 @@ describe("Exchange storage persistence", () => {
       transports: [createBridgeTransport({ transportId: "side-a", bridge })],
     })
     const docA = exchangeA.get("doc-1", TestDoc)
-    change(docA, d => {
+    batch(docA, d => {
       d.title.set("from A")
       d.count.set(1)
     })
@@ -256,7 +256,7 @@ describe("Exchange storage persistence", () => {
     const doc = exchange.get("doc-1", TestDoc)
     await exchange.flush()
 
-    change(doc, d => d.title.set("will be deleted"))
+    batch(doc, d => d.title.set("will be deleted"))
     await exchange.flush()
 
     // Verify storage has data
@@ -315,7 +315,7 @@ describe("Storage round-trip (persist → restart → hydrate)", () => {
     const doc1 = exchange1.get("doc-1", TestDoc)
     await exchange1.flush() // hydration
 
-    change(doc1, d => {
+    batch(doc1, d => {
       d.title.set("persisted title")
       d.count.set(777)
     })
@@ -419,7 +419,7 @@ describe("Yjs storage round-trip", () => {
     const doc1 = exchange1.get("doc-1", YjsDoc)
     await exchange1.flush() // hydration
 
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(0, "Yjs persisted")
       d.count.set(123)
     })

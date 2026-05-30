@@ -1,5 +1,5 @@
 import { hasChangefeed } from "@kyneta/changefeed"
-import { change, createDoc, json, Schema } from "@kyneta/schema"
+import { batch, createDoc, json, Schema } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
 import { Collection } from "../collection.js"
 import type { IndexChange } from "../index-impl.js"
@@ -39,7 +39,7 @@ describe("Index.by with field (scalar FK)", () => {
     const [source, handle] = Source.create<any>()
 
     const ref1 = makeItemRef()
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.ownerId.set("user:alice")
       d.name.set("Item 1")
       d.status.set("active")
@@ -47,7 +47,7 @@ describe("Index.by with field (scalar FK)", () => {
     handle.set("item1", ref1)
 
     const ref2 = makeItemRef()
-    change(ref2, (d: any) => {
+    batch(ref2, (d: any) => {
       d.ownerId.set("user:alice")
       d.name.set("Item 2")
       d.status.set("active")
@@ -109,7 +109,7 @@ describe("Index.by with field (scalar FK)", () => {
     })
 
     const ref3 = makeItemRef()
-    change(ref3, (d: any) => {
+    batch(ref3, (d: any) => {
       d.ownerId.set("user:bob")
       d.name.set("Item 3")
       d.status.set("active")
@@ -159,7 +159,7 @@ describe("Index.by with field (scalar FK)", () => {
       bobChanges.push(...cs.changes)
     })
 
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.ownerId.set("user:bob")
     })
 
@@ -187,7 +187,7 @@ describe("Index.by with field (scalar FK)", () => {
 
     // Add to bob's group — should not affect alice's group
     const ref3 = makeItemRef()
-    change(ref3, (d: any) => {
+    batch(ref3, (d: any) => {
       d.ownerId.set("user:bob")
       d.name.set("Item 3")
       d.status.set("active")
@@ -220,7 +220,7 @@ describe("Index.by with field (scalar FK)", () => {
 
     index.dispose()
 
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.ownerId.set("user:carol")
     })
 
@@ -249,7 +249,7 @@ describe("Index.by with field (compound key)", () => {
     const [source, handle] = Source.create<any>()
 
     const ref1 = makeItemRef()
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.ownerId.set("alice")
       d.status.set("active")
       d.name.set("Item 1")
@@ -275,7 +275,7 @@ describe("Index.by with field (compound key)", () => {
     const [source, handle] = Source.create<any>()
 
     const ref1 = makeItemRef()
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.ownerId.set("alice")
       d.status.set("active")
       d.name.set("Item 1")
@@ -296,7 +296,7 @@ describe("Index.by with field (compound key)", () => {
       changes.push(...cs.changes)
     })
 
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.status.set("archived")
     })
 
@@ -316,7 +316,7 @@ describe("Index.by with keys (record fan-out)", () => {
     const [source, handle] = Source.create<any>()
 
     const ref1 = makeTaggedRef()
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.tags.set("tag1", { label: "Tag 1" })
       d.tags.set("tag2", { label: "Tag 2" })
     })
@@ -349,7 +349,7 @@ describe("Index.by with keys (record fan-out)", () => {
       changes.push(...cs.changes)
     })
 
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.tags.set("tag3", { label: "Tag 3" })
     })
 
@@ -367,7 +367,7 @@ describe("Index.by with keys (record fan-out)", () => {
       changes.push(...cs.changes)
     })
 
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.tags.delete("tag1")
     })
 
@@ -386,7 +386,7 @@ describe("Index.by with keys (record fan-out)", () => {
     })
 
     const ref2 = makeTaggedRef()
-    change(ref2, (d: any) => {
+    batch(ref2, (d: any) => {
       d.tags.set("tag2", { label: "Also Tag 2" })
       d.tags.set("tag4", { label: "Tag 4" })
     })
@@ -432,7 +432,7 @@ describe("Index.by with keys (record fan-out)", () => {
 
     index.dispose()
 
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.tags.set("tag99", { label: "Nope" })
     })
 
@@ -449,13 +449,13 @@ describe("Index.by (identity — no keySpec)", () => {
     const [source, handle] = Source.create<any>()
 
     const ref1 = makeSimpleRef()
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.title.set("First")
     })
     handle.set("item1", ref1)
 
     const ref2 = makeSimpleRef()
-    change(ref2, (d: any) => {
+    batch(ref2, (d: any) => {
       d.title.set("Second")
     })
     handle.set("item2", ref2)
@@ -488,7 +488,7 @@ describe("Index.by (identity — no keySpec)", () => {
     })
 
     const ref3 = makeSimpleRef()
-    change(ref3, (d: any) => {
+    batch(ref3, (d: any) => {
       d.title.set("Third")
     })
     handle.set("item3", ref3)

@@ -1,7 +1,7 @@
 // eager-write-coherence — pins the post-Phase-2 contract for the Loro
 // substrate's write path:
 //
-//   1. Re-entry: subscriber callbacks may freely `change()` the doc.
+//   1. Re-entry: subscriber callbacks may freely `batch()` the doc.
 //      Substrate writes land synchronously; both reads (σ via the
 //      Reader) AND subsequent writes (λ via change-mapping) succeed
 //      against the new state.
@@ -12,7 +12,7 @@
 //   3. Json-boundary storage: `struct.json`/`list.json`/`record.json`
 //      subtrees round-trip as plain JSON values in the parent CRDT
 //      container, not as nested LoroMap/LoroList containers.
-//   4. Nested-commit semantics: outer + re-entrant `change()`s collapse
+//   4. Nested-commit semantics: outer + re-entrant `batch()`s collapse
 //      into one `doc.commit()` per outermost logical action, with
 //      the outer-origin's commit message winning.
 //
@@ -21,7 +21,7 @@
 // uniform read-and-write coherence law.
 
 import {
-  change,
+  batch,
   interpret,
   observation,
   readable,
@@ -74,7 +74,7 @@ function buildUnbound<S extends ReturnType<typeof Schema.struct>>(schema: S) {
 
 // ---------------------------------------------------------------------------
 // 1. Re-entry: subscriber writes to a path created by an earlier
-//    re-entrant change(). Pre-Phase-2 this crashed Loro's
+//    re-entrant batch(). Pre-Phase-2 this crashed Loro's
 //    `replaceChangeToDiff` because the parent list slot was in σ but
 //    not in λ.
 // ---------------------------------------------------------------------------
@@ -90,16 +90,16 @@ describe("Loro re-entry: subscriber writes after subscriber push", () => {
 
     subscribe(doc.events, () => {
       if ((doc.events as any).length !== 1) return
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.events.push({ kind: "assistant", body: "" })
       })
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.events.at(1).body.set("hello")
       })
     })
 
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.events.push({ kind: "user", body: "hi" })
       })
     }).not.toThrow()
@@ -117,14 +117,14 @@ describe("Loro re-entry: subscriber writes after subscriber push", () => {
     let observed: string | undefined
     subscribe(doc.items, () => {
       if ((doc.items as any).length !== 1) return
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.items.push({ name: "synthesised" })
       })
       // Same-tick read of the just-pushed item must succeed.
       observed = (doc.items as any).at(1).name()
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({ name: "user" })
     })
 
@@ -155,19 +155,19 @@ describe("Loro projection law", () => {
     // binding) finds the same keys.
     const { doc } = buildUnbound(schema)
 
-    // Stagger the pushes and the inner field mutation across change()
+    // Stagger the pushes and the inner field mutation across batch()
     // batches so the address table fully reflects each structural step
     // before the next prepare runs.
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.insert(0, "Hello")
       d.count.increment(5)
       d.items.push({ name: "a", done: false })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.at(0).done.set(true)
       d.items.push({ name: "b", done: false })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.meta.set({ tags: "kyneta", version: 2 })
       d.peers.set("alice", true)
       d.peers.set("bob", false)
@@ -211,14 +211,14 @@ describe("Loro json-boundary storage", () => {
     })
     const { doc } = build(schema)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.config.set({ tags: "ci", retries: 3 })
     })
     expect(doc.config()).toEqual({ tags: "ci", retries: 3 })
 
     // Nested write inside the json subtree — coalesces to a full-value
     // write at the boundary key.
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.config.tags.set("prod")
     })
     expect(doc.config()).toEqual({ tags: "prod", retries: 3 })
@@ -248,10 +248,10 @@ describe("Loro json-boundary storage", () => {
     // transaction buffers all dispatches until commit), so the second
     // would prepend instead of append. Separate blocks keep the
     // arrayLength read synchronous to the prior write.
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.push({ title: "first", done: false })
     })
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.push({ title: "second", done: false })
     })
     expect(doc.todos()).toEqual([
@@ -261,7 +261,7 @@ describe("Loro json-boundary storage", () => {
 
     // Field write inside a list.json item — list-replace at index in
     // the plain-JSON array stored at the boundary slot.
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.at(0).done.set(true)
     })
     expect(doc.todos()).toEqual([
@@ -283,7 +283,7 @@ describe("Loro json-boundary storage", () => {
     })
     const { doc } = build(schema)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { email: "alice@example.com" })
       d.profiles.set("bob", { email: "bob@example.com" })
     })
@@ -295,7 +295,7 @@ describe("Loro json-boundary storage", () => {
     // Map refs surface entries via `.at(key)`, not direct property
     // access — the boundary subtree below is plain JS, so we resolve
     // the email field by navigating from the map ref.
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.at("alice").email.set("alice@new.example.com")
     })
     expect(doc.profiles()).toEqual({
@@ -322,7 +322,7 @@ describe("Loro nested-commit semantics under re-entry", () => {
     // Inner subscriber re-enters with its own origin.
     subscribe(doc.a, () => {
       if (doc.b() !== "") return // only on first delivery
-      change(
+      batch(
         doc,
         (d: any) => {
           d.b.set("inner-write")
@@ -363,7 +363,7 @@ describe("Loro nested-commit semantics under re-entry", () => {
     })()
 
     // The outer change. Triggers the re-entrant subscriber and finishes.
-    change(
+    batch(
       doc,
       (d: any) => {
         d.a.set("outer-write")
@@ -376,7 +376,7 @@ describe("Loro nested-commit semantics under re-entry", () => {
     expect(doc.b()).toBe("inner-write")
 
     // Two non-empty local batches: under the three-primitive substrate
-    // model, the inner re-entrant `change()` runs INSIDE the outer's
+    // model, the inner re-entrant `batch()` runs INSIDE the outer's
     // ctx.flush — by which point the outer's frame has already popped.
     // The inner sees `frameStarts.length === 0`, so its runBatch is
     // treated as outermost and invokes substrate.runBatch (a separate
@@ -411,13 +411,13 @@ describe("Loro nested-commit semantics under re-entry", () => {
 // ---------------------------------------------------------------------------
 
 describe("Loro three-primitive substrate (jj:ryquprut)", () => {
-  it("multi-push in one change() block appends in order against the CRDT", () => {
+  it("multi-push in one batch() block appends in order against the CRDT", () => {
     const schema = Schema.struct({
       todos: Schema.list(Schema.string()),
     })
     const { doc } = build(schema)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.push("a")
       d.todos.push("b")
       d.todos.push("c")
@@ -434,7 +434,7 @@ describe("Loro three-primitive substrate (jj:ryquprut)", () => {
     const { doc } = build(schema)
 
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.a.set("set-a")
         d.b.set("set-b")
         throw new Error("abort")
@@ -455,7 +455,7 @@ describe("Loro three-primitive substrate (jj:ryquprut)", () => {
     })
 
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.a.set("hello")
         throw new Error("abort")
       })

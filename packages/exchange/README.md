@@ -25,7 +25,7 @@ const exchange = new Exchange({
 
 const doc = exchange.get("my-todos", TodoDoc)
 
-change(doc, d => {
+batch(doc, d => {
   d.title.insert(0, "My Todos")
   d.items.push({ text: "Learn Exchange", done: false })
 })
@@ -59,7 +59,7 @@ const exchange = new Exchange({
 
 const doc = exchange.get("shared-doc", TodoDoc)
 doc.title()  // typed read
-change(doc, d => d.title.insert(0, "Hello"))  // typed write
+batch(doc, d => d.title.insert(0, "Hello"))  // typed write
 subscribe(doc, changeset => { /* reactive */ })
 ```
 

@@ -23,7 +23,7 @@
 // to apply changes synchronously (substrate write + populated mark) and
 // dispatch an `accumulate` Msg into a per-context dispatcher. It wraps
 // ctx.flush to dispatch a `flush` Msg. The dispatcher's drain-to-quiescence
-// loop catches re-entrant `change()` calls from inside subscriber
+// loop catches re-entrant `batch()` calls from inside subscriber
 // callbacks: substrate writes still happen synchronously, and the new
 // accumulator entries produce a fresh Changeset in a subsequent sub-tick.
 //
@@ -367,7 +367,7 @@ function fanOutOwnPath(
  *
  * The notification accumulator (`Op[]`) is encapsulated inside the
  * dispatcher handler's closure — it is no longer persisted on this state
- * record. Likewise, no `isFlushing` flag: re-entrant `change()` calls from
+ * record. Likewise, no `isFlushing` flag: re-entrant `batch()` calls from
  * inside subscriber delivery enqueue an `accumulate` Msg back into the
  * per-context dispatcher and drain in a fresh sub-tick.
  */
@@ -450,7 +450,7 @@ const contextState = new WeakMap<RefContext, ContextWiringState>()
  *   snapshots the queued accumulator, calls `planNotifications` (pure),
  *   calls the inner flush (so the substrate's version and log are
  *   up-to-date), then `deliverNotifications` (imperative) to fire
- *   listeners. Re-entrant `change()` calls from inside a subscriber land
+ *   listeners. Re-entrant `batch()` calls from inside a subscriber land
  *   back in `wrappedPrepare`, which dispatches another `accumulate` Msg.
  *   The dispatcher's drain-to-quiescence loop catches it and the next
  *   `flush` dispatch processes it in a fresh sub-tick.
@@ -488,7 +488,7 @@ function ensurePrepareWiring(
     Set<(changeset: Changeset<ChangeBase>) => void>
   >()
   // The change-Writer monad's log — sum-typed `Forward Op | Inverse Op`.
-  // `change(doc, fn)` slices this via FORWARD_OPS_MARKER/SINCE to recover
+  // `batch(doc, fn)` slices this via FORWARD_OPS_MARKER/SINCE to recover
   // its forward-only return value. planNotifications consumes the whole
   // log (both forward and inverse entries) so subscribers see the full
   // op trace on aborted Changesets.
@@ -498,7 +498,7 @@ function ensurePrepareWiring(
   const originalPrepare = ctx.prepare
   const originalFlush = ctx.flush
 
-  // Per-context dispatcher. Re-entrant `change()` calls from inside
+  // Per-context dispatcher. Re-entrant `batch()` calls from inside
   // subscriber delivery dispatch `accumulate` Msgs back into this same
   // dispatcher; the drain-to-quiescence loop processes them in fresh
   // sub-ticks. A `flush` Msg whose `accumulator.length === 0` (no
@@ -571,7 +571,7 @@ function ensurePrepareWiring(
   ctx.flush = wrappedFlush
 
   // FORWARD_OPS_* accessors are owned by buildWritableContext (it
-  // maintains the writer log directly, so `change()` works on any
+  // maintains the writer log directly, so `batch()` works on any
   // stack with/without the observation layer). The changefeed
   // accumulator here is a separate concern: notification grouping.
 

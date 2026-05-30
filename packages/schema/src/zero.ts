@@ -8,7 +8,7 @@
 // for seed-based initialization. These were removed because seed data
 // conflates authoritative initial content with UI rendering defaults
 // and produces state invisible to the sync protocol. Initial content
-// should be applied via change() after substrate construction.
+// should be applied via batch() after substrate construction.
 
 import type {
   FlatTreeNode,

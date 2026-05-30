@@ -115,7 +115,7 @@ Everything else — schema, Exchange, transport, @kyneta/cast view — stays the
 1. **On server start**: `Bun.build()` compiles `src/main.ts` (and its imports) with the @kyneta/cast via [unplugin](https://unplugin.unjs.io/) → `dist/`
 2. **Browser loads**: `index.html` → bundled JS + WASM (loro-crdt) as server-side rendered HTML
 3. **WebSocket connects**: Client Exchange ↔ Server Exchange via the four-message sync protocol (present → interest → offer → dismiss)
-4. **Changes sync**: Any `change(doc, ...)` call automatically propagates to all connected clients via the Exchange's changefeed → synchronizer wiring
+4. **Changes sync**: Any mutation — a direct write or a `batch(doc, ...)` — automatically propagates to all connected clients via the Exchange's changefeed → synchronizer wiring
 
 ## Why Is This Interesting?
 
@@ -167,7 +167,7 @@ doc.todos.at(0).text()   // navigate + read — drill into a single field
 doc.todos.push(...)      // write — append to the CRDT list
 doc.todos.at(0).done.set(true)  // write — set a nested field
 
-change(doc, d => {       // transact — batch multiple writes into one changefeed notification
+batch(doc, d => {        // batch — group multiple writes into one atomic commit + one notification
   d.todos.push({ text: "new", done: false })
   d.todos.at(0).done.set(true)
 })

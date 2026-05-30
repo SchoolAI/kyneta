@@ -191,7 +191,7 @@ database can be its own oplog, and the oplog is complete.
 Session is always recording.
 
 Mutation via schema API:
-  change(blog, b => b.posts.at(3).published.set(true))
+  batch(blog, b => b.posts.at(3).published.set(true))
     → prepare(path, change)
       → UPDATE posts SET published = 1 WHERE _idx = 3
         → session captures it
@@ -586,7 +586,7 @@ const adminExchange = new Exchange({
 const blog = adminExchange.get("blog", BlogDoc)
 await sync(blog).waitForSync()
 
-change(blog, b => {
+batch(blog, b => {
   for (const post of b.posts) {
     if (post.reviewed()) post.published.set(true)
   }
@@ -708,7 +708,7 @@ const blog = exchange.get("blog", BlogDoc)
 
 blog.title()                        // → SELECT title FROM _root WHERE id = 1
 blog.posts.at(0).title()            // → SELECT title FROM posts WHERE _idx = 0
-change(blog, b => b.posts.push({ title: "New", body: "", published: false }))
+batch(blog, b => b.posts.push({ title: "New", body: "", published: false }))
                                      // → INSERT INTO posts ...
 
 // Raw SQL works too — session captures it, changefeed delivers it

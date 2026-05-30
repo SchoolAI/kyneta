@@ -14,7 +14,7 @@ import {
   transformIndex,
 } from "../change.js"
 import { createRef } from "../create-doc.js"
-import { change } from "../facade/change.js"
+import { batch } from "../facade/batch.js"
 import {
   decodePlainPosition,
   hasPosition,
@@ -360,7 +360,7 @@ describe("hasPosition on real refs", () => {
 
   it("[POSITION].createPosition produces a working PlainPosition", () => {
     const doc = createRef(DocSchema, plainSubstrateFactory.create(DocSchema))
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.title.insert(0, "hello")
     })
 

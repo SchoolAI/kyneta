@@ -10,8 +10,8 @@
 // proceed to sync if non-empty.
 
 import {
+  batch,
   bind,
-  change,
   Migration,
   plainSubstrateFactory,
   Schema,
@@ -76,7 +76,7 @@ describe("supportedHashes — cross-migrated-version sync", () => {
     try {
       // Server creates the doc under its (newer) schema.
       const docServer = serverExchange.get("doc-rename", serverSchema)
-      change(docServer, (d: any) => {
+      batch(docServer, (d: any) => {
         d.title.set("Hello from migrated server")
         d.count.set(42)
       })
@@ -136,7 +136,7 @@ describe("supportedHashes — cross-migrated-version sync", () => {
 
     try {
       const docServer = serverExchange.get("doc-disjoint", schemaA)
-      change(docServer, (d: any) => {
+      batch(docServer, (d: any) => {
         d.a.set("server side")
       })
 

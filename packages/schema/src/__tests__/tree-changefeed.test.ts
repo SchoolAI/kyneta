@@ -9,7 +9,7 @@
 import type { Changeset } from "@kyneta/changefeed"
 import { describe, expect, it } from "vitest"
 import type { Op } from "../basic/index.js"
-import { change, createDoc, Schema, subscribe } from "../basic/index.js"
+import { batch, createDoc, Schema, subscribe } from "../basic/index.js"
 
 const Outline = Schema.struct({
   tree: Schema.tree(Schema.struct({ label: Schema.string() })),
@@ -46,7 +46,7 @@ describe("subscribe(doc) on a doc with Schema.tree", () => {
     subscribe(doc as any, cs => changesets.push(cs))
 
     let id = ""
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       id = d.tree.create({ data: { label: "x" } })
     })
 
@@ -71,14 +71,14 @@ describe("subscribe(doc) on a doc with Schema.tree", () => {
   it("receives writes to per-node fields (subscribe-after-create symmetry)", () => {
     const doc = createDoc(Outline)
     let id = ""
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       id = d.tree.create({ data: { label: "initial" } })
     })
 
     const changesets: Changeset<Op>[] = []
     subscribe(doc as any, cs => changesets.push(cs))
 
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.node(id).label.set("updated")
     })
 
@@ -98,14 +98,14 @@ describe("subscribe(d.tree.node(id))", () => {
   it("fires on writes at descendant paths under the node", () => {
     const doc = createDoc(Outline)
     let id = ""
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       id = d.tree.create({ data: { label: "n" } })
     })
 
     const changesets: Changeset<Op>[] = []
     subscribe((doc as any).tree.node(id), cs => changesets.push(cs))
 
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.node(id).label.set("renamed")
     })
 
@@ -120,7 +120,7 @@ describe("subscribe(d.tree.node(id))", () => {
     const doc = createDoc(Outline)
     let a = ""
     let b = ""
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       a = d.tree.create({ data: { label: "A" } })
       b = d.tree.create({ data: { label: "B" } })
     })
@@ -128,7 +128,7 @@ describe("subscribe(d.tree.node(id))", () => {
     const aChangesets: Changeset<Op>[] = []
     subscribe((doc as any).tree.node(a), cs => aChangesets.push(cs))
 
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.node(b).label.set("B-updated")
     })
 
@@ -147,7 +147,7 @@ describe("same-batch create + data write", () => {
     const changesets: Changeset<Op>[] = []
     subscribe(doc as any, cs => changesets.push(cs))
 
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.create({ data: { label: "z" } })
     })
 
@@ -171,14 +171,14 @@ describe("terminal event on delete", () => {
   it("per-node subscriber's last received changeset is a synthesized tree-delete", () => {
     const doc = createDoc(Outline)
     let id = ""
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       id = d.tree.create({ data: { label: "doomed" } })
     })
 
     const changesets: Changeset<Op>[] = []
     subscribe((doc as any).tree.node(id), cs => changesets.push(cs))
 
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.delete(id)
     })
 
@@ -197,14 +197,14 @@ describe("terminal event on delete", () => {
   it("no further deliveries after the terminal", () => {
     const doc = createDoc(Outline)
     let id = ""
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       id = d.tree.create({ data: { label: "doomed" } })
     })
 
     const changesets: Changeset<Op>[] = []
     subscribe((doc as any).tree.node(id), cs => changesets.push(cs))
 
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.delete(id)
     })
 
@@ -212,7 +212,7 @@ describe("terminal event on delete", () => {
 
     // Any subsequent writes (to other nodes) must not deliver to this
     // already-terminal subscriber.
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.create({ data: { label: "new" } })
     })
 
@@ -222,14 +222,14 @@ describe("terminal event on delete", () => {
   it("doc-level subscriber does NOT receive the synthesized terminal (channels are disjoint)", () => {
     const doc = createDoc(Outline)
     let id = ""
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       id = d.tree.create({ data: { label: "doomed" } })
     })
 
     const docChangesets: Changeset<Op>[] = []
     subscribe(doc as any, cs => docChangesets.push(cs))
 
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.delete(id)
     })
 
@@ -254,7 +254,7 @@ describe("terminal event on delete", () => {
     let root = ""
     let child = ""
     let grandchild = ""
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       root = d.tree.create({ data: { label: "R" } })
       child = d.tree.create({ parent: root, data: { label: "C" } })
       grandchild = d.tree.create({ parent: child, data: { label: "G" } })
@@ -267,7 +267,7 @@ describe("terminal event on delete", () => {
       grandchildChangesets.push(cs),
     )
 
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.delete(root)
     })
 
@@ -298,7 +298,7 @@ describe("move preserves identity", () => {
     let a = ""
     let b = ""
     let c = ""
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       a = d.tree.create({ data: { label: "A" } })
       b = d.tree.create({ data: { label: "B" } })
       c = d.tree.create({ parent: a, data: { label: "C" } })
@@ -307,7 +307,7 @@ describe("move preserves identity", () => {
     const changesets: Changeset<Op>[] = []
     subscribe((doc as any).tree.node(c), cs => changesets.push(cs))
 
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.move(c, { parent: b, index: 0 })
     })
 
@@ -321,7 +321,7 @@ describe("move preserves identity", () => {
     expect(terminals).toHaveLength(0)
 
     // Subsequent data write on C is still delivered.
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.node(c).label.set("C-moved")
     })
 
@@ -343,7 +343,7 @@ describe("unsubscribe and resubscribe", () => {
     const unsub = subscribe(doc as any, cs => changesets.push(cs))
     unsub()
 
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.create({ data: { label: "x" } })
     })
 
@@ -353,7 +353,7 @@ describe("unsubscribe and resubscribe", () => {
   it("resubscribe on a still-live node receives no synthesized terminal (teardown vs delete)", () => {
     const doc = createDoc(Outline)
     let id = ""
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       id = d.tree.create({ data: { label: "n" } })
     })
 
@@ -378,7 +378,7 @@ describe("unsubscribe and resubscribe", () => {
     subscribe((doc as any).tree.node(id), cs => secondChangesets.push(cs))
 
     // Write something to confirm liveness.
-    change(doc as any, (d: any) => {
+    batch(doc as any, (d: any) => {
       d.tree.node(id).label.set("still-here")
     })
 

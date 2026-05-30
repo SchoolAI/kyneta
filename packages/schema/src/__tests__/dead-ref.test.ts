@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  change,
+  batch,
   interpret,
   observation,
   plainContext,
@@ -25,7 +25,7 @@ describe("dead ref", () => {
     const item = doc.items.at(0)
     expect(item()).toBe("a")
 
-    change(doc, (d: any) => d.items.delete(0, 1))
+    batch(doc, (d: any) => d.items.delete(0, 1))
 
     try {
       item()

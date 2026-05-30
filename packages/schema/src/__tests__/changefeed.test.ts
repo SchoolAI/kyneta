@@ -9,7 +9,7 @@ import type {
 } from "../change.js"
 import type { Op } from "../index.js"
 import {
-  change,
+  batch,
   expandMapOpsToLeaves,
   hasRecursiveChangefeed,
   interpret,
@@ -617,8 +617,8 @@ describe("changefeed: TRANSACT preserved", () => {
 // Transaction integration
 // ===========================================================================
 
-describe("changefeed: change() block integration", () => {
-  it("multi-mutation change() block delivers one batched Changeset (not per-helper)", () => {
+describe("changefeed: batch() block integration", () => {
+  it("multi-mutation batch() block delivers one batched Changeset (not per-helper)", () => {
     const store = { x: 0, y: 0 }
     const schema = Schema.struct({
       x: Schema.number(),
@@ -634,7 +634,7 @@ describe("changefeed: change() block integration", () => {
     const xChangesets: Changeset[] = []
     getChangefeed(doc.x).subscribe(cs => xChangesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.x.set(10)
       d.x.set(20)
     })
@@ -654,7 +654,7 @@ describe("changefeed: change() block integration", () => {
       treeChangesets.push(changeset)
     })
 
-    change(doc, d => {
+    batch(doc, d => {
       d.settings.darkMode.set(true)
       d.settings.fontSize.set(18)
     })
@@ -682,7 +682,7 @@ describe("changefeed: change() block integration", () => {
     expect(fontSizeEvents).toHaveLength(1)
   })
 
-  it("σ advances eagerly inside change() — store reflects writes during the block", () => {
+  it("σ advances eagerly inside batch() — store reflects writes during the block", () => {
     const store = { x: 0, y: 0 }
     const schema = Schema.struct({
       x: Schema.number(),
@@ -695,7 +695,7 @@ describe("changefeed: change() block integration", () => {
       .with(observation)
       .done()
 
-    const captured = change(doc, d => {
+    const captured = batch(doc, d => {
       d.x.set(10)
       // Read-your-writes: store already reflects this write
       expect(store.x).toBe(10)
@@ -708,7 +708,7 @@ describe("changefeed: change() block integration", () => {
     expect(captured).toHaveLength(2)
   })
 
-  it("change() delivers exactly one Changeset per affected path", () => {
+  it("batch() delivers exactly one Changeset per affected path", () => {
     const store = { x: 0, y: 0 }
     const schema = Schema.struct({
       x: Schema.number(),
@@ -724,7 +724,7 @@ describe("changefeed: change() block integration", () => {
     const xChangesets: Changeset[] = []
     getChangefeed(doc.x).subscribe(cs => xChangesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.x.set(10)
     })
 
@@ -764,7 +764,7 @@ describe("changefeed: batched notification", () => {
       observedY = store.y
     })
 
-    change(doc, d => {
+    batch(doc, d => {
       d.x.set(10)
       d.y.set(20)
     })
@@ -788,7 +788,7 @@ describe("changefeed: batched notification", () => {
     expect(changesets[0]?.origin).toBeUndefined()
   })
 
-  it("origin tagging: change(_, _, { origin }) attaches origin to emitted Changeset", () => {
+  it("origin tagging: batch(_, _, { origin }) attaches origin to emitted Changeset", () => {
     const store = { x: 0, y: 0 }
     const schema = Schema.struct({
       x: Schema.number(),
@@ -804,7 +804,7 @@ describe("changefeed: batched notification", () => {
     const xChangesets: Changeset[] = []
     getChangefeed(doc.x).subscribe(cs => xChangesets.push(cs))
 
-    change(doc, d => d.x.set(42), { origin: "sync" })
+    batch(doc, d => d.x.set(42), { origin: "sync" })
 
     expect(xChangesets).toHaveLength(1)
     expect(xChangesets[0]?.origin).toBe("sync")
@@ -821,14 +821,14 @@ describe("changefeed: batched notification", () => {
     expect(changesets[0]?.origin).toBeUndefined()
   })
 
-  it("origin tagging: tree subscribers receive origin from change()", () => {
+  it("origin tagging: tree subscribers receive origin from batch()", () => {
     const { doc } = createChatDoc()
     const treeChangesets: Changeset<Op>[] = []
     getChangefeed(doc.settings).subscribeDescendants?.(cs =>
       treeChangesets.push(cs),
     )
 
-    change(doc, d => d.settings.darkMode.set(true), { origin: "undo" })
+    batch(doc, d => d.settings.darkMode.set(true), { origin: "undo" })
 
     // Tree changeset propagated from child — should carry the origin
     expect(treeChangesets).toHaveLength(1)
@@ -839,7 +839,7 @@ describe("changefeed: batched notification", () => {
     )
   })
 
-  it("multiple paths in one change() block: each path gets its own Changeset", () => {
+  it("multiple paths in one batch() block: each path gets its own Changeset", () => {
     const store = { x: 0, y: 0 }
     const schema = Schema.struct({
       x: Schema.number(),
@@ -857,7 +857,7 @@ describe("changefeed: batched notification", () => {
     getChangefeed(doc.x).subscribe(cs => xChangesets.push(cs))
     getChangefeed(doc.y).subscribe(cs => yChangesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.x.set(10)
       d.y.set(20)
       d.x.set(30)
@@ -889,7 +889,7 @@ describe("changefeed: batched notification", () => {
     const xChangesets: Changeset[] = []
     getChangefeed(doc.x).subscribe(cs => xChangesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.x.set(10)
       d.y.set(20)
     })
@@ -1208,7 +1208,7 @@ describe("expandMapOpsToLeaves", () => {
 // ===========================================================================
 
 describe("changefeed: flush boundary enforcement", () => {
-  it("change() propagates subscriber error, not secondary abort error", () => {
+  it("batch() propagates subscriber error, not secondary abort error", () => {
     const store = { x: 0 }
     const schema = Schema.struct({ x: Schema.number() })
     const ctx = plainContext(store)
@@ -1223,16 +1223,16 @@ describe("changefeed: flush boundary enforcement", () => {
       throw new Error("subscriber boom")
     })
 
-    // The change() call should propagate the SUBSCRIBER error,
+    // The batch() call should propagate the SUBSCRIBER error,
     // not a secondary "No active transaction to abort" error.
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.x.set(42)
       })
     }).toThrow("subscriber boom")
   })
 
-  it("re-entrant change() during notification delivery succeeds and drains in a fresh sub-tick", () => {
+  it("re-entrant batch() during notification delivery succeeds and drains in a fresh sub-tick", () => {
     const store = { x: 0, y: 0 }
     const schema = Schema.struct({
       x: Schema.number(),
@@ -1245,7 +1245,7 @@ describe("changefeed: flush boundary enforcement", () => {
       .with(observation)
       .done()
 
-    // Subscribe to x; when x changes, mutate y via change().
+    // Subscribe to x; when x changes, mutate y via batch().
     // Pre-1.6.0 this threw "Mutation during notification delivery is not
     // supported." Post-1.6.0 the per-context dispatcher drains the
     // re-entrant change in a fresh sub-tick: both writes land, both
@@ -1254,7 +1254,7 @@ describe("changefeed: flush boundary enforcement", () => {
     let yFired = 0
     getChangefeed(doc.x).subscribe(() => {
       xFired++
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.y.set(99)
       })
     })
@@ -1263,7 +1263,7 @@ describe("changefeed: flush boundary enforcement", () => {
     })
 
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.x.set(42)
       })
     }).not.toThrow()

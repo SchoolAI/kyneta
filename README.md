@@ -34,7 +34,7 @@ const exchange = new Exchange({
 // 3. Get a document — syncs automatically
 const doc = exchange.get("my-todos", TodoDoc)
 
-change(doc, d => {
+batch(doc, d => {
   d.title.insert(0, "My Todos")
   d.items.push({ text: "Learn Kyneta", done: false })
 })

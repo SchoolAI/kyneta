@@ -28,7 +28,7 @@ const doc = createDoc(TodoDoc, { title: "Hello" })
 // Read and write through the typed ref API
 doc.title()  // "Hello"
 
-change(doc, d => {
+batch(doc, d => {
   d.title.insert(5, " World")
   d.count.increment(1)
   d.items.push({ name: "First task", done: false })
@@ -104,7 +104,7 @@ import {
 
 // Peer A
 const docA = createDoc(myBoundSchema)
-change(docA, d => d.title.insert(0, "Hello from A"))
+batch(docA, d => d.title.insert(0, "Hello from A"))
 
 // Peer B
 const docB = createDoc(myBoundSchema)
@@ -147,7 +147,7 @@ const docB = createDoc(myBoundSchema)
 | `exportSnapshot(doc)` | Full state as a binary `SubstratePayload`. |
 | `exportSince(doc, since)` | Delta payload since a version. |
 | `importDelta(doc, payload, origin?)` | Apply a delta from another peer. |
-| `change(doc, fn)` | Run mutations in a transaction. *(re-exported from `@kyneta/schema`)* |
+| `batch(doc, fn)` | Run mutations in a transaction. *(re-exported from `@kyneta/schema`)* |
 | `subscribe(doc, cb)` | Observe all mutations. *(re-exported from `@kyneta/schema`)* |
 | `applyChanges(doc, ops, opts?)` | Apply a list of ops declaratively. *(re-exported from `@kyneta/schema`)* |
 
@@ -189,7 +189,7 @@ Schemas are defined with `Schema.*` from `@kyneta/schema`. All constructors are 
 
 Wrapping a `LoroDoc` in a kyneta substrate means `subscribe()` observes **all** mutations to the underlying doc, regardless of source:
 
-- Mutations via `change()` — the normal path
+- Mutations via `batch()` — the normal path
 - Mutations via `importDelta()` — remote sync
 - External `doc.import()` — e.g. from a state bus
 - External raw Loro API calls + `doc.commit()` — e.g. from another library

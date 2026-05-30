@@ -11,7 +11,7 @@
 //     useSyncStatus — observe sync connection state
 //
 //   Counter refs auto-commit: doc.count.increment(n) writes directly.
-//   No change() wrapper needed for single-counter mutations.
+//   No batch() wrapper needed for single-counter mutations.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  change,
+  batch,
   deleted,
   interpret,
   observation,
@@ -31,7 +31,7 @@ describe("deleted changefeed", () => {
       fired++
     })
 
-    change(doc, (d: any) => d.items.delete(0, 1))
+    batch(doc, (d: any) => d.items.delete(0, 1))
 
     expect(fired).toBe(1)
     expect(deleted(item)()).toBe(true)
@@ -56,7 +56,7 @@ describe("deleted changefeed", () => {
       fired++
     })
 
-    change(doc, (d: any) => d.metadata.delete("version"))
+    batch(doc, (d: any) => d.metadata.delete("version"))
 
     expect(fired).toBe(1)
     expect(deleted(entry)()).toBe(true)
@@ -84,7 +84,7 @@ describe("deleted changefeed", () => {
     // Unsubscribe before deletion
     unsub()
 
-    change(doc, (d: any) => d.items.delete(0, 1))
+    batch(doc, (d: any) => d.items.delete(0, 1))
 
     // Should not have fired
     expect(fired).toBe(0)

@@ -21,7 +21,7 @@
 
 import type { BoundSchema } from "@kyneta/schema"
 import {
-  change,
+  batch,
   json,
   type Plain,
   Schema,
@@ -307,7 +307,7 @@ export class Line<SendMsg, RecvMsg> {
       throw new Error("Cannot send on a closed Line")
     }
     const seq = this.#nextSeq++
-    change(this.#outbox, (d: any) => {
+    batch(this.#outbox, (d: any) => {
       d.messages.push({ seq, payload: msg })
       d.nextSeq.set(this.#nextSeq)
     })
@@ -403,7 +403,7 @@ export class Line<SendMsg, RecvMsg> {
 
       if (advanced) {
         // Write ack to outbox
-        change(this.#outbox, (d: any) => {
+        batch(this.#outbox, (d: any) => {
           d.ack.set(this.#lastProcessedSeq)
         })
       }
@@ -434,7 +434,7 @@ export class Line<SendMsg, RecvMsg> {
     }
 
     if (pruneCount > 0) {
-      change(this.#outbox, (d: any) => {
+      batch(this.#outbox, (d: any) => {
         d.messages.delete(0, pruneCount)
       })
 

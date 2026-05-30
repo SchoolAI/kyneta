@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest"
 import { json } from "../bind.js"
 import { createDoc } from "../create-doc.js"
-import { change } from "../facade/change.js"
+import { batch } from "../facade/batch.js"
 import { __getCacheHandlerCountAtPath } from "../interpreters/with-caching.js"
 import { TRANSACT } from "../interpreters/writable.js"
 import { RawPath } from "../path.js"
@@ -38,7 +38,7 @@ describe("with-caching: registrant-keyed handler registry", () => {
     const ctx = doc[TRANSACT]
     const sumPathKey = RawPath.empty.field("payload").key
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.payload.set({ type: "A", aVal: 0 })
     })
     const initialSize = __getCacheHandlerCountAtPath(ctx, sumPathKey)
@@ -48,7 +48,7 @@ describe("with-caching: registrant-keyed handler registry", () => {
     expect(initialSize).toBeGreaterThan(0)
 
     for (let i = 0; i < 50; i++) {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         if (i % 2 === 0) {
           d.payload.set({ type: "B", bVal: "x" })
         } else {

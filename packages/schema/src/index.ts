@@ -100,9 +100,9 @@ export {
   nodeSize,
   resolveDocPosition,
 } from "./doc-position.js"
-export type { CommitOptions } from "./facade/change.js"
+export type { CommitOptions } from "./facade/batch.js"
 // Facade — library-level change capture and declarative application
-export { applyChanges, change, remove } from "./facade/change.js"
+export { applyChanges, batch, remove } from "./facade/batch.js"
 // Facade — library-level observation protocol
 export { subscribe, subscribeNode } from "./facade/observe.js"
 // foldPath — schema-guided sibling of Path.read; the navigation primitive

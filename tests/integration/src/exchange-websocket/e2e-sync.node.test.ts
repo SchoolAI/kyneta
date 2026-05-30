@@ -6,7 +6,7 @@
 // `Bun.serve`. The test bodies are otherwise identical in shape; the
 // shared `_helpers/` harness factors out the lifecycle code.
 
-import { change, json, Schema } from "@kyneta/schema"
+import { batch, json, Schema } from "@kyneta/schema"
 import { afterEach, describe, expect, it } from "vitest"
 import { createTestLifecycle } from "../helpers/cleanup.js"
 import { drain } from "../helpers/drain.js"
@@ -29,7 +29,7 @@ describe("Sequential sync over Node.js WebSocket (ws library)", () => {
       await createConnectedPair(lifecycle)
 
     const docServer = serverExchange.get("doc-1", SequentialDoc)
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("Hello from Node Server")
       d.count.set(42)
     })
@@ -50,7 +50,7 @@ describe("Sequential sync over Node.js WebSocket (ws library)", () => {
       await createConnectedPair(lifecycle)
 
     const docClient = clientExchange.get("doc-1", SequentialDoc)
-    change(docClient, (d: any) => {
+    batch(docClient, (d: any) => {
       d.title.set("Hello from Node Client")
       d.count.set(99)
     })
@@ -71,7 +71,7 @@ describe("Sequential sync over Node.js WebSocket (ws library)", () => {
     const docServer = serverExchange.get("doc-1", SequentialDoc)
     const docClient = clientExchange.get("doc-1", SequentialDoc)
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("Initial")
       d.count.set(0)
     })
@@ -81,7 +81,7 @@ describe("Sequential sync over Node.js WebSocket (ws library)", () => {
     expect(docClient.title()).toBe("Initial")
     expect(docClient.count()).toBe(0)
 
-    change(docClient, (d: any) => {
+    batch(docClient, (d: any) => {
       d.count.set(100)
     })
 

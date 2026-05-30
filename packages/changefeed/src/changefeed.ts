@@ -85,31 +85,31 @@ export interface BatchMetadata {
   readonly replay?: boolean
   /**
    * Kyneta-internal structural directive — true iff the outermost
-   * `change(doc, fn)` block threw and was wholly compensated via inverse
+   * `batch(doc, fn)` block threw and was wholly compensated via inverse
    * replay. The op list contains forward + inverse pairs that net to
-   * identity at every path. Inner `change()`s that threw and were caught
-   * by an outer `change()`'s try/catch produce a NON-aborted outermost
+   * identity at every path. Inner `batch()`s that threw and were caught
+   * by an outer `batch()`'s try/catch produce a NON-aborted outermost
    * Changeset; the absorbed forward + inverse pair sits in the op list
    * alongside surviving outer ops. Default `undefined` (== falsy) for
    * successful batches and replay batches.
    */
   readonly aborted?: boolean
   /**
-   * Identity-typed token supplied by the originating `change()` call.
+   * Identity-typed token supplied by the originating `batch()` call.
    * Compared with `===` only — never inspected or serialized.
    *
    * Subscribers that issued the change set this token on their own
-   * `change()` call and compare against `cs.source` to suppress echoes
+   * `batch()` call and compare against `cs.source` to suppress echoes
    * (the changefeed will deliver the changeset back to the subscriber
    * that produced it; without the token, the subscriber cannot tell
    * its own writes from someone else's).
    *
    * Substrate replay paths explicitly drop `source` — any value reaching
-   * a subscriber is therefore from a local `change()` on this peer.
+   * a subscriber is therefore from a local `batch()` on this peer.
    *
    * @example
    * const mySource = Symbol("my-binding")
-   * change(ref, fn, { source: mySource })
+   * batch(ref, fn, { source: mySource })
    * cf.subscribe(cs => { if (cs.source === mySource) return; / apply / })
    */
   readonly source?: unknown
@@ -124,7 +124,7 @@ export interface BatchMetadata {
  * It wraps one or more changes with optional batch-level metadata.
  *
  * - Auto-commit produces a degenerate changeset of one change.
- * - `change(doc, fn)` and `applyChanges` produce multi-change batches.
+ * - `batch(doc, fn)` and `applyChanges` produce multi-change batches.
  * - The four metadata fields (`origin`, `replay`, `aborted`, `source`)
  *   come from {@link BatchMetadata}; see that type for the orthogonal
  *   two-axis classification.

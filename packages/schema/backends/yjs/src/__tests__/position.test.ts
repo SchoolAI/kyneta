@@ -8,7 +8,7 @@
 //         resolve correctly on the converged state.
 
 import {
-  change,
+  batch,
   createRef,
   hasPosition,
   type Instruction,
@@ -55,7 +55,7 @@ function createYjsEnv(initialText: string): PositionTestEnv {
 
   // Seed the initial text content
   if (initialText.length > 0) {
-    change(ref, (d: any) => {
+    batch(ref, (d: any) => {
       d.title.insert(0, initialText)
     })
   }
@@ -71,7 +71,7 @@ function createYjsEnv(initialText: string): PositionTestEnv {
     positions,
 
     insert(index: number, text: string): readonly Instruction[] {
-      const ops = change(ref, (d: any) => {
+      const ops = batch(ref, (d: any) => {
         d.title.insert(index, text)
       })
       const textOp = ops.find(op => isTextChange(op.change))
@@ -82,7 +82,7 @@ function createYjsEnv(initialText: string): PositionTestEnv {
     },
 
     delete(index: number, count: number): readonly Instruction[] {
-      const ops = change(ref, (d: any) => {
+      const ops = batch(ref, (d: any) => {
         d.title.delete(index, count)
       })
       const textOp = ops.find(op => isTextChange(op.change))
@@ -111,7 +111,7 @@ describe("YjsPosition: concurrent edits", () => {
     ensureContainers(doc1, TextSchema)
     const substrate1 = createYjsSubstrate(doc1, TextSchema)
     const ref1 = createRef(TextSchema, substrate1) as any
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.title.insert(0, "hello")
     })
 
@@ -136,10 +136,10 @@ describe("YjsPosition: concurrent edits", () => {
     const pos2 = textRef2[POSITION].createPosition(4, "left") // before "o"
 
     // --- Concurrent edits ---
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.title.insert(0, "AA") // doc1: "AAhello"
     })
-    change(ref2, (d: any) => {
+    batch(ref2, (d: any) => {
       d.title.insert(5, "BB") // doc2: "helloBBo"
     })
 
@@ -168,7 +168,7 @@ describe("YjsPosition: concurrent edits", () => {
     ensureContainers(doc1, TextSchema)
     const substrate1 = createYjsSubstrate(doc1, TextSchema)
     const ref1 = createRef(TextSchema, substrate1) as any
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.title.insert(0, "abc")
     })
 
@@ -190,10 +190,10 @@ describe("YjsPosition: concurrent edits", () => {
     const rightPos = textRef2[POSITION].createPosition(1, "right")
 
     // --- Both insert at index 1 concurrently ---
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.title.insert(1, "X")
     })
-    change(ref2, (d: any) => {
+    batch(ref2, (d: any) => {
       d.title.insert(1, "Y")
     })
 
@@ -222,7 +222,7 @@ describe("YjsPosition: concurrent edits", () => {
     ensureContainers(doc1, TextSchema)
     const substrate1 = createYjsSubstrate(doc1, TextSchema)
     const ref1 = createRef(TextSchema, substrate1) as any
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.title.insert(0, "abcde")
     })
 
@@ -240,7 +240,7 @@ describe("YjsPosition: concurrent edits", () => {
     expect(pos.resolve()).toBe(3)
 
     // Doc2 deletes the range covering position 3
-    change(ref2, (d: any) => {
+    batch(ref2, (d: any) => {
       d.title.delete(1, 3) // "ae"
     })
 
@@ -255,7 +255,7 @@ describe("YjsPosition: concurrent edits", () => {
     expect(afterDelete!).toBeLessThanOrEqual(ref1.title().length)
 
     // Now insert new content near the collapsed position
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.title.insert(1, "XYZ")
     })
 
@@ -272,7 +272,7 @@ describe("YjsPosition: concurrent edits", () => {
     ensureContainers(doc1, TextSchema)
     const substrate1 = createYjsSubstrate(doc1, TextSchema)
     const ref1 = createRef(TextSchema, substrate1) as any
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.title.insert(0, "hello world")
     })
 
@@ -304,7 +304,7 @@ describe("YjsPosition: concurrent edits", () => {
     ensureContainers(doc1, TextSchema)
     const substrate1 = createYjsSubstrate(doc1, TextSchema)
     const ref1 = createRef(TextSchema, substrate1) as any
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.title.insert(0, "0123456789")
     })
 
@@ -334,13 +334,13 @@ describe("YjsPosition: concurrent edits", () => {
     const posC = t3[POSITION].createPosition(8, "right")
 
     // Concurrent edits from all three peers
-    change(ref1, (d: any) => {
+    batch(ref1, (d: any) => {
       d.title.insert(0, "AA")
     })
-    change(ref2, (d: any) => {
+    batch(ref2, (d: any) => {
       d.title.insert(5, "BB")
     })
-    change(ref3, (d: any) => {
+    batch(ref3, (d: any) => {
       d.title.delete(7, 2)
     })
 

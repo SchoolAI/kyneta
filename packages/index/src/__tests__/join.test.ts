@@ -1,5 +1,5 @@
 import { hasChangefeed } from "@kyneta/changefeed"
-import { change, createDoc, json, Schema } from "@kyneta/schema"
+import { batch, createDoc, json, Schema } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
 import { Collection } from "../collection.js"
 import type { IndexChange } from "../index-impl.js"
@@ -45,20 +45,20 @@ describe("JoinIndex — 1:N (conversations ↔ threads)", () => {
     const [threadSource, threadHandle] = Source.create<any>()
 
     const convRef = makeConvRef()
-    change(convRef, (d: any) => {
+    batch(convRef, (d: any) => {
       d.title.set("General")
     })
     convHandle.set("conv:abc", convRef)
 
     const t1Ref = makeThreadRef()
-    change(t1Ref, (d: any) => {
+    batch(t1Ref, (d: any) => {
       d.conversationId.set("conv:abc")
       d.subject.set("Thread 1")
     })
     threadHandle.set("t1", t1Ref)
 
     const t2Ref = makeThreadRef()
-    change(t2Ref, (d: any) => {
+    batch(t2Ref, (d: any) => {
       d.conversationId.set("conv:abc")
       d.subject.set("Thread 2")
     })
@@ -102,7 +102,7 @@ describe("JoinIndex — M:N (orgs ↔ users)", () => {
     const [userSource, userHandle] = Source.create<any>()
 
     const orgRef = makeOrgRef()
-    change(orgRef, (d: any) => {
+    batch(orgRef, (d: any) => {
       d.name.set("Acme Corp")
       d.members.set("alice", { role: "admin" })
       d.members.set("bob", { role: "member" })
@@ -110,13 +110,13 @@ describe("JoinIndex — M:N (orgs ↔ users)", () => {
     orgHandle.set("org:acme", orgRef)
 
     const aliceRef = makeUserRef()
-    change(aliceRef, (d: any) => {
+    batch(aliceRef, (d: any) => {
       d.name.set("Alice")
     })
     userHandle.set("alice", aliceRef)
 
     const bobRef = makeUserRef()
-    change(bobRef, (d: any) => {
+    batch(bobRef, (d: any) => {
       d.name.set("Bob")
     })
     userHandle.set("bob", bobRef)
@@ -152,7 +152,7 @@ describe("JoinIndex — M:N (orgs ↔ users)", () => {
     const { orgHandle, orgUsers } = setup()
 
     const org2Ref = makeOrgRef()
-    change(org2Ref, (d: any) => {
+    batch(org2Ref, (d: any) => {
       d.name.set("Widgets Inc")
       d.members.set("alice", { role: "member" })
     })
@@ -174,7 +174,7 @@ describe("JoinIndex — incremental updates", () => {
     const [threadSource, threadHandle] = Source.create<any>()
 
     const convRef = makeConvRef()
-    change(convRef, (d: any) => {
+    batch(convRef, (d: any) => {
       d.title.set("General")
     })
     convHandle.set("conv:abc", convRef)
@@ -193,7 +193,7 @@ describe("JoinIndex — incremental updates", () => {
     expect(threads.size).toBe(0)
 
     const t1Ref = makeThreadRef()
-    change(t1Ref, (d: any) => {
+    batch(t1Ref, (d: any) => {
       d.conversationId.set("conv:abc")
       d.subject.set("Thread 1")
     })
@@ -208,13 +208,13 @@ describe("JoinIndex — incremental updates", () => {
     const [threadSource, threadHandle] = Source.create<any>()
 
     const convRef = makeConvRef()
-    change(convRef, (d: any) => {
+    batch(convRef, (d: any) => {
       d.title.set("General")
     })
     convHandle.set("conv:abc", convRef)
 
     const t1Ref = makeThreadRef()
-    change(t1Ref, (d: any) => {
+    batch(t1Ref, (d: any) => {
       d.conversationId.set("conv:abc")
       d.subject.set("Thread 1")
     })
@@ -242,20 +242,20 @@ describe("JoinIndex — incremental updates", () => {
     const [userSource, userHandle] = Source.create<any>()
 
     const orgRef = makeOrgRef()
-    change(orgRef, (d: any) => {
+    batch(orgRef, (d: any) => {
       d.name.set("Acme Corp")
       d.members.set("alice", { role: "admin" })
     })
     orgHandle.set("org:acme", orgRef)
 
     const aliceRef = makeUserRef()
-    change(aliceRef, (d: any) => {
+    batch(aliceRef, (d: any) => {
       d.name.set("Alice")
     })
     userHandle.set("alice", aliceRef)
 
     const bobRef = makeUserRef()
-    change(bobRef, (d: any) => {
+    batch(bobRef, (d: any) => {
       d.name.set("Bob")
     })
     userHandle.set("bob", bobRef)
@@ -274,7 +274,7 @@ describe("JoinIndex — incremental updates", () => {
     expect(users.size).toBe(1)
     expect(users.has("alice")).toBe(true)
 
-    change(orgRef, (d: any) => {
+    batch(orgRef, (d: any) => {
       d.members.set("bob", { role: "member" })
     })
 
@@ -302,7 +302,7 @@ describe("JoinIndex — incremental updates", () => {
     })
 
     const convRef = makeConvRef()
-    change(convRef, (d: any) => {
+    batch(convRef, (d: any) => {
       d.title.set("General")
     })
     convHandle.set("conv:abc", convRef)
@@ -315,7 +315,7 @@ describe("JoinIndex — incremental updates", () => {
     })
 
     const t1Ref = makeThreadRef()
-    change(t1Ref, (d: any) => {
+    batch(t1Ref, (d: any) => {
       d.conversationId.set("conv:abc")
       d.subject.set("Thread 1")
     })
@@ -340,19 +340,19 @@ describe("JoinIndex — FK mutation propagates through join", () => {
     const [threadSource, threadHandle] = Source.create<any>()
 
     const convRef = makeConvRef()
-    change(convRef, (d: any) => {
+    batch(convRef, (d: any) => {
       d.title.set("Conv A")
     })
     convHandle.set("conv:a", convRef)
 
     const conv2Ref = makeConvRef()
-    change(conv2Ref, (d: any) => {
+    batch(conv2Ref, (d: any) => {
       d.title.set("Conv B")
     })
     convHandle.set("conv:b", conv2Ref)
 
     const threadRef = makeThreadRef()
-    change(threadRef, (d: any) => {
+    batch(threadRef, (d: any) => {
       d.conversationId.set("conv:a")
       d.subject.set("Thread 1")
     })
@@ -374,7 +374,7 @@ describe("JoinIndex — FK mutation propagates through join", () => {
     expect(threadsA.size).toBe(1)
     expect(threadsB.size).toBe(0)
 
-    change(threadRef, (d: any) => {
+    batch(threadRef, (d: any) => {
       d.conversationId.set("conv:b")
     })
 
@@ -398,13 +398,13 @@ describe("JoinIndex — dispose", () => {
     const [threadSource, threadHandle] = Source.create<any>()
 
     const convRef = makeConvRef()
-    change(convRef, (d: any) => {
+    batch(convRef, (d: any) => {
       d.title.set("General")
     })
     convHandle.set("conv:abc", convRef)
 
     const t1Ref = makeThreadRef()
-    change(t1Ref, (d: any) => {
+    batch(t1Ref, (d: any) => {
       d.conversationId.set("conv:abc")
       d.subject.set("Thread 1")
     })
@@ -428,14 +428,14 @@ describe("JoinIndex — dispose", () => {
     convThreads.dispose()
 
     const t2Ref = makeThreadRef()
-    change(t2Ref, (d: any) => {
+    batch(t2Ref, (d: any) => {
       d.conversationId.set("conv:abc")
       d.subject.set("Thread 2")
     })
     threadHandle.set("t2", t2Ref)
 
     const conv2Ref = makeConvRef()
-    change(conv2Ref, (d: any) => {
+    batch(conv2Ref, (d: any) => {
       d.title.set("Random")
     })
     convHandle.set("conv:xyz", conv2Ref)

@@ -10,7 +10,7 @@
 import { Bridge, createBridgeTransport } from "@kyneta/bridge-transport"
 import { Exchange } from "@kyneta/exchange"
 import { loro } from "@kyneta/loro-schema"
-import { change, Schema } from "@kyneta/schema"
+import { batch, Schema } from "@kyneta/schema"
 import { afterEach, describe, expect, it } from "vitest"
 import { attach, type TextRefLike } from "../text-adapter.js"
 
@@ -189,7 +189,7 @@ describe("collaborative text editing: two peers with attach()", () => {
     const textareaB = createTextarea()
 
     // Seed with initial text via programmatic change so both start aligned
-    change(alice.doc, (d: any) => {
+    batch(alice.doc, (d: any) => {
       d.body.insert(0, "base")
     })
     await drain()
@@ -233,7 +233,7 @@ describe("collaborative text editing: two peers with attach()", () => {
     const textareaA = createTextarea()
     const textareaB = createTextarea()
 
-    change(alice.doc, (d: any) => {
+    batch(alice.doc, (d: any) => {
       d.body.insert(0, "abcdef")
     })
     await drain()

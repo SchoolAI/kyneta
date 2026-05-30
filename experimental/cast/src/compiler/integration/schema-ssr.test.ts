@@ -17,7 +17,7 @@ import {
   plainContext,
   readable,
   Schema,
-  change as schemaChange,
+  batch as schemaChange,
   writable,
   Zero,
 } from "@kyneta/schema"
@@ -69,14 +69,14 @@ function createDoc(initial?: Record<string, unknown>) {
     .with(writable)
     .with(observation)
     .done()
-  // Apply initial values via change() — real operations, not seed
+  // Apply initial values via batch() — real operations, not seed
   if (initial) {
     schemaChange(doc, (d: any) => {
       if (initial.title !== undefined) d.title.update(initial.title)
       if (initial.count !== undefined && initial.count !== 0)
         d.count.increment(initial.count)
     })
-    // Push list items in separate change() calls to preserve order
+    // Push list items in separate batch() calls to preserve order
     if (initial.items) {
       for (const item of initial.items as any[]) {
         schemaChange(doc, (d: any) => d.items.push(item))

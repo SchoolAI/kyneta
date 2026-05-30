@@ -20,7 +20,7 @@ import type {
 
 import {
   applyChanges,
-  change,
+  batch,
   createDoc,
   createDocFromEntirety,
   delta,
@@ -92,14 +92,14 @@ section(2, "Create a Document")
 
 const doc = createDoc(ProjectSchema)
 
-change(doc, d => {
+batch(doc, d => {
   d.name.insert(0, "My Project")
   d.content.set({ type: "text", body: "Hello world" })
 })
 
 log(`
     const doc = createDoc(ProjectSchema)
-    change(doc, d => {
+    batch(doc, d => {
       d.name.insert(0, "My Project")
       d.content.set({ type: "text", body: "Hello world" })
     })
@@ -246,11 +246,11 @@ log(`      doc.bio.set(null) → ${doc.bio()}`)
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-section(7, "Transactions with change()")
+section(7, "Transactions with batch()")
 
-log(`    change(doc, fn) captures mutations as Op[] — all five change types:`)
+log(`    batch(doc, fn) captures mutations as Op[] — all five change types:`)
 
-const ops = change(doc, d => {
+const ops = batch(doc, d => {
   d.name.insert(0, "✨ ") // text
   d.stars.increment(10) // counter
   d.tasks.push({ title: "Ship it!", done: false, priority: 3 }) // sequence
@@ -259,7 +259,7 @@ const ops = change(doc, d => {
 })
 
 log(`
-    const ops = change(doc, d => {
+    const ops = batch(doc, d => {
       d.name.insert(0, "✨ ")              // text
       d.stars.increment(10)                 // counter
       d.tasks.push({ title: "Ship it!" })   // sequence
@@ -282,12 +282,12 @@ section(8, "Round-Trip: change → applyChanges")
 log(`    Capture mutations on one doc, apply them to a separate doc.`)
 
 const docA = createDoc(ProjectSchema)
-change(docA, d => {
+batch(docA, d => {
   d.name.insert(0, "Shared Doc")
   d.content.set({ type: "text", body: "" })
 })
 const docB = createDoc(ProjectSchema)
-change(docB, d => {
+batch(docB, d => {
   d.name.insert(0, "Shared Doc")
   d.content.set({ type: "text", body: "" })
 })
@@ -297,7 +297,7 @@ const docBChangesets: Changeset[] = []
 subscribeNode(docB.stars, cs => docBChangesets.push(cs))
 
 // Capture on docA
-const roundTripOps = change(docA, d => {
+const roundTripOps = batch(docA, d => {
   d.name.insert(d.name().length, " v2")
   d.stars.increment(100)
   d.tasks.push({ title: "Review", done: false, priority: 1 })
@@ -310,7 +310,7 @@ const aSnap = json(docA())
 const bSnap = json(docB())
 
 log(`
-    const ops = change(docA, d => { ... })
+    const ops = batch(docA, d => { ... })
     applyChanges(docB, ops, { origin: "sync" })
 
     docA() deep-equals docB() → ${aSnap === bSnap} ✓
@@ -517,7 +517,7 @@ log(`    applyChanges delivers ONE changeset per affected path, not per op.`)
 
 {
   const batchDoc = createDoc(ProjectSchema)
-  change(batchDoc, d => {
+  batch(batchDoc, d => {
     d.name.insert(0, "Batch")
     d.content.set({ type: "text", body: "" })
   })
@@ -525,14 +525,14 @@ log(`    applyChanges delivers ONE changeset per affected path, not per op.`)
   subscribeNode(batchDoc.stars, cs => changesets.push(cs))
 
   // Generate 3 separate increment ops
-  const ops1 = change(batchDoc, d => d.stars.increment(1))
-  const ops2 = change(batchDoc, d => d.stars.increment(2))
-  const ops3 = change(batchDoc, d => d.stars.increment(3))
+  const ops1 = batch(batchDoc, d => d.stars.increment(1))
+  const ops2 = batch(batchDoc, d => d.stars.increment(2))
+  const ops3 = batch(batchDoc, d => d.stars.increment(3))
   changesets.length = 0 // reset from the individual changes above
 
   // Create a fresh doc and apply all 3 ops as one batch
   const batchDoc2 = createDoc(ProjectSchema)
-  change(batchDoc2, d => {
+  batch(batchDoc2, d => {
     d.name.insert(0, "Batch")
     d.content.set({ type: "text", body: "" })
   })
@@ -544,7 +544,7 @@ log(`    applyChanges delivers ONE changeset per affected path, not per op.`)
   log(`
     3 increment ops applied via applyChanges as one batch:
       changesets received → ${batchChangesets.length} (batched into one)
-      changeset.changes   → ${batchChangesets[0]?.changes.length} change(s)
+      changeset.changes   → ${batchChangesets[0]?.changes.length} batch(s)
       changeset.origin    → "${batchChangesets[0]?.origin}"
       batchDoc2.stars()   → ${batchDoc2.stars()} (fully applied: 1+2+3)
 

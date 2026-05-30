@@ -491,7 +491,7 @@ export interface SubstratePrepare {
    *
    * - Loro: increment a depth counter; on outermost release (depth
    *   returns to 0) run `doc.commit()` once — collapses nested
-   *   `change()` re-entries into one Loro commit.
+   *   `batch()` re-entries into one Loro commit.
    * - Yjs: `Y.transact(doc, work, KYNETA_ORIGIN)` — Yjs's native
    *   transact nesting handles the collapse for free.
    *

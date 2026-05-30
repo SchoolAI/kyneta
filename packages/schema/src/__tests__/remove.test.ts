@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   applyChanges,
-  change,
+  batch,
   hasRemove,
   interpret,
   isDeleted,
@@ -169,7 +169,7 @@ describe("[REMOVE]: sequences", () => {
     const c = doc.todos.at(2)
 
     // Delete item 0 via parent — b advances from 1→0, c from 2→1
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(0, 1)
     })
 
@@ -247,7 +247,7 @@ describe("[REMOVE]: dead ref", () => {
     const { doc } = createTodoDoc([{ text: "only", done: false }])
 
     const item = doc.todos.at(0)
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(0, 1)
     })
 
@@ -259,7 +259,7 @@ describe("[REMOVE]: dead ref", () => {
     const { doc } = createMapDoc({ key: "value" })
 
     const ref = doc.metadata.at("key")
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.metadata.delete("key")
     })
 
@@ -302,7 +302,7 @@ describe("[REMOVE]: non-removable refs", () => {
 // ===========================================================================
 
 describe("[REMOVE]: transactions", () => {
-  it("works inside change()", () => {
+  it("works inside batch()", () => {
     const { doc } = createTodoDoc([
       { text: "a", done: false },
       { text: "b", done: false },
@@ -311,7 +311,7 @@ describe("[REMOVE]: transactions", () => {
 
     const b = doc.todos.at(1)
 
-    const ops = change(doc, () => {
+    const ops = batch(doc, () => {
       b[REMOVE]()
     })
 
@@ -333,7 +333,7 @@ describe("[REMOVE]: transactions", () => {
       { text: "c", done: false },
     ])
 
-    const ops = change(docA, () => {
+    const ops = batch(docA, () => {
       docA.todos.at(1)[REMOVE]()
     })
 

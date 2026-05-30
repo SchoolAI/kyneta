@@ -2,7 +2,7 @@
 
 import type { Ref, SchemaNode, Substrate } from "@kyneta/schema"
 import {
-  change,
+  batch,
   interpret,
   observation,
   readable,
@@ -59,7 +59,7 @@ function interpretSubstrate<S extends SchemaNode>(
 describe("discriminated union on Loro substrate", () => {
   it("set, read discriminant, read variant field", () => {
     const doc = createDoc(loro.bind(DocSchema))
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.content.set({ type: "text", body: "hello world" })
     })
     expect(doc.content.type).toBe("text")
@@ -69,13 +69,13 @@ describe("discriminated union on Loro substrate", () => {
   it("variant switch: .set() with different discriminant re-dispatches", () => {
     const doc = createDoc(loro.bind(DocSchema))
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.content.set({ type: "text", body: "initial" })
     })
     expect(doc.content.type).toBe("text")
     expect((doc.content as any).body()).toBe("initial")
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.content.set({ type: "image", url: "pic.png" })
     })
 
@@ -87,12 +87,12 @@ describe("discriminated union on Loro substrate", () => {
   it("variant switch in reverse direction (image → text)", () => {
     const doc = createDoc(loro.bind(DocSchema))
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.content.set({ type: "image", url: "photo.jpg" })
     })
     expect(doc.content.type).toBe("image")
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.content.set({ type: "text", body: "replaced" })
     })
     expect(doc.content.type).toBe("text")
@@ -101,7 +101,7 @@ describe("discriminated union on Loro substrate", () => {
 
   it("push struct containing discriminated union into list", () => {
     const doc = createDoc(loro.bind(ListDocSchema))
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.items.push({
         label: "first",
         content: { type: "text", body: "hello" },
@@ -123,7 +123,7 @@ describe("discriminated union on Loro substrate", () => {
     substrateB.merge(substrateA.exportEntirety(), { origin: "sync" })
     const sinceVV = substrateB.version()
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.content.set({ type: "image", url: "synced.png" })
     })
 
@@ -142,10 +142,10 @@ describe("nullable sum on Loro substrate", () => {
       loro.bind(Schema.struct({ bio: Schema.string().nullable() })),
     )
 
-    change(doc, d => d.bio.set("hello"))
+    batch(doc, d => d.bio.set("hello"))
     expect(doc.bio()).toBe("hello")
 
-    change(doc, d => d.bio.set(null))
+    batch(doc, d => d.bio.set(null))
     expect(doc.bio()).toBe(null)
   })
 })

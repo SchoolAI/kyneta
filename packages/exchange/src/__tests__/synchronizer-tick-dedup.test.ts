@@ -10,7 +10,7 @@
 // cross-program canary for the same invariant; this test pins the
 // single-doc subscriber path.
 
-import { change, json, Schema, subscribe } from "@kyneta/schema"
+import { batch, json, Schema, subscribe } from "@kyneta/schema"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   Exchange,
@@ -53,7 +53,7 @@ describe("synchronizer outer tick coalescing", () => {
     let chainedFired = false
     subscribe(doc.n, () => {
       if (doc.n() < 2) {
-        change(doc, (d: any) => {
+        batch(doc, (d: any) => {
           d.n.set(2)
         })
       } else {
@@ -61,7 +61,7 @@ describe("synchronizer outer tick coalescing", () => {
       }
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.n.set(1)
     })
 

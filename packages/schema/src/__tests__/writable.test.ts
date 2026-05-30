@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
 import type { Ref, WritableContext } from "../index.js"
 import {
+  batch,
   bottomInterpreter,
   buildWritableContext,
-  change,
   FORWARD_OPS_MARKER,
   FORWARD_OPS_SINCE,
   hasTransact,
@@ -170,7 +170,7 @@ describe("writable: product .set()", () => {
     expect(doc.settings.darkMode()).toBe(false)
   })
 
-  it(".set() inside change() applies eagerly; delivers one batched Op[]", () => {
+  it(".set() inside batch() applies eagerly; delivers one batched Op[]", () => {
     const store = {
       settings: { darkMode: false, fontSize: 14 },
       metadata: { version: 1 },
@@ -181,7 +181,7 @@ describe("writable: product .set()", () => {
       .with(writable)
       .done()
 
-    const flushed = change(doc, d => {
+    const flushed = batch(doc, d => {
       d.settings.set({ darkMode: true, fontSize: 20 })
       // Eager-σ: read-your-writes inside the block
       expect(store.settings).toEqual({ darkMode: true, fontSize: 20 })
@@ -283,8 +283,8 @@ describe("writable: map ref", () => {
 // Batched mode
 // ---------------------------------------------------------------------------
 
-describe("writable: change() blocks", () => {
-  it("actions apply eagerly inside change(); one batched Op[] returned", () => {
+describe("writable: batch() blocks", () => {
+  it("actions apply eagerly inside batch(); one batched Op[] returned", () => {
     const store = { x: 0, y: 0 }
     const schema = Schema.struct({
       x: Schema.number(),
@@ -293,7 +293,7 @@ describe("writable: change() blocks", () => {
     const ctx = plainContext(store)
     const doc = interpret(schema, ctx).with(readable).with(writable).done()
 
-    const flushed = change(doc, d => {
+    const flushed = batch(doc, d => {
       d.x.set(10)
       d.y.set(20)
     })
@@ -303,7 +303,7 @@ describe("writable: change() blocks", () => {
     expect(flushed.length).toBe(2)
   })
 
-  it("dispatch applies immediately outside any change() block (auto-commit)", () => {
+  it("dispatch applies immediately outside any batch() block (auto-commit)", () => {
     const store = { x: 0 }
     const schema = Schema.struct({ x: Schema.number() })
     const ctx = plainContext(store)
@@ -881,7 +881,7 @@ describe("writable: compensation loop", () => {
     const doc = interpret(schema, fullInterpreter, ctx) as any
 
     try {
-      change(doc, d => d.count.increment(1))
+      batch(doc, d => d.count.increment(1))
       expect.fail("Should have thrown")
     } catch (e: any) {
       expect(e).toBe(compensationError)
@@ -919,7 +919,7 @@ describe("writable: compensation loop", () => {
     const doc = interpret(schema, fullInterpreter, ctx) as any
 
     try {
-      change(doc, d => d.count.increment(1))
+      batch(doc, d => d.count.increment(1))
       expect.fail("Should have thrown")
     } catch (e: any) {
       expect(e).toBeInstanceOf(Error)

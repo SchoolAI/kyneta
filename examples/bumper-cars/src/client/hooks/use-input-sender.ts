@@ -3,7 +3,7 @@
 //   Bumper Cars — Input Sender Hook
 //
 //   Throttled writer that sends joystick/keyboard input to the player's
-//   input doc via change(). Uses the pure shouldSendInputUpdate() from
+//   input doc via batch(). Uses the pure shouldSendInputUpdate() from
 //   logic.ts to decide whether to fire.
 //
 //   - Throttles to ~20fps (50ms interval)
@@ -11,12 +11,12 @@
 //   - Only sends when input actually changes
 //
 //   Adapted from vendor/loro-extended/examples/bumper-cars/src/client/hooks/use-presence-sender.ts
-//   replacing sync(doc).presence.setSelf(...) with change(inputDoc, ...).
+//   replacing sync(doc).presence.setSelf(...) with batch(inputDoc, ...).
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef } from "react"
-import { change } from "@kyneta/react"
+import { batch } from "@kyneta/react"
 import type { Ref } from "@kyneta/schema"
 import type { PlayerInputSchema } from "../../schema.js"
 import type { InputState } from "../../types.js"
@@ -42,7 +42,7 @@ type UseInputSenderOptions = {
  * Hook that handles throttled input document updates.
  *
  * Writes the player's current input state to their LWW input doc
- * via change(). The Exchange broadcasts the snapshot to the server
+ * via batch(). The Exchange broadcasts the snapshot to the server
  * automatically via the ephemeral sync protocol.
  */
 export function useInputSender({
@@ -81,7 +81,7 @@ export function useInputSender({
     lastUpdateTimeRef.current = now
 
     // Write to the input doc — the Exchange broadcasts via LWW
-    change(doc, d => {
+    batch(doc, d => {
       d.name.set(playerName)
       d.color.set(playerColor)
       d.force.set(input.force)

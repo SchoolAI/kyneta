@@ -19,8 +19,8 @@ bun run example/basic/main.ts
 | **Mutations** | Text insert, counter increment, sequence push, scalar set, map set, product set |
 | **Collections** | Lists (`.at()`, `.get()`, `.length`, iteration) and records (`.keys()`, `.has()`, `.size`) |
 | **Sums and Nullables** | Discriminated union narrowing, nullable set/read/null |
-| **Transactions** | `change(doc, fn)` → `Op[]` — batch mutations atomically |
-| **Round-Trip** | `change(docA, fn)` → ops → `applyChanges(docB, ops)` — the sync story |
+| **Transactions** | `batch(doc, fn)` → `Op[]` — batch mutations atomically |
+| **Round-Trip** | `batch(docA, fn)` → ops → `applyChanges(docB, ops)` — the sync story |
 | **Observation** | `subscribe` (tree-level) and `subscribeNode` (node-level) |
 | **Sync** | `version()`, `delta()`, `exportSnapshot()` — version tracking and replication |
 | **Validation** | `validate()` and `tryValidate()` — same schema, no separate definition |

@@ -10,7 +10,7 @@
 // duplicate that coverage here.
 
 import { Bridge, createBridgeTransport } from "@kyneta/bridge-transport"
-import { change, Interpret, json, Reject, Schema } from "@kyneta/schema"
+import { batch, Interpret, json, Reject, Schema } from "@kyneta/schema"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   Exchange,
@@ -277,7 +277,7 @@ describe("dynamic policy resolve", () => {
     })
 
     const docA = exchangeA.get("discovered", SequentialDoc)
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.title.set("hello")
       d.count.set(42)
     })

@@ -226,7 +226,7 @@ if (hasKind(c) && c.kind() === "Text") { ... }
 Source: `packages/schema/backends/loro/src/substrate.ts` → `LoroSubstrate.prepare` / `afterBatch` / `runBatch`; `src/change-mapping.ts` → `changeToDiff`.
 
 ```
-change(doc, d => { d.title.insert(0, "hi"); d.items.push(x) })
+batch(doc, d => { d.title.insert(0, "hi"); d.items.push(x) })
   │
   ├─ runBatch opens its commit bracket (depth 0→1)
   │
@@ -251,9 +251,9 @@ change(doc, d => { d.title.insert(0, "hi"); d.items.push(x) })
   │
   └─ runBatch finally (depth 1→0):
        nextIsOurs = true
-       └─ doc.commit({ origin }) ── one commit per outermost change(); fires one
+       └─ doc.commit({ origin }) ── one commit per outermost batch(); fires one
                           doc.subscribe batch for the whole logical
-                          action (re-entrant change()s from
+                          action (re-entrant batch()s from
                           subscribers collapse into the same commit)
        nextIsOurs = false
 ```
@@ -309,9 +309,9 @@ runBatch(work, options) {
 }
 ```
 
-The ctx-level `WritableContext.runBatch` invokes `substrate.runBatch` only at the depth-0 transition. Within a single outermost `change(doc, fn)`, the substrate sees exactly one bracket: wrappedWork (prepares + flush + subscriber re-entry) → doc.commit. Inner ctx-level frames (nested `change()` inside `change()`'s `fn`) push/pop without re-entering substrate.runBatch — they just contribute prepares to the outer's pending applyDiff queue.
+The ctx-level `WritableContext.runBatch` invokes `substrate.runBatch` only at the depth-0 transition. Within a single outermost `batch(doc, fn)`, the substrate sees exactly one bracket: wrappedWork (prepares + flush + subscriber re-entry) → doc.commit. Inner ctx-level frames (nested `batch()` inside `batch()`'s `fn`) push/pop without re-entering substrate.runBatch — they just contribute prepares to the outer's pending applyDiff queue.
 
-**Subscriber re-entry produces a separate outermost commit.** When a subscriber fires during the outer's `ctx.flush`, the outer's ctx frame has already popped, so the re-entrant `change()` sees `frameStarts.length === 0` again and opens its own outermost bracket — its own substrate.runBatch → its own `doc.commit()`. Each block is its own atomic abort unit; each gets its own commit. This is a deliberate semantic shift from the pre-jj:ryquprut depth-counter design (which collapsed re-entries into one commit). The trade-off: cleaner per-block abort semantics (each `change()` is an independent atomic action) at the cost of slightly chattier Loro commit attribution (one commit per `change()` block instead of one per logical user action with re-entries).
+**Subscriber re-entry produces a separate outermost commit.** When a subscriber fires during the outer's `ctx.flush`, the outer's ctx frame has already popped, so the re-entrant `batch()` sees `frameStarts.length === 0` again and opens its own outermost bracket — its own substrate.runBatch → its own `doc.commit()`. Each block is its own atomic abort unit; each gets its own commit. This is a deliberate semantic shift from the pre-jj:ryquprut depth-counter design (which collapsed re-entries into one commit). The trade-off: cleaner per-block abort semantics (each `batch()` is an independent atomic action) at the cost of slightly chattier Loro commit attribution (one commit per `batch()` block instead of one per logical user action with re-entries).
 
 ### Load-bearing Loro invariants
 
@@ -320,13 +320,13 @@ The ctx-level `WritableContext.runBatch` invokes `substrate.runBatch` only at th
 ### What the write path is NOT
 
 - **Not a streaming write.** Each transaction is at most a handful of `applyDiff` calls (structural inserts apply immediately; plain MapDiffs coalesce into one per container per batch).
-- **Not transactional in Loro's sense.** Loro has its own transaction semantics; kyneta's `change(doc, fn)` is an interpreter-stack transaction that commits a bundle of Loro writes atomically *from kyneta's perspective*. Loro ops can still interleave concurrently with other peers.
+- **Not transactional in Loro's sense.** Loro has its own transaction semantics; kyneta's `batch(doc, fn)` is an interpreter-stack transaction that commits a bundle of Loro writes atomically *from kyneta's perspective*. Loro ops can still interleave concurrently with other peers.
 - **Not reversible from the substrate.** There is no undo buffer in the substrate. Undo is an application concern.
 
 ### What the write path is NOT
 
 - **Not a streaming write.** Each transaction is one `applyDiff` call (or one per container group). We don't write one op per mutation.
-- **Not transactional in Loro's sense.** Loro has its own transaction semantics; kyneta's `change(doc, fn)` is an interpreter-stack transaction that commits a bundle of Loro writes atomically *from kyneta's perspective*. Loro ops can still interleave concurrently with other peers.
+- **Not transactional in Loro's sense.** Loro has its own transaction semantics; kyneta's `batch(doc, fn)` is an interpreter-stack transaction that commits a bundle of Loro writes atomically *from kyneta's perspective*. Loro ops can still interleave concurrently with other peers.
 - **Not reversible from the substrate.** There is no undo buffer in the substrate. Undo is an application concern.
 
 ---
@@ -337,7 +337,7 @@ Source: `packages/schema/backends/loro/src/substrate.ts` → `doc.subscribe` han
 
 The persistent `doc.subscribe()` callback is the enforcement mechanism for the key invariant: *every* mutation to the underlying `LoroDoc` fires the kyneta changefeed, regardless of source. Mutation sources include:
 
-- Local kyneta writes via `change(doc, fn)` — suppressed by the pre-commit-hook discriminator (we already notified).
+- Local kyneta writes via `batch(doc, fn)` — suppressed by the pre-commit-hook discriminator (we already notified).
 - `exchange.merge(payload)` from remote peers — not suppressed; kyneta subscribers must see it.
 - `doc.import(update)` from application code directly — not suppressed; kyneta subscribers must see it.
 - Raw Loro API writes (`doc.getText(key).insert(0, "x")`) bypassing kyneta — not suppressed; kyneta subscribers must see it.
@@ -362,9 +362,9 @@ Three properties this gives us:
 
 ### Known limitation: mixed mode
 
-Mixing raw CRDT mutations with `change()` calls inside the same atomic unit (such as Loro pending ops accumulated before a kyneta-issued commit) is unsupported. The raw mutations will be silently absorbed into kyneta's own-commit skip and not bridged to the kyneta changefeed. To intermix, use separate commits for raw mutations. This is a fundamental limit of commit-level discrimination.
+Mixing raw CRDT mutations with `batch()` calls inside the same atomic unit (such as Loro pending ops accumulated before a kyneta-issued commit) is unsupported. The raw mutations will be silently absorbed into kyneta's own-commit skip and not bridged to the kyneta changefeed. To intermix, use separate commits for raw mutations. This is a fundamental limit of commit-level discrimination.
 
-The earlier `inEventHandler` flag (which protected substrate-write skipping during event-bridge replay) was retired in favor of `BatchOptions.replay`: the event bridge passes `{ replay: true }` to `executeBatch`, and the substrate's `prepare`/`afterBatch` discriminate on that typed parameter rather than on an ambient global. This closes a previously latent invariant hole — a re-entrant `change(doc, ...)` from inside a subscriber on a replay batch now correctly lands in the substrate (replay=false on the inner batch), where pre-fix the global flag swallowed the write. Context: jj:qpultxsw.
+The earlier `inEventHandler` flag (which protected substrate-write skipping during event-bridge replay) was retired in favor of `BatchOptions.replay`: the event bridge passes `{ replay: true }` to `executeBatch`, and the substrate's `prepare`/`afterBatch` discriminate on that typed parameter rather than on an ambient global. This closes a previously latent invariant hole — a re-entrant `batch(doc, ...)` from inside a subscriber on a replay batch now correctly lands in the substrate (replay=false on the inner batch), where pre-fix the global flag swallowed the write. Context: jj:qpultxsw.
 
 During replay, `afterBatch` re-materialises the `PlainState` shadow from the `LoroDoc` via `materializeLoroShadow` (using the shared `syncShadow` helper from `@kyneta/schema`'s `reader`), ensuring that `ctx.reader` — which reads through `plainReader(shadow)` — is consistent with the merged CRDT state for any subscriber callbacks that fire during notification delivery. Replay is the only branch that re-materialises; on local writes σ already tracks each prepare incrementally.
 

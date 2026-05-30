@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   ADDRESS_TABLE,
   applyChanges,
-  change,
+  batch,
   interpret,
   isDeleted,
   observation,
@@ -78,7 +78,7 @@ describe("withAddressing: sequences", () => {
     expect(betaRef.text()).toBe("beta")
 
     // Insert at index 0 — "beta" shifts from index 1 to index 2
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.insert(0, [{ text: "new", done: false }])
     })
 
@@ -97,7 +97,7 @@ describe("withAddressing: sequences", () => {
     const refB = doc.todos.at(1)
 
     // Insert at index 0 — "alpha" moves to 1, "beta" moves to 2
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.insert(0, [{ text: "new", done: false }])
     })
 
@@ -120,7 +120,7 @@ describe("withAddressing: sequences", () => {
     const refC = doc.todos.at(2)
 
     // Delete index 0 — "beta" moves to 0, "gamma" moves to 1
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(0, 1)
     })
 
@@ -157,7 +157,7 @@ describe("withAddressing: sequences", () => {
     const c = doc.todos.at(2)
 
     // Delete index 0 ("a")
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(0, 1)
     })
 
@@ -190,7 +190,7 @@ describe("withAddressing: maps", () => {
     expect(versionRef()).toBe("1.0")
 
     // Delete the "version" key
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.metadata.delete("version")
     })
 
@@ -205,13 +205,13 @@ describe("withAddressing: maps", () => {
     expect(versionRef()).toBe("1.0")
 
     // Delete
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.metadata.delete("version")
     })
     expect(isDeleted(versionRef)).toBe(true)
 
     // Re-set the same key
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.metadata.set("version", "2.0")
     })
 
@@ -290,7 +290,7 @@ describe("withAddressing: onRefCreated", () => {
     const item = doc.todos.at(0)
     expect(isDeleted(item)).toBe(false)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(0, 1)
     })
     expect(isDeleted(item)).toBe(true)
@@ -383,7 +383,7 @@ describe("withAddressing: dead ref detection", () => {
     expect(beta.done()).toBe(false)
 
     // Delete beta (index 1)
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(1, 1)
     })
 
@@ -401,13 +401,13 @@ describe("withAddressing: dead ref detection", () => {
     const beta = doc.todos.at(1)
 
     // Delete beta
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(1, 1)
     })
 
     // Writing through the child ref should throw
     expect(() => {
-      change(doc, () => {
+      batch(doc, () => {
         beta.done.set(true)
       })
     }).toThrow("Ref access on deleted list item")
@@ -419,7 +419,7 @@ describe("withAddressing: dead ref detection", () => {
     const versionRef = doc.metadata.at("version")
     expect(versionRef()).toBe("1.0")
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.metadata.delete("version")
     })
 
@@ -431,12 +431,12 @@ describe("withAddressing: dead ref detection", () => {
 
     const versionRef = doc.metadata.at("version")
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.metadata.delete("version")
     })
 
     expect(() => {
-      change(doc, () => {
+      batch(doc, () => {
         versionRef.set("2.0")
       })
     }).toThrow("Ref access on deleted map entry")
@@ -449,14 +449,14 @@ describe("withAddressing: dead ref detection", () => {
     expect(isDeleted(item)).toBe(false)
     expect(item.text()).toBe("only")
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(0, 1)
     })
 
     expect(isDeleted(item)).toBe(true)
     expect(() => item.text()).toThrow("Ref access on deleted list item")
     expect(() => {
-      change(doc, () => {
+      batch(doc, () => {
         item.done.set(true)
       })
     }).toThrow("Ref access on deleted list item")
@@ -469,14 +469,14 @@ describe("withAddressing: dead ref detection", () => {
     expect(isDeleted(ref)).toBe(false)
     expect(ref()).toBe("1.0")
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.metadata.delete("version")
     })
 
     expect(isDeleted(ref)).toBe(true)
     expect(() => ref()).toThrow("Ref access on deleted map entry")
     expect(() => {
-      change(doc, () => {
+      batch(doc, () => {
         ref.set("2.0")
       })
     }).toThrow("Ref access on deleted map entry")
@@ -499,7 +499,7 @@ describe("withAddressing: dead ref detection", () => {
 
     expect(handler()).toBe("beta")
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(1, 1)
     })
 
@@ -568,7 +568,7 @@ describe("withAddressing: subscription survival after structural change", () => 
     gamma.text[CHANGEFEED].subscribe((cs: any) => textChanges.push(cs))
 
     // Delete alpha (index 0) — gamma shifts from index 2 to index 1
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(0, 1)
     })
 
@@ -577,7 +577,7 @@ describe("withAddressing: subscription survival after structural change", () => 
     expect(gamma.text()).toBe("gamma")
 
     // Mutate gamma at its new position — subscription should fire
-    change(doc, () => {
+    batch(doc, () => {
       gamma.text.set("gamma-updated")
     })
 
@@ -597,14 +597,14 @@ describe("withAddressing: subscription survival after structural change", () => 
     authorRef[CHANGEFEED].subscribe((cs: any) => authorChanges.push(cs))
 
     // Delete a different key
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.metadata.delete("license")
     })
 
     // Author subscription should still work
     expect(isDeleted(authorRef)).toBe(false)
 
-    change(doc, () => {
+    batch(doc, () => {
       authorRef.set("bob")
     })
 
@@ -629,7 +629,7 @@ describe("withAddressing: subscription survival after structural change", () => 
     })
 
     // Delete alpha (index 0)
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.delete(0, 1)
     })
 
@@ -639,7 +639,7 @@ describe("withAddressing: subscription survival after structural change", () => 
     // Now mutate beta (now at index 0) — tree subscription should propagate
     treeEvents.length = 0
     const beta = doc.todos.at(0)
-    change(doc, () => {
+    batch(doc, () => {
       beta.text.set("beta-updated")
     })
 
@@ -712,7 +712,7 @@ describe("withAddressing: subscription survival after structural change", () => 
     })
 
     // Insert at index 0 — shifts alpha to 1, beta to 2
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.todos.insert(0, [{ text: "new", done: false }])
     })
 
@@ -721,7 +721,7 @@ describe("withAddressing: subscription survival after structural change", () => 
 
     // Mutate beta (now at index 2) — should fire exactly once
     const beta = doc.todos.at(2)
-    change(doc, () => {
+    batch(doc, () => {
       beta.text.set("beta-updated")
     })
 

@@ -237,7 +237,7 @@ Source: `packages/schema/backends/yjs/src/substrate.ts` → `prepare` / `afterBa
 Yjs's natural programming model is imperative: open a `Y.transact`, mutate shared types, close. Kyneta's write path advances **both** σ (the shadow, read-visible) AND λ (the live `Y.Doc` tree, sync-visible) inside the ambient `Y.transact` opened by `runBatch`. The projection law `σ ≡ Π(λ)` (the naturality condition of `materializeYjsShadow`) holds at every prepare boundary.
 
 ```
-change(doc, d => { d.title.insert(0, "hi"); d.items.push(x) })
+batch(doc, d => { d.title.insert(0, "hi"); d.items.push(x) })
   │
   ├─ runBatch opens ONE Y.transact(doc, body, KYNETA_ORIGIN)
   │   (re-entrant runBatch calls nest natively — Yjs collapses them
@@ -270,7 +270,7 @@ Non-boundary writes bypass the buffer entirely and go straight to `applyChangeTo
 
 ### Nested-transact collapse under re-entry
 
-Yjs's `Y.transact` natively collapses nesting: an inner `Y.transact` call inside an outer one runs as part of the outer transact and emits no separate `observeDeep` event. The substrate's `runBatch` just opens `Y.transact(work, KYNETA_ORIGIN)` without any depth counter — Yjs handles the collapse. Practical effect: a subscriber's re-entrant `change(doc, ...)` from inside `deliverNotifications` opens a nested transact that folds into the outer one, producing a single batched `observeDeep` for the whole logical user action. External Yjs providers (y-websocket, y-webrtc) ship one binary update per outermost `change(doc, fn)` — strictly fewer / smaller-equal updates than the pre-Phase-3 design.
+Yjs's `Y.transact` natively collapses nesting: an inner `Y.transact` call inside an outer one runs as part of the outer transact and emits no separate `observeDeep` event. The substrate's `runBatch` just opens `Y.transact(work, KYNETA_ORIGIN)` without any depth counter — Yjs handles the collapse. Practical effect: a subscriber's re-entrant `batch(doc, ...)` from inside `deliverNotifications` opens a nested transact that folds into the outer one, producing a single batched `observeDeep` for the whole logical user action. External Yjs providers (y-websocket, y-webrtc) ship one binary update per outermost `batch(doc, fn)` — strictly fewer / smaller-equal updates than the pre-Phase-3 design.
 
 `BatchOptions.origin` (the app-level provenance label) flows through the kyneta `Changeset.origin` channel only — it never reaches Yjs's transact origin, which is always `KYNETA_ORIGIN` so the event-bridge handler can recognise and skip its own writes.
 
@@ -306,7 +306,7 @@ Source: `packages/schema/backends/yjs/src/substrate.ts` → `rootMap.observeDeep
 
 The persistent `observeDeep` callback on the root `Y.Map` is the enforcement mechanism for the key invariant: every mutation fires the kyneta changefeed, regardless of source. Sources include:
 
-- Local kyneta writes via `change(doc, fn)` — suppressed by the `transaction.meta` mark.
+- Local kyneta writes via `batch(doc, fn)` — suppressed by the `transaction.meta` mark.
 - `exchange.merge(payload)` from remote peers — not suppressed; subscribers must see it.
 - `Y.applyUpdate(doc, update)` from application code directly — not suppressed.
 - Raw Yjs API writes (`doc.getMap("root").get(id).insert(0, "x")`) bypassing kyneta — not suppressed.
@@ -345,7 +345,7 @@ Three properties this gives us:
 
 ### Known limitation: mixed mode
 
-Mixing raw CRDT mutations with `change()` calls inside the same atomic unit (a single Yjs `transact` body) is unsupported. The raw mutations will be silently absorbed into kyneta's own-commit skip and not bridged to the kyneta changefeed. To intermix, use separate transacts for raw mutations. This is a fundamental limit of commit-level discrimination.
+Mixing raw CRDT mutations with `batch()` calls inside the same atomic unit (a single Yjs `transact` body) is unsupported. The raw mutations will be silently absorbed into kyneta's own-commit skip and not bridged to the kyneta changefeed. To intermix, use separate transacts for raw mutations. This is a fundamental limit of commit-level discrimination.
 
 During replay, `onFlush` re-materializes the `PlainState` shadow from the `Y.Doc` via `materializeYjsShadow`, ensuring that `ctx.reader` — which reads through `plainReader(shadow)` — is consistent with the merged Yjs state for any subscriber callbacks that fire during notification delivery. See [§The functional shadow](../../TECHNICAL.md#the-functional-shadow).
 

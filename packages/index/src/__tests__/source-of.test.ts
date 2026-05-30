@@ -1,4 +1,4 @@
-import { change, createDoc, json, Schema } from "@kyneta/schema"
+import { batch, createDoc, json, Schema } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
 import type { SourceEvent } from "../source.js"
 import { Source } from "../source.js"
@@ -187,7 +187,7 @@ describe("Source.of", () => {
     it("entities from list inside doc appear in snapshot", () => {
       const exchange = createMockExchange()
       const docRef = exchange.get("proj-1", ProjectDoc)
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.tasks.push({ id: "t1", name: "Task 1", ownerId: "alice" })
         d.tasks.push({ id: "t2", name: "Task 2", ownerId: "bob" })
       })
@@ -223,7 +223,7 @@ describe("Source.of", () => {
       const docRef = exchange.simulateDocCreated("proj-2", ProjectDoc)
 
       // Populate the doc with tasks
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.tasks.push({ id: "t3", name: "Task 3", ownerId: "carol" })
         d.tasks.push({ id: "t4", name: "Task 4", ownerId: "dave" })
       })
@@ -243,7 +243,7 @@ describe("Source.of", () => {
     it("item added to existing doc list → appears in stream", () => {
       const exchange = createMockExchange()
       const docRef = exchange.get("proj-1", ProjectDoc)
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.tasks.push({ id: "t1", name: "Task 1", ownerId: "alice" })
       })
 
@@ -257,7 +257,7 @@ describe("Source.of", () => {
       source.subscribe(e => events.push(e))
 
       // Add a new task to the existing doc
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.tasks.push({ id: "t-new", name: "New Task", ownerId: "alice" })
       })
 
@@ -274,7 +274,7 @@ describe("Source.of", () => {
     it("doc destroyed → its list entities retracted", () => {
       const exchange = createMockExchange()
       const docRef = exchange.get("proj-1", ProjectDoc)
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.tasks.push({ id: "t1", name: "Task 1", ownerId: "alice" })
         d.tasks.push({ id: "t2", name: "Task 2", ownerId: "bob" })
       })
@@ -308,7 +308,7 @@ describe("Source.of", () => {
     it("record keys across docs appear in snapshot", () => {
       const exchange = createMockExchange()
       const docRef = exchange.get("team-1", TeamDoc)
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.members.set("alice", { role: "admin" })
         d.members.set("bob", { role: "viewer" })
       })
@@ -327,12 +327,12 @@ describe("Source.of", () => {
       const exchange = createMockExchange()
 
       const doc1 = exchange.get("team-1", TeamDoc)
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.members.set("alice", { role: "admin" })
       })
 
       const doc2 = exchange.get("team-2", TeamDoc)
-      change(doc2, (d: any) => {
+      batch(doc2, (d: any) => {
         d.members.set("alice", { role: "member" })
         d.members.set("carol", { role: "admin" })
       })
@@ -357,7 +357,7 @@ describe("Source.of", () => {
       source.subscribe(e => events.push(e))
 
       const docRef = exchange.simulateDocCreated("team-3", TeamDoc)
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.members.set("dave", { role: "viewer" })
       })
 
@@ -370,7 +370,7 @@ describe("Source.of", () => {
     it("record key added to existing doc → appears in stream", () => {
       const exchange = createMockExchange()
       const docRef = exchange.get("team-1", TeamDoc)
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.members.set("alice", { role: "admin" })
       })
 
@@ -378,7 +378,7 @@ describe("Source.of", () => {
       const events: SourceEvent<any>[] = []
       source.subscribe(e => events.push(e))
 
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.members.set("bob", { role: "viewer" })
       })
 
@@ -392,7 +392,7 @@ describe("Source.of", () => {
     it("record key removed from existing doc → retracted in stream", () => {
       const exchange = createMockExchange()
       const docRef = exchange.get("team-1", TeamDoc)
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.members.set("alice", { role: "admin" })
         d.members.set("bob", { role: "viewer" })
       })
@@ -401,7 +401,7 @@ describe("Source.of", () => {
       const events: SourceEvent<any>[] = []
       source.subscribe(e => events.push(e))
 
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.members.delete("alice")
       })
 
@@ -435,7 +435,7 @@ describe("Source.of", () => {
     it("list-level: after dispose, mutations do not produce events", () => {
       const exchange = createMockExchange()
       const docRef = exchange.get("proj-1", ProjectDoc)
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.tasks.push({ id: "t1", name: "Task 1", ownerId: "alice" })
       })
 
@@ -451,7 +451,7 @@ describe("Source.of", () => {
       source.dispose()
 
       // Mutate the doc after dispose — should not produce events
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.tasks.push({ id: "t-after", name: "After dispose", ownerId: "bob" })
       })
 
@@ -461,7 +461,7 @@ describe("Source.of", () => {
     it("record-level: after dispose, mutations do not produce events", () => {
       const exchange = createMockExchange()
       const docRef = exchange.get("team-1", TeamDoc)
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.members.set("alice", { role: "admin" })
       })
 
@@ -471,7 +471,7 @@ describe("Source.of", () => {
 
       source.dispose()
 
-      change(docRef, (d: any) => {
+      batch(docRef, (d: any) => {
         d.members.set("bob", { role: "viewer" })
       })
 

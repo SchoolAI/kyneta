@@ -3,7 +3,7 @@ import { CHANGEFEED, hasChangefeed } from "@kyneta/changefeed"
 import { describe, expect, it } from "vitest"
 import {
   applyChanges,
-  change,
+  batch,
   createDoc,
   createDocFromEntirety,
   delta,
@@ -32,10 +32,10 @@ const TestSchema = Schema.struct({
   theme: Schema.string(),
 })
 
-/** Create a doc and apply seed values via change(). */
+/** Create a doc and apply seed values via batch(). */
 function createSeededDoc() {
   const doc = createDoc(TestSchema)
-  change(doc, d => {
+  batch(doc, d => {
     d.title.insert(0, "Hello")
     d.count.increment(5)
     d.items.push({ name: "Task A", done: false })
@@ -57,7 +57,7 @@ describe("createDoc", () => {
     expect(doc()).not.toBeNull()
   })
 
-  it("with seed values applied via change() populates initial state", () => {
+  it("with seed values applied via batch() populates initial state", () => {
     const doc = createSeededDoc()
 
     expect(doc.title()).toBe("Hello")
@@ -96,7 +96,7 @@ describe("createDocFromEntirety", () => {
     const docA = createSeededDoc()
 
     // Mutate docA
-    change(docA, d => {
+    batch(docA, d => {
       d.title.insert(5, " World")
       d.count.increment(3)
       d.items.push({ name: "Task B", done: true })
@@ -125,14 +125,14 @@ describe("sync primitives", () => {
     const doc = createSeededDoc()
 
     const v0 = version(doc)
-    change(doc, d => {
+    batch(doc, d => {
       d.theme.set("light")
     })
     const v1 = version(doc)
 
     expect(v1).toBeGreaterThan(v0)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.count.increment(1)
     })
     const v2 = version(doc)
@@ -144,7 +144,7 @@ describe("sync primitives", () => {
     const doc = createSeededDoc()
 
     const v = version(doc)
-    change(doc, d => {
+    batch(doc, d => {
       d.theme.set("light")
       d.count.increment(2)
     })
@@ -156,7 +156,7 @@ describe("sync primitives", () => {
   it("delta returns [] when already up to date", () => {
     const doc = createSeededDoc()
 
-    change(doc, d => {
+    batch(doc, d => {
       d.theme.set("light")
     })
 
@@ -184,7 +184,7 @@ describe("change / applyChanges round-trip", () => {
     const docA = createSeededDoc()
     const docB = createDocFromEntirety(TestSchema, exportEntirety(docA))
 
-    const ops = change(docA, d => {
+    const ops = batch(docA, d => {
       d.title.insert(5, " World")
     })
 
@@ -197,7 +197,7 @@ describe("change / applyChanges round-trip", () => {
     const docA = createSeededDoc()
     const docB = createDocFromEntirety(TestSchema, exportEntirety(docA))
 
-    const ops = change(docA, d => {
+    const ops = batch(docA, d => {
       d.count.increment(10)
     })
 
@@ -210,7 +210,7 @@ describe("change / applyChanges round-trip", () => {
     const docA = createSeededDoc()
     const docB = createDocFromEntirety(TestSchema, exportEntirety(docA))
 
-    const ops = change(docA, d => {
+    const ops = batch(docA, d => {
       d.items.push({ name: "Task B", done: true })
     })
 
@@ -225,7 +225,7 @@ describe("change / applyChanges round-trip", () => {
     const docA = createSeededDoc()
     const docB = createDocFromEntirety(TestSchema, exportEntirety(docA))
 
-    const ops = change(docA, d => {
+    const ops = batch(docA, d => {
       d.title.insert(5, "!")
       d.count.increment(7)
       d.items.push({ name: "Task C", done: false })
@@ -243,7 +243,7 @@ describe("change / applyChanges round-trip", () => {
     subscribe(doc, cs => changesets.push(cs))
 
     const otherDoc = createDocFromEntirety(TestSchema, exportEntirety(doc))
-    const ops = change(otherDoc, d => {
+    const ops = batch(otherDoc, d => {
       d.theme.set("light")
     })
 
@@ -265,7 +265,7 @@ describe("subscribe", () => {
     const changesets: Changeset<Op>[] = []
     subscribe(doc, cs => changesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.theme.set("light")
     })
 
@@ -280,7 +280,7 @@ describe("subscribe", () => {
     const changesets: Changeset<Op>[] = []
     subscribe(doc, cs => changesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.theme.set("light")
       d.count.increment(1)
     })
@@ -301,7 +301,7 @@ describe("subscribeNode", () => {
     const changesets: Changeset[] = []
     subscribeNode(doc.count, cs => changesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.count.increment(1)
     })
 
@@ -316,7 +316,7 @@ describe("subscribeNode", () => {
     const changesets: Changeset[] = []
     subscribeNode(doc.count, cs => changesets.push(cs))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.theme.set("light")
     })
 
@@ -333,7 +333,7 @@ describe("WeakMap isolation", () => {
     const docA = createSeededDoc()
     const docB = createSeededDoc()
 
-    change(docA, d => {
+    batch(docA, d => {
       d.title.insert(5, " World")
       d.count.increment(10)
       d.theme.set("light")
@@ -359,14 +359,14 @@ describe("WeakMap isolation", () => {
     expect(vA0).toBe(1)
     expect(vB0).toBe(1)
 
-    change(docA, d => {
+    batch(docA, d => {
       d.theme.set("light")
     })
 
     expect(version(docA)).toBeGreaterThan(vA0)
     expect(version(docB)).toBe(vB0)
 
-    change(docB, d => {
+    batch(docB, d => {
       d.count.increment(1)
     })
 
@@ -392,7 +392,7 @@ describe("isPopulated", () => {
     const doc = createDoc(TestSchema)
     expect(isPopulated(doc.theme)).toBe(false)
 
-    change(doc, d => d.theme.set("dark"))
+    batch(doc, d => d.theme.set("dark"))
 
     expect(isPopulated(doc.theme)).toBe(true)
     // Other fields remain unpopulated
@@ -404,7 +404,7 @@ describe("isPopulated", () => {
     const doc = createDoc(TestSchema)
     expect(isPopulated(doc.title)).toBe(false)
 
-    change(doc, d => d.title.insert(0, "Hello"))
+    batch(doc, d => d.title.insert(0, "Hello"))
 
     expect(isPopulated(doc.title)).toBe(true)
   })
@@ -413,7 +413,7 @@ describe("isPopulated", () => {
     const doc = createDoc(TestSchema)
     expect(isPopulated(doc.count)).toBe(false)
 
-    change(doc, d => d.count.increment(1))
+    batch(doc, d => d.count.increment(1))
 
     expect(isPopulated(doc.count)).toBe(true)
   })
@@ -422,7 +422,7 @@ describe("isPopulated", () => {
     const doc = createDoc(TestSchema)
     expect(isPopulated(doc.items)).toBe(false)
 
-    change(doc, d => d.items.push({ name: "Task", done: false }))
+    batch(doc, d => d.items.push({ name: "Task", done: false }))
 
     expect(isPopulated(doc.items)).toBe(true)
   })
@@ -431,7 +431,7 @@ describe("isPopulated", () => {
     const doc = createDoc(TestSchema)
     expect(isPopulated(doc)).toBe(false)
 
-    change(doc, d => d.theme.set("light"))
+    batch(doc, d => d.theme.set("light"))
 
     // Doc itself is populated because a descendant was mutated
     expect(isPopulated(doc)).toBe(true)
@@ -443,11 +443,11 @@ describe("isPopulated", () => {
 
   it("never reverts to false after becoming true", () => {
     const doc = createDoc(TestSchema)
-    change(doc, d => d.theme.set("dark"))
+    batch(doc, d => d.theme.set("dark"))
     expect(isPopulated(doc.theme)).toBe(true)
 
     // Another mutation doesn't change the boolean
-    change(doc, d => d.theme.set("light"))
+    batch(doc, d => d.theme.set("light"))
     expect(isPopulated(doc.theme)).toBe(true)
   })
 
@@ -465,13 +465,13 @@ describe("isPopulated", () => {
       events.push(isPopulated(doc.theme))
     })
 
-    change(doc, d => d.theme.set("dark"))
+    batch(doc, d => d.theme.set("dark"))
 
     // Subscriber should have fired exactly once
     expect(events).toEqual([true])
 
     // Second mutation does NOT fire again (monotonic)
-    change(doc, d => d.theme.set("light"))
+    batch(doc, d => d.theme.set("light"))
     expect(events).toEqual([true])
   })
 
@@ -482,7 +482,7 @@ describe("isPopulated", () => {
     expect(isPopulated(docB.theme)).toBe(false)
 
     // Mutate docA
-    change(docA, d => d.theme.set("synced"))
+    batch(docA, d => d.theme.set("synced"))
 
     // Sync A → B (delta from init version, not 0, to avoid init ops)
     const ops = delta(docA, 1)

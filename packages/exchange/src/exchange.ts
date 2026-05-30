@@ -240,7 +240,7 @@ type DocCacheEntry =
  * const doc = exchange.get("my-doc", TodoDoc)
  * const config = exchange.get("config", ConfigDoc)
  * doc.title()  // read
- * change(doc, d => d.title.insert(0, "Hello"))  // write
+ * batch(doc, d => d.title.insert(0, "Hello"))  // write
  * await sync(doc).waitForSync()  // sync
  * ```
  */
@@ -587,7 +587,7 @@ export class Exchange {
         subscribe(ref, changeset => {
           // Filter on the structural `replay` flag — not the `origin`
           // label string — so foreign-origin merges still don't echo
-          // and `change(doc, fn, { origin: "sync" })` still broadcasts.
+          // and `batch(doc, fn, { origin: "sync" })` still broadcasts.
           if (changeset.replay) return
           this.#synchronizer.notifyLocalChange(docId)
         })
@@ -826,8 +826,8 @@ export class Exchange {
    * const TodoDoc = loro.bind(Schema.struct({ title: Schema.text() }))
    * const doc = exchange.get("my-doc", TodoDoc)
    *
-   * // Initial content via change() after construction:
-   * change(doc, d => { d.title.insert(0, "Hello") })
+   * // Initial content via batch() after construction:
+   * batch(doc, d => { d.title.insert(0, "Hello") })
    * ```
    */
   get<S extends SchemaNode>(docId: DocId, bound: BoundSchema<S>): Ref<S> {

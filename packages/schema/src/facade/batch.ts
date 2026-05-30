@@ -1,10 +1,11 @@
-// facade/change — mutation protocol: change capture and declarative application.
+// facade/batch — mutation protocol: batching, change capture, and declarative application.
 //
 // Two functions that form a symmetric pair:
 //
-// - `change(ref, fn)` → `Op[]`
-//   Imperative: run a mutation function inside a transaction, return
-//   the captured changes without re-returning the ref.
+// - `batch(ref, fn)` → `Op[]`
+//   Imperative: run a mutation function inside one atomic commit (a
+//   transaction in the algebraic sense), returning the captured changes
+//   without re-returning the ref.
 //
 // - `applyChanges(ref, ops, options?)` → `Op[]`
 //   Declarative: apply a list of changes via `executeBatch`, triggering
@@ -31,7 +32,7 @@ import {
 
 /**
  * Extensible metadata surface for all mutation entry points
- * (`change`, `applyChanges`, and future variants).
+ * (`batch`, `applyChanges`, and future variants).
  */
 export interface CommitOptions {
   /**
@@ -53,19 +54,25 @@ export interface CommitOptions {
    *
    * @example
    * const mySource = Symbol("my-binding")
-   * change(ref, fn, { source: mySource })
+   * batch(ref, fn, { source: mySource })
    * cf.subscribe(cs => { if (cs.source === mySource) return; / apply / })
    */
   source?: unknown
 }
 
 // ---------------------------------------------------------------------------
-// change — imperative mutation → Op[]
+// batch — imperative mutation → Op[]
 // ---------------------------------------------------------------------------
 
 /**
- * Run a mutation function inside the bracket primitive and return the
+ * Group a sequence of mutations into one atomic commit and return the
  * captured forward changes as `Op[]`.
+ *
+ * This is the batching primitive: every helper call inside `fn` collapses
+ * into a single commit and one `Changeset` per affected subscriber path.
+ * A *single* mutation needs no `batch()` — a bare helper call auto-commits.
+ * Reach for `batch()` to group ≥2 writes (atomically), to capture the
+ * returned `Op[]`, or to attach `origin`/`source` provenance.
  *
  * Semantics:
  * - **Read-your-writes inside the block.** σ advances eagerly on every
@@ -85,7 +92,7 @@ export interface CommitOptions {
  * from absorbed inner aborts are filtered out).
  *
  * ```ts
- * const ops = change(doc, d => {
+ * const ops = batch(doc, d => {
  *   d.title.insert(0, "Hello")
  *   d.settings.darkMode.set(true)
  * })
@@ -99,14 +106,14 @@ export interface CommitOptions {
  * @throws If `ref` does not have a `[TRANSACT]` symbol.
  * @throws Whatever `fn` throws (after inverse compensation completes).
  */
-export function change<D extends object>(
+export function batch<D extends object>(
   ref: D,
   fn: (draft: D) => void,
   options?: CommitOptions,
 ): Op[] {
   if (!hasTransact(ref)) {
     throw new Error(
-      "change() requires a ref with [TRANSACT]. " +
+      "batch() requires a ref with [TRANSACT]. " +
         "Use a ref produced by interpret() with withWritable.",
     )
   }
@@ -133,11 +140,11 @@ export function change<D extends object>(
  * accumulation) followed by a single flush (batched Changeset delivery
  * to subscribers).
  *
- * This is the declarative dual of `change`:
+ * This is the declarative dual of `batch`:
  *
  * ```ts
  * // Capture changes on docA
- * const ops = change(docA, d => { d.title.insert(0, "Hi") })
+ * const ops = batch(docA, d => { d.title.insert(0, "Hi") })
  *
  * // Apply to docB (same schema, different store)
  * applyChanges(docB, ops, { origin: "sync" })

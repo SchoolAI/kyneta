@@ -10,8 +10,8 @@ import type {
   WritableContext,
 } from "../index.js"
 import {
+  batch,
   bottomInterpreter,
-  change,
   hasRecursiveChangefeed,
   hasTransact,
   interpret,
@@ -146,10 +146,10 @@ describe("fluent: interpret(schema, ctx).with(...).done()", () => {
 })
 
 // ===========================================================================
-// change() block integration
+// batch() block integration
 // ===========================================================================
 
-describe("fluent: change() block", () => {
+describe("fluent: batch() block", () => {
   it("eager writes, batched delivery, and changefeed notification work through fluent-built refs", () => {
     const store = { x: 0, y: 0 }
     const ctx = plainContext(store)
@@ -165,7 +165,7 @@ describe("fluent: change() block", () => {
     const changes: unknown[] = []
     ;(doc.x as any)[CHANGEFEED].subscribe((c: unknown) => changes.push(c))
 
-    change(doc, d => {
+    batch(doc, d => {
       d.x.set(10)
       d.y.set(20)
     })

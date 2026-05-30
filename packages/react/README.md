@@ -53,23 +53,13 @@ function App() {
             <input
               type="checkbox"
               checked={item.done}
-              onChange={() =>
-                change(doc, (d) => {
-                  d.items.at(i)?.done.set(!item.done)
-                })
-              }
+              onChange={() => doc.items.at(i)?.done.set(!item.done)}
             />
             {item.text}
           </li>
         ))}
       </ul>
-      <button
-        onClick={() =>
-          change(doc, (d) => {
-            d.items.push({ text: "New todo", done: false })
-          })
-        }
-      >
+      <button onClick={() => doc.items.push({ text: "New todo", done: false })}>
         Add
       </button>
     </div>
@@ -131,10 +121,10 @@ const synced = readyStates.some((s) => s.state === "ready")
 
 ### Mutations
 
-Use `change()` (re-exported from `@kyneta/schema`) to mutate documents:
+A single mutation can be written directly — `doc.title.set("New title")` auto-commits. Use `batch()` (re-exported from `@kyneta/schema`) to group **multiple** mutations into one atomic commit and one notification:
 
 ```tsx
-change(doc, (d) => {
+batch(doc, (d) => {
   d.title.set("New title")
   d.items.push({ text: "New item", done: false })
 })
@@ -144,7 +134,7 @@ change(doc, (d) => {
 
 `@kyneta/react` re-exports a curated subset so most app code only needs one import:
 
-From `@kyneta/schema`: `change`, `applyChanges`, `subscribe`, `subscribeNode`, `Schema`, `CHANGEFEED`, and types `Ref`, `RRef`, `Plain`, `Changeset`, `Op`, `BoundSchema`.
+From `@kyneta/schema`: `batch`, `applyChanges`, `subscribe`, `subscribeNode`, `Schema`, `CHANGEFEED`, and types `Ref`, `RRef`, `Plain`, `Changeset`, `Op`, `BoundSchema`.
 
 From `@kyneta/exchange`: `Exchange`, `sync`, `hasSync`, and types `ExchangeParams`, `SyncRef`, `ReadyState`, `DocId`.
 

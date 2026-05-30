@@ -1,12 +1,12 @@
 // store.test.ts — Tier 1 pure store tests (no React, no jsdom).
 //
 // Tests createChangefeedStore and createSyncStore independently of React.
-// Uses createDoc + change() from @kyneta/schema/basic — no renderHook,
+// Uses createDoc + batch() from @kyneta/schema/basic — no renderHook,
 // no jsdom, fast execution.
 
 import { createReactiveMap } from "@kyneta/changefeed"
 import type { SyncRef } from "@kyneta/exchange"
-import { change, createDoc, Schema } from "@kyneta/schema/basic"
+import { batch, createDoc, Schema } from "@kyneta/schema/basic"
 import { describe, expect, it, vi } from "vitest"
 import {
   createChangefeedStore,
@@ -56,7 +56,7 @@ describe("createChangefeedStore", () => {
     const onStoreChange = vi.fn()
     store.subscribe(onStoreChange)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.set("hello")
     })
 
@@ -80,7 +80,7 @@ describe("createChangefeedStore", () => {
     const before = store.getSnapshot()
 
     store.subscribe(() => {})
-    change(doc, d => {
+    batch(doc, d => {
       d.title.set("changed")
     })
 
@@ -96,7 +96,7 @@ describe("createChangefeedStore", () => {
     const onStoreChange = vi.fn()
     store.subscribe(onStoreChange)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.set("nested change")
     })
 
@@ -110,7 +110,7 @@ describe("createChangefeedStore", () => {
 
     store.subscribe(() => {})
 
-    change(doc, d => {
+    batch(doc, d => {
       d.items.push({ name: "first" })
     })
 
@@ -125,7 +125,7 @@ describe("createChangefeedStore", () => {
     store.subscribe(onStoreChange)
 
     // Mutate a sibling field — title's changefeed should NOT fire
-    change(doc, d => {
+    batch(doc, d => {
       d.count.set(42)
     })
 
@@ -140,14 +140,14 @@ describe("createChangefeedStore", () => {
     const onStoreChange = vi.fn()
     const unsub = store.subscribe(onStoreChange)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.set("first")
     })
     expect(store.getSnapshot()).toBe("first")
 
     unsub()
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.set("second")
     })
 
@@ -164,11 +164,11 @@ describe("createChangefeedStore", () => {
 
     expect(store.getSnapshot()).toEqual([])
 
-    change(doc, d => {
+    batch(doc, d => {
       d.items.push({ name: "a" })
     })
 
-    change(doc, d => {
+    batch(doc, d => {
       d.items.push({ name: "b" })
     })
 
@@ -187,7 +187,7 @@ describe("createChangefeedStore", () => {
     const unsubA = store.subscribe(onA)
     const unsubB = store.subscribe(onB)
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.set("both")
     })
 
@@ -198,7 +198,7 @@ describe("createChangefeedStore", () => {
     // Unsubscribe A — B should still fire independently
     unsubA()
 
-    change(doc, d => {
+    batch(doc, d => {
       d.title.set("only-b")
     })
 

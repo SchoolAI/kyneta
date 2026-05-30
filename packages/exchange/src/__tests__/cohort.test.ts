@@ -16,7 +16,7 @@
 // is reached deterministically rather than racing.
 
 import { Bridge, createBridgeTransport } from "@kyneta/bridge-transport"
-import { change, json, Schema } from "@kyneta/schema"
+import { batch, json, Schema } from "@kyneta/schema"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   Exchange,
@@ -87,7 +87,7 @@ describe("cohort governance predicate", () => {
     const docServer = server.get("doc-1", TestDoc)
     const docClient = client.get("doc-1", TestDoc)
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("V1")
       d.count.set(1)
     })
@@ -96,14 +96,14 @@ describe("cohort governance predicate", () => {
     expect(docClient.title()).toBe("V1")
 
     // Client must write so the server sees it as "synced" (see header).
-    change(docClient, (d: any) => {
+    batch(docClient, (d: any) => {
       d.count.set(0)
     })
     await drain(40)
 
     await server.compact("doc-1")
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("V2")
       d.count.set(2)
     })
@@ -144,19 +144,19 @@ describe("cohort governance predicate", () => {
     const docRelay = relay.get("shared", TestDoc)
     browser.get("shared", TestDoc)
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("V1")
       d.count.set(1)
     })
     await drain(40)
 
     // Relay and browser both write to reach "synced" from server's POV.
-    change(docRelay, (d: any) => {
+    batch(docRelay, (d: any) => {
       d.count.set(0)
     })
     await drain(40)
 
-    change(browser.get("shared", TestDoc), (d: any) => {
+    batch(browser.get("shared", TestDoc), (d: any) => {
       d.count.set(0)
     })
     await drain(40)
@@ -170,7 +170,7 @@ describe("cohort governance predicate", () => {
 
     await server.compact("shared")
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("V2")
       d.count.set(2)
     })
@@ -198,14 +198,14 @@ describe("cohort governance predicate", () => {
     const docServer = server.get("doc-1", TestDoc)
     const docClient = client.get("doc-1", TestDoc)
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("server-V1")
       d.count.set(1)
     })
     await drain(40)
 
     // Client writes to reach "synced" from server's perspective.
-    change(docClient, (d: any) => {
+    batch(docClient, (d: any) => {
       d.count.set(0)
     })
     await drain(40)
@@ -213,13 +213,13 @@ describe("cohort governance predicate", () => {
     expect(docClient.title()).toBe("server-V1")
 
     // This local write will be lost — the client is outside the cohort.
-    change(docClient, (d: any) => {
+    batch(docClient, (d: any) => {
       d.title.set("client-local-write")
       d.count.set(999)
     })
     expect(docClient.title()).toBe("client-local-write")
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("server-V2")
       d.count.set(2)
     })
@@ -231,7 +231,7 @@ describe("cohort governance predicate", () => {
     // local state unconditionally.
     await server.compact("doc-1")
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("server-V3")
       d.count.set(3)
     })
@@ -258,21 +258,21 @@ describe("cohort governance predicate", () => {
     const docServer = server.get("doc-1", TestDoc)
     const docClient = client.get("doc-1", TestDoc)
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("server-V1")
       d.count.set(1)
     })
     await drain(40)
 
     // Client writes to reach "synced" from server's perspective.
-    change(docClient, (d: any) => {
+    batch(docClient, (d: any) => {
       d.count.set(0)
     })
     await drain(40)
 
     expect(docClient.title()).toBe("server-V1")
 
-    change(docClient, (d: any) => {
+    batch(docClient, (d: any) => {
       d.title.set("client-write")
       d.count.set(42)
     })
@@ -310,23 +310,23 @@ describe("cohort governance predicate", () => {
     client.get("durable", TestDoc)
     client.get("ephemeral", TestDoc)
 
-    change(durableServer, (d: any) => {
+    batch(durableServer, (d: any) => {
       d.title.set("A")
       d.count.set(1)
     })
-    change(ephemeralServer, (d: any) => {
+    batch(ephemeralServer, (d: any) => {
       d.title.set("B")
       d.count.set(2)
     })
     await drain(40)
 
     // Client writes to both docs to reach "synced" from server's POV.
-    change(client.get("durable", TestDoc), (d: any) => {
+    batch(client.get("durable", TestDoc), (d: any) => {
       d.count.set(0)
     })
     await drain(40)
 
-    change(client.get("ephemeral", TestDoc), (d: any) => {
+    batch(client.get("ephemeral", TestDoc), (d: any) => {
       d.count.set(0)
     })
     await drain(40)
@@ -356,7 +356,7 @@ describe("cohort governance predicate", () => {
     const docServer = server.get("doc-1", TestDoc)
     client.get("doc-1", TestDoc)
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("V1")
       d.count.set(1)
     })
@@ -368,7 +368,7 @@ describe("cohort governance predicate", () => {
     // Null LCV → compact advances to replica.version() (full projection).
     await server.compact("doc-1")
 
-    change(docServer, (d: any) => {
+    batch(docServer, (d: any) => {
       d.title.set("V2")
       d.count.set(2)
     })

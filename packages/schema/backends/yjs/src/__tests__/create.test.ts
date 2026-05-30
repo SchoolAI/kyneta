@@ -1,5 +1,5 @@
 import {
-  change,
+  batch,
   createDoc,
   createRef,
   Schema,
@@ -93,15 +93,15 @@ describe("createDoc", () => {
   describe("with seeds", () => {
     it("creates a doc with scalar seed values", () => {
       const doc = createDoc(boundSimple)
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "Hello")
         d.count.set(42)
       })
-      // Separate change() calls for list pushes to preserve order
+      // Separate batch() calls for list pushes to preserve order
       // (Yjs reverses order within a single transaction)
-      change(doc, (d: any) => d.items.push("a"))
-      change(doc, (d: any) => d.items.push("b"))
-      change(doc, (d: any) => d.items.push("c"))
+      batch(doc, (d: any) => d.items.push("a"))
+      batch(doc, (d: any) => d.items.push("b"))
+      batch(doc, (d: any) => d.items.push("c"))
       expect(doc.title()).toBe("Hello")
       expect(doc.count()).toBe(42)
       expect(doc.items()).toEqual(["a", "b", "c"])
@@ -109,7 +109,7 @@ describe("createDoc", () => {
 
     it("creates a doc with partial seed (defaults fill gaps)", () => {
       const doc = createDoc(boundSimple)
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "Partial")
       })
       expect(doc.title()).toBe("Partial")
@@ -119,7 +119,7 @@ describe("createDoc", () => {
 
     it("creates a doc with nested struct seed", () => {
       const doc = createDoc(boundNested)
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "Doc")
         d.meta.author.set("Alice")
         d.meta.tags.push("draft")
@@ -134,9 +134,9 @@ describe("createDoc", () => {
 
     it("creates a doc with struct list seed items", () => {
       const doc = createDoc(boundStructList)
-      // Separate change() calls for list pushes to preserve order
-      change(doc, (d: any) => d.tasks.push({ name: "Task 1", done: false }))
-      change(doc, (d: any) => d.tasks.push({ name: "Task 2", done: true }))
+      // Separate batch() calls for list pushes to preserve order
+      batch(doc, (d: any) => d.tasks.push({ name: "Task 1", done: false }))
+      batch(doc, (d: any) => d.tasks.push({ name: "Task 2", done: true }))
       expect(doc.tasks.length).toBe(2)
       expect(doc.tasks.at(0)?.name()).toBe("Task 1")
       expect(doc.tasks.at(0)?.done()).toBe(false)
@@ -177,7 +177,7 @@ describe("createDoc", () => {
         SimpleSchema,
         createYjsSubstrate(yjsDoc, SimpleSchema),
       )
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "Hello")
         d.count.set(42)
       })
@@ -225,7 +225,7 @@ describe("root document replacement", () => {
   it("throws an actionable error when attempting to replace the root struct", () => {
     const doc = createDoc(boundSimple)
     expect(() => {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.set({ title: "New", count: 1, items: [] })
       })
     }).toThrowError(/Cannot replace the root document struct/)
@@ -235,12 +235,12 @@ describe("root document replacement", () => {
 describe("createDoc with payload", () => {
   it("reconstructs state from a snapshot", () => {
     const doc1 = createDoc(boundSimple)
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(0, "Snapshot")
       d.count.set(42)
     })
-    change(doc1, (d: any) => d.items.push("a"))
-    change(doc1, (d: any) => d.items.push("b"))
+    batch(doc1, (d: any) => d.items.push("a"))
+    batch(doc1, (d: any) => d.items.push("b"))
 
     const payload = exportEntirety(doc1)
     const doc2 = createDoc(boundSimple, payload)
@@ -252,11 +252,11 @@ describe("createDoc with payload", () => {
 
   it("reconstructs state after mutations", () => {
     const doc1 = createDoc(boundSimple)
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(0, "Start")
     })
 
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(5, " End")
       d.count.set(99)
       d.items.push("x")
@@ -272,13 +272,13 @@ describe("createDoc with payload", () => {
 
   it("reconstructs nested struct state from snapshot", () => {
     const doc1 = createDoc(boundNested)
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(0, "Nested")
       d.meta.author.set("Alice")
       d.labels.set("bug", "red")
     })
-    change(doc1, (d: any) => d.meta.tags.push("v1"))
-    change(doc1, (d: any) => d.meta.tags.push("v2"))
+    batch(doc1, (d: any) => d.meta.tags.push("v1"))
+    batch(doc1, (d: any) => d.meta.tags.push("v2"))
 
     const payload = exportEntirety(doc1)
     const doc2 = createDoc(boundNested, payload)
@@ -292,8 +292,8 @@ describe("createDoc with payload", () => {
 
   it("reconstructs struct list state from snapshot", () => {
     const doc1 = createDoc(boundStructList)
-    change(doc1, (d: any) => d.tasks.push({ name: "Task A", done: false }))
-    change(doc1, (d: any) => d.tasks.push({ name: "Task B", done: true }))
+    batch(doc1, (d: any) => d.tasks.push({ name: "Task A", done: false }))
+    batch(doc1, (d: any) => d.tasks.push({ name: "Task B", done: true }))
 
     const payload = exportEntirety(doc1)
     const doc2 = createDoc(boundStructList, payload)
@@ -305,13 +305,13 @@ describe("createDoc with payload", () => {
 
   it("is writable after reconstruction", () => {
     const doc1 = createDoc(boundSimple)
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(0, "Original")
     })
     const payload = exportEntirety(doc1)
     const doc2 = createDoc(boundSimple, payload)
 
-    change(doc2, (d: any) => {
+    batch(doc2, (d: any) => {
       d.title.insert(8, " Copy")
       d.count.set(7)
     })
@@ -322,7 +322,7 @@ describe("createDoc with payload", () => {
 
   it("is observable after reconstruction", () => {
     const doc1 = createDoc(boundSimple)
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(0, "Original")
     })
     const payload = exportEntirety(doc1)
@@ -333,7 +333,7 @@ describe("createDoc with payload", () => {
       received.push(changeset)
     })
 
-    change(doc2, (d: any) => {
+    batch(doc2, (d: any) => {
       d.count.set(42)
     })
 
@@ -357,7 +357,7 @@ describe("sync primitives", () => {
       const doc = createDoc(boundSimple)
       const v1 = version(doc)
 
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.count.set(1)
       })
       const v2 = version(doc)
@@ -367,7 +367,7 @@ describe("sync primitives", () => {
 
     it("serialize/parse round-trips", () => {
       const doc = createDoc(boundSimple)
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "Test")
       })
       const v = version(doc)
@@ -380,7 +380,7 @@ describe("sync primitives", () => {
   describe("exportEntirety", () => {
     it("returns a binary payload", () => {
       const doc = createDoc(boundSimple)
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.title.insert(0, "Snap")
       })
       const payload = exportEntirety(doc)
@@ -393,7 +393,7 @@ describe("sync primitives", () => {
   describe("exportSince + merge", () => {
     it("syncs incremental changes between two docs", () => {
       const doc1 = createDoc(boundSimple)
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.title.insert(0, "Start")
       })
       const doc2 = createDoc(boundSimple, exportEntirety(doc1))
@@ -401,7 +401,7 @@ describe("sync primitives", () => {
       const v2Before = version(doc2)
 
       // Mutate doc1
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.title.insert(5, " Edited")
         d.count.set(42)
         d.items.push("new-item")
@@ -425,21 +425,21 @@ describe("sync primitives", () => {
 
       // First round
       let vBefore = version(doc2)
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.title.insert(0, "A")
       })
       merge(doc2, exportSince(doc1, vBefore)!)
 
       // Second round
       vBefore = version(doc2)
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.title.insert(1, "B")
       })
       merge(doc2, exportSince(doc1, vBefore)!)
 
       // Third round
       vBefore = version(doc2)
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.count.set(3)
       })
       merge(doc2, exportSince(doc1, vBefore)!)
@@ -450,14 +450,14 @@ describe("sync primitives", () => {
 
     it("changefeed fires on merge", () => {
       const doc1 = createDoc(boundSimple)
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.title.insert(0, "Source")
       })
       const doc2 = createDoc(boundSimple, exportEntirety(doc1))
 
       const v2Before = version(doc2)
 
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.count.set(77)
       })
 
@@ -479,7 +479,7 @@ describe("sync primitives", () => {
       const doc2 = createDoc(boundSimple, exportEntirety(doc1))
 
       const v2Before = version(doc2)
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.count.set(1)
       })
 
@@ -497,10 +497,10 @@ describe("sync primitives", () => {
   describe("versions equal after sync", () => {
     it("versions equal after full snapshot sync", () => {
       const doc1 = createDoc(boundSimple)
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.title.insert(0, "Same")
       })
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.count.set(42)
       })
 
@@ -517,10 +517,10 @@ describe("sync primitives", () => {
       const v2Before = version(doc2)
 
       // Independent mutations
-      change(doc1, (d: any) => {
+      batch(doc1, (d: any) => {
         d.title.insert(0, "A")
       })
-      change(doc2, (d: any) => {
+      batch(doc2, (d: any) => {
         d.count.set(7)
       })
 
@@ -554,11 +554,11 @@ describe("full workflow", () => {
     // 3. Mutate doc1
     const vBefore = version(doc2)
 
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.tasks.push({ name: "Buy milk", done: false })
     })
 
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.tasks.push({ name: "Walk dog", done: false })
     })
 
@@ -580,7 +580,7 @@ describe("full workflow", () => {
     // 8. Mutate doc2 and sync back
     const v1Before = version(doc1)
 
-    change(doc2, (d: any) => {
+    batch(doc2, (d: any) => {
       d.tasks.push({ name: "Read book", done: false })
     })
 
@@ -595,10 +595,10 @@ describe("full workflow", () => {
   it("create → mutate → snapshot → reconstruct → continue", () => {
     // 1. Create and mutate
     const doc1 = createDoc(boundSimple)
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(0, "Start")
     })
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(5, " Middle")
       d.count.set(10)
       d.items.push("first")
@@ -614,7 +614,7 @@ describe("full workflow", () => {
     expect(doc2.items()).toEqual(["first"])
 
     // 4. Continue mutating the reconstructed doc
-    change(doc2, (d: any) => {
+    batch(doc2, (d: any) => {
       d.title.insert(12, " End")
       d.count.set(20)
       d.items.push("second")
@@ -640,11 +640,11 @@ describe("full workflow", () => {
     const v2Before = version(doc2)
 
     // 2. Both peers edit concurrently
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(0, "Peer1")
       d.items.push("from-1")
     })
-    change(doc2, (d: any) => {
+    batch(doc2, (d: any) => {
       d.count.set(42)
       d.items.push("from-2")
     })

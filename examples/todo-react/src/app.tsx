@@ -22,7 +22,6 @@ import {
   useValue,
   useText,
   useSyncStatus,
-  change,
 } from "@kyneta/react"
 import type { TextRefLike } from "@kyneta/react"
 import { TodoDoc } from "./schema.js"
@@ -97,10 +96,9 @@ export function App() {
   }
 
   const toggleTodo = (index: number) => {
-    change(doc, d => {
-      const todo = d.todos.at(index)
-      if (todo) todo.done.set(!todo.done())
-    })
+    // Single mutation (read + set) — write directly, like addTodo/removeTodo.
+    const todo = doc.todos.at(index)
+    if (todo) todo.done.set(!todo.done())
   }
 
   const removeTodo = (index: number) => {

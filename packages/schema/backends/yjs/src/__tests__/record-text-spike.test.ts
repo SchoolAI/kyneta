@@ -17,7 +17,7 @@
 //   4. Sync: two peers should converge after exchanging deltas
 
 import {
-  change,
+  batch,
   createDoc,
   exportEntirety,
   exportSince,
@@ -76,7 +76,7 @@ describe("record-of-struct (plain baseline)", () => {
   it("set a record entry and read it back", () => {
     const doc = createDoc(BoundPlainRecord)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice", age: 30 })
     })
 
@@ -89,7 +89,7 @@ describe("record-of-struct (plain baseline)", () => {
   it("set multiple entries and read all back", () => {
     const doc = createDoc(BoundPlainRecord)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice", age: 30 })
       d.profiles.set("bob", { displayName: "Bob", age: 25 })
     })
@@ -104,7 +104,7 @@ describe("record-of-struct (plain baseline)", () => {
   it("navigate into a record entry via .at()", () => {
     const doc = createDoc(BoundPlainRecord)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice", age: 30 })
     })
 
@@ -117,7 +117,7 @@ describe("record-of-struct (plain baseline)", () => {
   it("syncs record-of-struct between two peers via snapshot", () => {
     const docA = createDoc(BoundPlainRecord)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice", age: 30 })
     })
 
@@ -132,7 +132,7 @@ describe("record-of-struct (plain baseline)", () => {
   it("syncs record-of-struct between two peers via delta", () => {
     const docA = createDoc(BoundPlainRecord)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice", age: 30 })
     })
 
@@ -141,7 +141,7 @@ describe("record-of-struct (plain baseline)", () => {
 
     const v0 = version(docB)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.set("bob", { displayName: "Bob", age: 25 })
     })
 
@@ -164,7 +164,7 @@ describe("text-inside-struct-inside-record", () => {
   it("set a record entry with text field omitted and read it back", () => {
     const doc = createDoc(BoundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
 
@@ -177,7 +177,7 @@ describe("text-inside-struct-inside-record", () => {
   it("set a record entry with text field provided and read it back", () => {
     const doc = createDoc(BoundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice", bio: "Hello world" })
     })
 
@@ -190,7 +190,7 @@ describe("text-inside-struct-inside-record", () => {
   it("navigate into a record entry and read the text", () => {
     const doc = createDoc(BoundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
 
@@ -203,11 +203,11 @@ describe("text-inside-struct-inside-record", () => {
   it("insert text into a text field inside a record entry (field omitted at creation)", () => {
     const doc = createDoc(BoundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "Hello world")
     })
 
@@ -217,11 +217,11 @@ describe("text-inside-struct-inside-record", () => {
   it("insert text into a text field inside a record entry (field provided at creation)", () => {
     const doc = createDoc(BoundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice", bio: "Initial" })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.at("alice").bio.insert(7, " bio")
     })
 
@@ -231,12 +231,12 @@ describe("text-inside-struct-inside-record", () => {
   it("set multiple entries and edit text independently", () => {
     const doc = createDoc(BoundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
       d.profiles.set("bob", { displayName: "Bob" })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "Alice's bio")
       d.profiles.at("bob").bio.insert(0, "Bob's bio")
     })
@@ -248,7 +248,7 @@ describe("text-inside-struct-inside-record", () => {
   it("subscribe fires on text edit inside record entry", () => {
     const doc = createDoc(BoundProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
 
@@ -257,7 +257,7 @@ describe("text-inside-struct-inside-record", () => {
       fired = true
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "Hello")
     })
 
@@ -267,10 +267,10 @@ describe("text-inside-struct-inside-record", () => {
   it("syncs text-inside-record via snapshot", () => {
     const docA = createDoc(BoundProfile)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "Collaborative bio")
     })
 
@@ -288,7 +288,7 @@ describe("text-inside-struct-inside-record", () => {
   it("syncs text-inside-record via delta", () => {
     const docA = createDoc(BoundProfile)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
 
@@ -298,7 +298,7 @@ describe("text-inside-struct-inside-record", () => {
     const docB = createDoc(BoundProfile, exportEntirety(docA))
     const v0 = version(docB)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "Hello from A")
     })
 
@@ -311,7 +311,7 @@ describe("text-inside-struct-inside-record", () => {
     })
 
     // Text on B is functional — can insert independently
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       d.profiles.at("alice").bio.insert(12, "!")
     })
     expect((docB as any).profiles.at("alice").bio()).toBe("Hello from A!")
@@ -321,7 +321,7 @@ describe("text-inside-struct-inside-record", () => {
     const docA = createDoc(BoundProfile)
 
     // Sync initial state: A creates the entry, B starts from snapshot
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.set("alice", { displayName: "Alice" })
     })
     const docB = createDoc(BoundProfile, exportEntirety(docA))
@@ -330,10 +330,10 @@ describe("text-inside-struct-inside-record", () => {
     const vA = version(docA)
     const vB = version(docB)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "Hello ")
     })
-    change(docB, (d: any) => {
+    batch(docB, (d: any) => {
       d.profiles.at("alice").bio.insert(0, "World")
     })
 
@@ -360,7 +360,7 @@ describe("text-inside-struct-inside-list", () => {
   it("push a struct with text field omitted and read it back", () => {
     const doc = createDoc(BoundListProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.push({ name: "Alice" })
     })
 
@@ -372,7 +372,7 @@ describe("text-inside-struct-inside-list", () => {
   it("push a struct with text field provided and read it back", () => {
     const doc = createDoc(BoundListProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.push({ name: "Alice", bio: "Hi there" })
     })
 
@@ -384,11 +384,11 @@ describe("text-inside-struct-inside-list", () => {
   it("insert text into a text field inside a list item (field omitted at creation)", () => {
     const doc = createDoc(BoundListProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.push({ name: "Alice" })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.at(0).bio.insert(0, "Alice's bio")
     })
 
@@ -398,12 +398,12 @@ describe("text-inside-struct-inside-list", () => {
   it("multiple list items with independent text fields", () => {
     const doc = createDoc(BoundListProfile)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.push({ name: "Alice" })
       d.players.push({ name: "Bob" })
     })
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.players.at(0).bio.insert(0, "Alice's bio")
       d.players.at(1).bio.insert(0, "Bob's bio")
     })
@@ -415,7 +415,7 @@ describe("text-inside-struct-inside-list", () => {
   it("syncs list-of-struct-with-text via delta", () => {
     const docA = createDoc(BoundListProfile)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.players.push({ name: "Alice" })
     })
 
@@ -423,7 +423,7 @@ describe("text-inside-struct-inside-list", () => {
     const docB = createDoc(BoundListProfile, exportEntirety(docA))
     const v0 = version(docB)
 
-    change(docA, (d: any) => {
+    batch(docA, (d: any) => {
       d.players.at(0).bio.insert(0, "Synced bio")
     })
 

@@ -135,7 +135,7 @@ That's the entire pattern. `use-sync-status.ts` is the same shape.
 
 ### Testing the core without React
 
-`store.test.ts` (291 lines) tests `createChangefeedStore` and `createSyncStore` with synthetic refs constructed from `createDoc + change()`. No `render`, no `act`, no jsdom. The React hook test files are thin — they verify that the hook passes the right store factory to `useSyncExternalStore`, not the subscription logic itself.
+`store.test.ts` (291 lines) tests `createChangefeedStore` and `createSyncStore` with synthetic refs constructed from `createDoc + batch()`. No `render`, no `act`, no jsdom. The React hook test files are thin — they verify that the hook passes the right store factory to `useSyncExternalStore`, not the subscription logic itself.
 
 ### What this split is NOT
 
@@ -413,13 +413,13 @@ attach(
 
 Three responsibilities:
 
-1. **Local edits → CRDT.** Register an `input` event listener. On each event, call `diffText(oldText, newText, selectionStart)` → feed the `TextChange` into `change(textRef, fn, { source: ownSource })`, where `ownSource` is a per-`attach()` `Symbol("text-adapter:echo")` minted in the closure.
+1. **Local edits → CRDT.** Register an `input` event listener. On each event, call `diffText(oldText, newText, selectionStart)` → feed the `TextChange` into `batch(textRef, fn, { source: ownSource })`, where `ownSource` is a per-`attach()` `Symbol("text-adapter:echo")` minted in the closure.
 2. **Remote edits → DOM.** Subscribe to `textRef[CHANGEFEED]`. Skip changesets whose `cs.source === ownSource` (echoes of our own writes). For all other changesets, apply each `TextChange` surgically via `element.setRangeText(...)` and rebase the selection via `transformSelection`.
 3. **Edge cases.** Handle IME composition (`compositionstart` / `compositionend`), intercept `keydown` for undo when `undo: "prevent"`.
 
 ### Echo suppression — identity-typed `source` token
 
-Each `attach()` call mints a private `Symbol` and uses it for both the writer side (passed to `change()` as `options.source`) and the reader side (compared against `cs.source` to skip echoes). The token is private to the closure — composed adapters or multiple textareas on the same ref mint independent tokens, so their writes don't echo-suppress each other.
+Each `attach()` call mints a private `Symbol` and uses it for both the writer side (passed to `batch()` as `options.source`) and the reader side (compared against `cs.source` to skip echoes). The token is private to the closure — composed adapters or multiple textareas on the same ref mint independent tokens, so their writes don't echo-suppress each other.
 
 This replaces the pre-jj:wpvtoxmw convention `origin === "local"`, which required writer and reader to share an exact string and stole `origin` namespace from app code. The identity-typed mechanism cannot collide with app vocabulary, type-checks at the call site, and composes naturally across nested subscribers.
 
@@ -498,7 +498,7 @@ This is a convenience, not a hard coupling — direct imports from the upstream 
 
 ## Testing
 
-Pure-core tests (`store.test.ts`, `text-adapter.test.ts`, `collaborative-text.test.ts`) use `createDoc` + `change()` directly — no React, no jsdom. They exercise the subscription, snapshot, diff, and selection logic independently of React's render cycle. Hook tests (`*.test.tsx`) use React Testing Library + jsdom and verify the thin shell: that the hook passes the right arguments to `useSyncExternalStore`, that ref callbacks fire on mount/unmount.
+Pure-core tests (`store.test.ts`, `text-adapter.test.ts`, `collaborative-text.test.ts`) use `createDoc` + `batch()` directly — no React, no jsdom. They exercise the subscription, snapshot, diff, and selection logic independently of React's render cycle. Hook tests (`*.test.tsx`) use React Testing Library + jsdom and verify the thin shell: that the hook passes the right arguments to `useSyncExternalStore`, that ref callbacks fire on mount/unmount.
 
 The `collaborative-text.test.ts` file is the realistic end-to-end: two `Bridge`-connected exchanges, two textareas, concurrent typing, selection-stability assertions across remote edits.
 

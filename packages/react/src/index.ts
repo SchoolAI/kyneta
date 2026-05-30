@@ -52,7 +52,7 @@ export type {
 } from "@kyneta/schema"
 export {
   applyChanges,
-  change,
+  batch,
   Schema,
   subscribe,
   subscribeNode,

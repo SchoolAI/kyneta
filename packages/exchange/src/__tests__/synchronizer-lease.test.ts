@@ -4,7 +4,7 @@
 // here we only verify the Exchange-level threading and reset semantics.
 
 import { createLease } from "@kyneta/machine"
-import { change, json, Schema } from "@kyneta/schema"
+import { batch, json, Schema } from "@kyneta/schema"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   Exchange,
@@ -42,7 +42,7 @@ describe("synchronizer lease", () => {
 
     // Many sequential changes should not trip the default budget of 100k.
     for (let i = 0; i < 100; i++) {
-      change(doc, (d: any) => {
+      batch(doc, (d: any) => {
         d.n.set(i)
       })
     }
@@ -54,7 +54,7 @@ describe("synchronizer lease", () => {
     const exchange = createExchange({ lease })
     const doc = exchange.get("doc", CounterDoc)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.n.set(7)
     })
     expect(doc.n()).toBe(7)
@@ -72,7 +72,7 @@ describe("synchronizer lease", () => {
     const exchange = createExchange({ lease })
     const doc = exchange.get("doc", CounterDoc)
 
-    change(doc, (d: any) => {
+    batch(doc, (d: any) => {
       d.n.set(42)
     })
     expect(lease.iterations).toBe(0)

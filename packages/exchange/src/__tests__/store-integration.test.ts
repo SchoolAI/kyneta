@@ -10,7 +10,7 @@
 import { Bridge, createBridgeTransport } from "@kyneta/bridge-transport"
 import { loro } from "@kyneta/loro-schema"
 import {
-  change,
+  batch,
   ephemeral,
   Interpret,
   json,
@@ -108,7 +108,7 @@ describe("Storage persist + hydrate", () => {
     const doc1 = exchange1.get("doc-1", SequentialDoc)
     await exchange1.flush()
 
-    change(doc1, d => {
+    batch(doc1, d => {
       d.title.set("persisted")
       d.count.set(42)
     })
@@ -142,7 +142,7 @@ describe("Storage persist + hydrate", () => {
     const doc1 = exchange1.get("doc-1", CausalDoc)
     await exchange1.flush()
 
-    change(doc1, (d: any) => {
+    batch(doc1, (d: any) => {
       d.title.insert(0, "hello loro")
     })
     await exchange1.shutdown()
@@ -173,7 +173,7 @@ describe("Storage persist + hydrate", () => {
     const doc1 = exchange1.get("presence-1", PresenceDoc)
     await exchange1.flush()
 
-    change(doc1, d => {
+    batch(doc1, d => {
       d.name.set("Alice")
       d.cursor.x.set(100)
       d.cursor.y.set(200)
@@ -224,7 +224,7 @@ describe("Storage + network sync", () => {
     })
 
     const docA = peerA.get("doc-1", SequentialDoc)
-    change(docA, d => {
+    batch(docA, d => {
       d.title.set("from peer A")
       d.count.set(7)
     })
@@ -300,7 +300,7 @@ describe("Storage + network sync", () => {
     })
 
     const doc = client.get("doc-1", SequentialDoc)
-    change(doc, d => {
+    batch(doc, d => {
       d.title.set("network payload")
       d.count.set(99)
     })
@@ -351,7 +351,7 @@ describe("Storage + replicated doc", () => {
     })
 
     const docA = peerA.get("doc-1", SequentialDoc)
-    change(docA, d => {
+    batch(docA, d => {
       d.title.set("replicated")
       d.count.set(55)
     })
@@ -421,7 +421,7 @@ describe("Storage + destroy", () => {
     const doc = exchange.get("doc-1", SequentialDoc)
     await exchange.flush()
 
-    change(doc, d => d.title.set("will be destroyed"))
+    batch(doc, d => d.title.set("will be destroyed"))
     await exchange.flush()
 
     expect(await backend.currentMeta("doc-1")).not.toBeNull()
@@ -545,7 +545,7 @@ describe("No storage (baseline)", () => {
     })
 
     const docA = exchangeA.get("doc-1", SequentialDoc)
-    change(docA, d => {
+    batch(docA, d => {
       d.title.set("no storage")
       d.count.set(123)
     })
