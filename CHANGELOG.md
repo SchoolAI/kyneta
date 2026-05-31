@@ -6,6 +6,13 @@
   - **Why**: since auto-commit-on-write (1.8.0, jj:kqnkxrkl) a single mutation commits on its own, so wrapping one write in `change()` is unnecessary — the facade's job is now batching. `batch` also matches the implementation's own vocabulary (`runBatch` / `executeBatch` / `BatchOptions`, Loro's `batch.origin`) and disambiguates the verb from the `Change` / `Changeset` data family.
   - **Migration**: replace facade `change(...)` calls and `{ change }` imports with `batch`. An import-anchored codemod is provided at `scripts/rename-change-to-batch.ts` (renames only the facade binding — never `Op.change`, `*Change`, or `changefeed`); external consumers can do an import-anchored find-and-replace. Prefer unwrapping single mutations to a direct write (`doc.x.set(v)`) over `batch(doc, d => d.x.set(v))`.
 
+  Unix socket transport — **breaking**: the leaderless peer is now a `Transport`, not an `Exchange` consumer.
+  - `createUnixSocketPeer(exchange, options)` → `createUnixSocketPeer(options)`. It now returns a `TransportFactory` (augmented with `role` / `subscribe`); pass it like any other transport: `new Exchange({ transports: [peer] })`. The peer no longer receives or touches the `Exchange`.
+  - `UnixSocketPeer.dispose()` is removed — `exchange.shutdown()` stops the peer like any transport. The `UnixSocketPeer` type is replaced by `UnixSocketPeerHandle`; `UnixSocketPeerTransport` is also exported.
+  - Healing is now **in place**: the peer is a single transport that swaps its socket mode (listener ↔ connector) and re-establishes its own channels, so the Exchange sees only channel add/remove and all documents and CRDT state survive a heal under one stable `transportId`. The connector defaults to **immediate re-negotiation** on disconnect (no reconnect-to-a-dead-listener); opt into bounded reconnect via `reconnect`.
+  - **Why**: the peer was the only transport that inverted the dependency direction (calling `exchange.addTransport()` / `removeTransport()`), which dragged the `Exchange` class into the package's public `.d.ts` and caused a dual-package `#private` type error for cross-package consumers. The new design removes that hazard at the root and matches the package's own documented API.
+  - **Also removed** (no consumers): `UnixSocketClientTransport.subscribeToTransitions`, the `UnixSocketClientStateTransition` type, and the unused `UnixSocketServerTransport` helpers (`getConnection` / `getAllConnections` / `isConnected(peerId)` / `broadcast`). The low-level `UnixSocketConnection` constructor is now `(socket)`. The wire / sync protocol is **unchanged** — no data migration.
+
 # 1.8.0
 
   Schema — three-primitive substrate contract:

@@ -171,6 +171,12 @@ Every transport package exports `createXxxTransport(params): TransportFactory` r
 - Re-initialization for HMR: a second `_initialize` call resets the directory and re-enters `initialized`.
 - Type-safe `send`: the compiler forbids sending `SyncMsg` on a `ConnectedChannel` and `LifecycleMsg` on an `EstablishedChannel`.
 
+### Self-healing / role-switching transports
+
+A transport's connectivity can change over its lifetime entirely behind `addChannel` / `removeChannel`, with no involvement from the consumer. The reference is `@kyneta/unix-socket-transport`'s leaderless peer: one `Transport` that swaps its socket *mode* (bound listener ↔ connecting client) in place, churning its own channels under a stable `transportId`. The synchronizer cannot distinguish this from any other channel add/remove. A transport should **never** reach back into the `Exchange` to add/remove sibling transports — that inverts the dependency direction and (because `Exchange` carries a `#private` field) leaks the class into the transport's public `.d.ts`, creating a dual-package nominal mismatch.
+
+> **Consolidation candidate (not yet done):** `websocket`, `sse`, and `unix-socket` share an identical five-file shape (`client-program` / `client-transport` / `connection` / `server-transport` / `types`). The unix-socket package factored its connect/accept mechanics into Transport-free drivers (`ConnectorDriver` / `ListenerDriver`) over a `ChannelSink` + `attachSocket` seam; that seam is shaped to be promotable here so all three could share one connection-driver kit. Deferred because the websocket/sse variants drag in browser/bun/express platform glue.
+
 ---
 
 ## `BridgeTransport` (moved)

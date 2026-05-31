@@ -29,23 +29,23 @@ pnpm add @kyneta/unix-socket-transport
 
 ### Leaderless Peer (Recommended)
 
-The simplest way to use the transport — `createUnixSocketPeer` handles role negotiation, transport swaps, and healing automatically:
+The simplest way to use the transport — `createUnixSocketPeer` handles role negotiation and in-place healing automatically:
 
 ```/dev/null/peer-example.ts#L1-14
 import { Exchange } from "@kyneta/exchange"
 import { createUnixSocketPeer } from "@kyneta/unix-socket-transport"
 
-const exchange = new Exchange({
-  identity: { peerId: "service-a", name: "Service A" },
-})
+// The peer IS a transport — hand it to the Exchange like any other.
+const peer = createUnixSocketPeer({ path: "/tmp/kyneta.sock" })
 
-const peer = createUnixSocketPeer(exchange, {
-  path: "/tmp/kyneta.sock",
+const exchange = new Exchange({
+  id: { peerId: "service-a", name: "Service A" },
+  transports: [peer],
 })
 
 // peer.role is "listener" | "connector" | "negotiating"
-// Kill the listener → a connector re-negotiates and takes over
-// No code changes needed — healing is automatic
+// Kill the listener → a connector re-negotiates and takes over, in place.
+// No code changes needed — healing is automatic.
 ```
 
 ### Explicit Server + Client
@@ -89,32 +89,31 @@ await client.waitForStatus("connected")
 
 ## API Reference
 
-### `createUnixSocketPeer(exchange, options)`
+### `createUnixSocketPeer(options)`
 
-Create a leaderless unix socket peer that manages topology negotiation automatically.
+Create a leaderless unix socket peer that manages topology negotiation automatically. Returns a `TransportFactory` (augmented with `role` / `subscribe`) — pass it to `new Exchange({ transports: [peer] })` like any other transport.
 
-The first peer to start becomes the listener; subsequent peers become connectors. If the listener dies, a connector re-negotiates and becomes the new listener. Uses `exchange.addTransport()` / `exchange.removeTransport()` to swap transports at runtime — the Exchange, all documents, and all CRDT state survive across transport swaps.
+The first peer to start becomes the listener; subsequent peers become connectors. If the listener dies, a connector re-negotiates and becomes the new listener — **in place**: the peer is a single `Transport` that swaps its socket *mode* and churns its own channels, so the Exchange, all documents, and all CRDT state survive a heal. The peer never receives or touches the `Exchange`.
 
-Internally, the peer is a `Program<PeerMsg, PeerModel, PeerEffect>` from `@kyneta/machine` — a pure Mealy machine whose transitions are deterministically testable. The imperative shell interprets data effects as I/O. All negotiation logic lives in the pure `createPeerProgram()` function; this wrapper just wires the executor to the Exchange.
+Internally, the peer is a `Program<PeerMsg, PeerModel, PeerEffect>` from `@kyneta/machine` — a pure Mealy machine whose transitions are deterministically testable. The imperative shell (the `UnixSocketPeerTransport`) interprets data effects by starting/stopping an internal connector or listener driver.
 
-Returns a `UnixSocketPeer`.
+Returns a `UnixSocketPeerHandle`. Stop it via `exchange.shutdown()` (there is no separate `dispose()`).
 
 #### `UnixSocketPeerOptions`
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `path` | — | Path to the unix socket file. |
-| `reconnect.enabled` | `true` | Enable automatic reconnection (for connector role). |
-| `reconnect.maxAttempts` | `5` | Maximum reconnection attempts before re-negotiating. |
-| `reconnect.baseDelay` | `1000` | Base delay in ms for exponential backoff. |
-| `reconnect.maxDelay` | `30000` | Maximum delay cap in ms. |
+| `reconnect` | _disabled_ | Optional bounded reconnect for connector mode. By default a disconnected connector **re-negotiates immediately** (probe → reconnect to the new listener, or become the listener) rather than reconnecting to a dead listener. |
+| `retryDelayMs` | `200` | Delay before re-probing on an `EADDRINUSE` race. |
 
-#### `UnixSocketPeer`
+#### `UnixSocketPeerHandle`
 
 | Member | Type | Description |
 |--------|------|-------------|
+| _(call)_ | `TransportFactory` | Pass to `new Exchange({ transports: [peer] })`. |
 | `role` | `"listener" \| "connector" \| "negotiating" \| "disposed"` | Current role — changes over time as healing occurs. |
-| `dispose()` | `() => Promise<void>` | Remove the transport from the Exchange and clean up the socket file. |
+| `subscribe` | `(fn: (role) => void) => () => void` | Observe role transitions; returns an unsubscribe function. |
 
 ### `UnixSocketServerOptions`
 
@@ -137,11 +136,6 @@ Returns a `UnixSocketPeer`.
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `getConnection` | `(peerId: string) => UnixSocketConnection \| undefined` | Get an active connection by peer ID. |
-| `getAllConnections` | `() => UnixSocketConnection[]` | Get all active connections. |
-| `isConnected` | `(peerId: string) => boolean` | Check if a peer is connected. |
-| `unregisterConnection` | `(peerId: string) => void` | Remove a connection and its channel. |
-| `broadcast` | `(msg: ChannelMsg) => void` | Send a message to all connected peers. |
 | `connectionCount` | `number` (getter) | Number of connected peers. |
 
 ### `UnixSocketClientTransport`
@@ -150,8 +144,7 @@ Returns a `UnixSocketPeer`.
 |--------|-----------|-------------|
 | `getState` | `() => UnixSocketClientState` | Get the current connection state. |
 | `waitForStatus` | `(status, options?) => Promise<UnixSocketClientState>` | Wait for a specific status. |
-| `waitForState` | `(predicate, options?) => Promise<UnixSocketClientState>` | Wait for a state matching a predicate. |
-| `subscribeToTransitions` | `(listener) => () => void` | Subscribe to state transitions. Returns unsubscribe function. |
+| `isConnected` | `boolean` (getter) | Whether the client is connected and ready. |
 | `isConnected` | `boolean` (getter) | Whether the client is connected. |
 
 ### `createUnixSocketClient(options)`

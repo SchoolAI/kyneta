@@ -22,11 +22,17 @@ const SOCKET_PATH = process.env.SOCKET_PATH ?? "/tmp/kyneta-sync.sock"
 const peerId = `peer-${randomPeerId()}`
 
 // ---------------------------------------------------------------------------
-// Exchange + document
+// Exchange + unix socket peer
 // ---------------------------------------------------------------------------
+
+// The leaderless peer IS a transport — hand it to the Exchange like any
+// other. It probes the socket path and becomes the listener or a connector,
+// healing in place if the listener dies. No manual transport wiring.
+const peer = createUnixSocketPeer({ path: SOCKET_PATH })
 
 const exchange = new Exchange({
   id: { peerId, name: peerId },
+  transports: [peer],
 })
 
 const doc = exchange.get("config", ConfigDoc)
@@ -40,12 +46,6 @@ const scalarFields = doc as unknown as Record<string, ScalarFieldRef>
 
 // Write our presence into the document — a single mutation auto-commits.
 doc.peers.set(peerId, true)
-
-// ---------------------------------------------------------------------------
-// Unix socket peer
-// ---------------------------------------------------------------------------
-
-const peer = createUnixSocketPeer(exchange, { path: SOCKET_PATH })
 
 // ---------------------------------------------------------------------------
 // State
@@ -148,7 +148,7 @@ async function cleanup() {
   stopInput()
   // Remove our presence from the document (single write).
   doc.peers.delete(peerId)
-  await peer.dispose()
+  // exchange.shutdown() stops the peer transport like any other.
   await exchange.shutdown()
   // Clear screen and show cursor
   process.stdout.write("\x1b[2J\x1b[H\x1b[?25h")

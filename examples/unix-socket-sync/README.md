@@ -80,7 +80,7 @@ examples/unix-socket-sync/
 ## Why This Is Interesting
 
 - **Leaderless topology** — no peer is special. Any peer can die and be replaced. The listener role is emergent, not assigned.
-- **Dynamic transport swap** — `exchange.addTransport()` / `exchange.removeTransport()` at runtime. When healing occurs, the Exchange, all documents, and all CRDT state survive across transport swaps.
+- **In-place healing** — the peer is a single self-healing transport that swaps its socket *mode* (listener ↔ connector) and re-establishes its own channels. The Exchange only ever sees channel add/remove, so all documents and CRDT state survive a heal under one stable transport.
 - **Loro CRDT convergence** — concurrent edits to different fields merge correctly. Two peers editing different config values at the same instant produces the union of both changes.
 - **Zero infrastructure** — one socket file, no HTTP, no ports, no coordination service.
 

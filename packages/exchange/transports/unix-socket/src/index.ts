@@ -6,20 +6,17 @@ export {
   type DisconnectReason,
   type UnixSocketClientOptions,
   type UnixSocketClientState,
-  type UnixSocketClientStateTransition,
   UnixSocketClientTransport,
 } from "./client-transport.js"
 // Platform-abstracted connect/listen
 export { connect } from "./connect.js"
-
 // Connection
 export { UnixSocketConnection } from "./connection.js"
 export { listen } from "./listen.js"
 // Peer — leaderless topology negotiation
 export {
   createUnixSocketPeer,
-  type ProbeResult,
-  type UnixSocketPeer,
+  type UnixSocketPeerHandle,
   type UnixSocketPeerOptions,
 } from "./peer.js"
 // Peer program — pure Mealy machine for negotiation logic
@@ -29,7 +26,11 @@ export {
   type PeerModel,
   type PeerMsg,
   type PeerProgramOptions,
+  type PeerRole,
+  type ProbeResult,
 } from "./peer-program.js"
+// Peer transport (advanced — usually constructed via createUnixSocketPeer)
+export { UnixSocketPeerTransport } from "./peer-transport.js"
 // Server transport
 export {
   type OnConnectionCallback,

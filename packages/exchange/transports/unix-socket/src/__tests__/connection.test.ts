@@ -73,9 +73,9 @@ function concat(...arrays: Uint8Array[]): Uint8Array {
 
 function createStartedConnection(socket?: MockUnixSocket) {
   const s = socket ?? new MockUnixSocket()
-  const connection = new UnixSocketConnection("peer-1", 1, s)
+  const connection = new UnixSocketConnection(s)
   const { channel, received } = createMockChannel()
-  connection._setChannel(channel as any)
+  connection.setChannel(channel as any)
   connection.start()
   return { socket: s, connection, channel, received }
 }
@@ -291,9 +291,9 @@ describe("UnixSocketConnection", () => {
 
   it("start is idempotent — does not double-register handlers", () => {
     const socket = new MockUnixSocket()
-    const connection = new UnixSocketConnection("peer-1", 1, socket)
+    const connection = new UnixSocketConnection(socket)
     const { channel } = createMockChannel()
-    connection._setChannel(channel as any)
+    connection.setChannel(channel as any)
 
     connection.start()
     connection.start()
@@ -331,8 +331,8 @@ describe("UnixSocketConnection", () => {
 
   it("logs error when message arrives with no channel set", () => {
     const socket = new MockUnixSocket()
-    const connection = new UnixSocketConnection("peer-1", 1, socket)
-    // Deliberately do NOT call _setChannel
+    const connection = new UnixSocketConnection(socket)
+    // Deliberately do NOT call setChannel
     connection.start()
 
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})

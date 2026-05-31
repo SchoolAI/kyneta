@@ -4,7 +4,8 @@
 > **Role**: Unix domain socket transport for `@kyneta/exchange` — stream-oriented framing with backpressure, a pure client lifecycle, a pure leaderless-peer negotiator, and runtime-neutral `UnixSocket` wrappers for Node and Bun.
 > **Depends on**: `@kyneta/machine`, `@kyneta/transport` (all peer)
 > **Depended on by**: `@kyneta/exchange` (through application configuration)
-> **Canonical symbols**: `createUnixSocketClient`, `UnixSocketClientTransport`, `UnixSocketClientOptions`, `UnixSocketServerTransport`, `UnixSocketServerOptions`, `UnixSocketListener`, `UnixSocketConnection`, `connect`, `listen`, `createUnixSocketPeer`, `UnixSocketPeer`, `UnixSocketPeerOptions`, `createPeerProgram`, `PeerMsg`, `PeerEffect`, `PeerModel`, `createUnixSocketClientProgram`, `UnixSocketClientMsg`, `UnixSocketClientEffect`, `UnixSocketClientState`, `UnixSocket`, `wrapNodeUnixSocket`, `wrapBunUnixSocket`, `ProbeResult`
+> **Canonical symbols**: `createUnixSocketClient`, `UnixSocketClientTransport`, `UnixSocketClientOptions`, `UnixSocketServerTransport`, `UnixSocketServerOptions`, `UnixSocketListener`, `UnixSocketConnection`, `connect`, `listen`, `createUnixSocketPeer`, `UnixSocketPeerHandle`, `UnixSocketPeerTransport`, `UnixSocketPeerOptions`, `createPeerProgram`, `PeerMsg`, `PeerEffect`, `PeerModel`, `PeerRole`, `createUnixSocketClientProgram`, `UnixSocketClientMsg`, `UnixSocketClientEffect`, `UnixSocketClientState`, `UnixSocket`, `wrapNodeUnixSocket`, `wrapBunUnixSocket`, `ProbeResult`
+> **Internal (not exported)**: `SocketTransport`, `ChannelSink`, `attachSocket`, `ConnectorDriver`, `ListenerDriver`, `probe`
 > **Key invariant(s)**: Unix sockets are byte streams, not message streams — every outbound payload is length-prefixed by the binary frame header and every inbound chunk flows through `FrameStreamParser` from `@kyneta/transport`. There is no fragmentation layer (no gateway cap); a single message is one frame regardless of size.
 
 A Unix-domain-socket transport kit for server-to-server sync. It runs the same binary `Pipeline` (from `@kyneta/transport`) as the WebSocket and WebRTC transports, but replaces message-oriented framing with `FrameStreamParser` (from `@kyneta/transport`) because stream transports coalesce writes and split reads at arbitrary boundaries.
@@ -31,11 +32,13 @@ Imported by server-side applications that want sync to flow over a local filesys
 | `UnixSocketClientTransport` | The client-side `Transport<...>` subclass. Owns one outbound connection. | `UnixSocketServerTransport` |
 | `UnixSocketServerTransport` | The server-side `Transport<...>` subclass. Accepts inbound connections via a listener. | `UnixSocketListener`, which is the platform listening object |
 | `UnixSocketConnection` | Per-peer connection — owns the stream-frame parser, the alias-aware binary pipeline, and the outbound write queue. | `UnixSocket`, which is the raw byte pipe |
-| `UnixSocketPeer` | A peer running in leaderless mode. Chooses at runtime whether to listen or connect based on probing the socket path. | A regular client or server transport instance |
-| `createPeerProgram` | Factory returning a pure `Program<PeerMsg, PeerModel, PeerEffect>` that encodes the listen-or-connect decision. | `createUnixSocketClientProgram`, which is for the client lifecycle only |
+| `UnixSocketPeerTransport` | The leaderless peer — a single `Transport` that swaps its socket mode (listener ↔ connector) in place. | A regular client or server transport instance |
+| `UnixSocketPeerHandle` | What `createUnixSocketPeer` returns: a `TransportFactory` augmented with `role` / `subscribe`. Passed to `new Exchange({ transports: [peer] })`. | The transport instance it creates |
+| `createPeerProgram` | Factory returning a pure `Program<PeerMsg, PeerModel, PeerEffect>` that encodes the listen-or-connect decision. Model is `{ role }`. | `createUnixSocketClientProgram`, which is for the client lifecycle only |
 | `ProbeResult` | `"connected" \| "enoent" \| "econnrefused" \| "eaddrinuse"` — the outcome of probing a socket path. | A TCP probe or port scan |
 | `createUnixSocketClientProgram` | Factory returning a pure `Program<UnixSocketClientMsg, ...>` that owns the client connect / reconnect lifecycle. | The peer program |
-| `PeerEffect` | Inspectable data describing an I/O action the peer needs (`probe`, `start-listener`, `start-connector`, `remove-transport`, `delay-then-probe`). | An `Effect<Msg>` closure |
+| `PeerEffect` | Inspectable data describing what the peer needs (`probe`, `start-listener`, `start-connector`, `teardown`, `delay-then-probe`) — interpreted by starting/stopping internal drivers, never by touching the Exchange. | An `Effect<Msg>` closure |
+| `ConnectorDriver` / `ListenerDriver` | Transport-free imperative shells that acquire sockets (connect+reconnect / listen+accept) and turn them into channels via `attachSocket`. Shared by the fixed-role transports and the peer. | A `Transport` — drivers have no lifecycle of their own |
 | `UnixSocketClientEffect` | Inspectable data for client-side I/O (`connect`, `close-connection`, `add-channel-and-establish`, `remove-channel`, `start-reconnect-timer`, `cancel-reconnect-timer`). | `PeerEffect` |
 | Backpressure | `write()` returns `false` — kernel buffer is full. Caller waits for `onDrain` before resuming. | A timeout, a rate-limit |
 | `feedBytes` | Pure stream-frame parser from `@kyneta/transport` (`FrameStreamParser`). Takes accumulated state + a chunk; returns new state + extracted frames. | `FragmentReassembler` — stream framing and fragment reassembly are orthogonal |
@@ -171,11 +174,11 @@ Backoff uses `shouldReconnect` from `@kyneta/transport` (which internally calls 
 
 ## Leaderless peer negotiation
 
-Source: `packages/exchange/transports/unix-socket/src/peer-program.ts`, `src/peer.ts`.
+Source: `packages/exchange/transports/unix-socket/src/peer-program.ts`, `src/peer-transport.ts`, `src/peer.ts`.
 
 Two processes sharing a socket path sometimes need to cooperate without either being pre-designated the server. Example: a dev tool and a CLI both mounted against the same socket, where whichever starts first should listen and whichever starts second should connect.
 
-`createUnixSocketPeer({ path, ... })` produces a `UnixSocketPeer` that:
+**The peer is a single `Transport`, not an Exchange consumer.** `createUnixSocketPeer({ path })` returns a `TransportFactory` (augmented with `role` / `subscribe`); you hand it to `new Exchange({ transports: [peer] })` like every other transport. It does **not** receive or call the `Exchange` — earlier versions took `createUnixSocketPeer(exchange, …)` and swapped whole child transports via `exchange.addTransport()` / `removeTransport()`; that inverted the dependency direction and dragged the `Exchange` *class* into the package's public `.d.ts`, where its `#private` field created a dual-package nominal mismatch for any cross-package consumer. The peer is now `UnixSocketPeerTransport` (`src/peer-transport.ts`), a `SocketTransport` that:
 
 1. **Probes** the socket path with a short connection attempt.
 2. Based on the `ProbeResult`, decides:
@@ -183,23 +186,34 @@ Two processes sharing a socket path sometimes need to cooperate without either b
    |--------------|----------|
    | `connected` | Something is already listening — become the connector |
    | `enoent` / `econnrefused` | No server / nothing listening — become the listener |
-   | `eaddrinuse` | Race: another process is in the middle of becoming the listener — retry probe after `retryDelayMs` |
-3. **Instantiates** either a `UnixSocketClientTransport` (connector) or a `UnixSocketServerTransport` (listener).
-4. **Re-probes** on transport disconnect — if the listener dies, the connector re-probes and may become the new listener.
+   | `eaddrinuse` | Race: another process is mid-bind — retry probe after `retryDelayMs` |
+3. **Starts an internal driver** — a `ListenerDriver` (binds, accepts N inbound channels) or a `ConnectorDriver` (connects, one outbound channel). Both feed the shared `attachSocket`, which adds/establishes channels on *this* transport via its `ChannelSink`.
+4. **Heals in place.** If the listener dies, the connector's socket closes → the connector gives up (it does not reconnect to a dead listener; see below) → the program re-probes → it either reconnects to the new listener or **binds the socket itself**, swapping its socket *mode* under one stable `transportId`. The Exchange only ever observes channel add/remove — never a transport remove/add — so documents and CRDT state survive a heal.
 
-The `ProbeResult` and the role-choosing logic are encoded in the pure `Program<PeerMsg, PeerModel, PeerEffect>` (`createPeerProgram`). Every decision — "probe returned `connected`, so emit `start-connector`"; "listener failed, so delay and re-probe" — is data. Tests assert on the effects.
+The `ProbeResult` and the role-choosing logic are encoded in the pure `Program<PeerMsg, PeerModel, PeerEffect>` (`createPeerProgram`). The model is just `{ role }`; effects name the drivers (`start-listener`, `start-connector`, `teardown`). Every decision is data; tests assert on the effects.
+
+### Recovery is re-negotiation, not reconnection
+
+The peer's connector defaults to **no reconnect** (`{ enabled: false }`). In a leaderless topology, re-negotiation already subsumes reconnection: on disconnect the connector re-probes, which finds the new listener (→ connect) or finds nothing (→ become the listener). Reconnecting to the *old, dead* listener would only add latency (the default 1s base backoff × 5 attempts ≈ 31s before giving up). The fixed-role `UnixSocketClientTransport` keeps full reconnect — it has an authoritative server that is expected to return. A caller may still opt the peer into bounded reconnect via `UnixSocketPeerOptions.reconnect`.
+
+### Gotchas
+
+- **Teardown must close sockets, not just drop channels.** A driver's `stop()` calls `connection.close()` (and `listener.stop()` + unlink). If it only called `removeChannel`, a *co-located* peer (same process, e.g. in tests) would never observe the disconnect at the OS level and would never re-negotiate — the heal silently never fires. `channel.stop()` is **not** a substitute: nothing in the runtime invokes it.
+- **Probes are silent at the peer layer.** A `probe()` opens-and-immediately-ends a connection. On a listener this is a brief inbound accept that creates a channel but never sends `establish` — so it produces an `addChannel`/`removeChannel` pair with **no** peer-level event. Don't key presence off raw channel count.
 
 ### What leaderless peer negotiation is NOT
 
 - **Not a consensus protocol.** There is no leader election, no quorum. At any instant, exactly one peer is the listener.
-- **Not suitable for more than two peers.** The model is pairwise. Multi-peer topologies should use a dedicated sync server.
-- **Not the same as the client transport.** `createUnixSocketClient` + `createUnixSocketServer` give fixed roles. `createUnixSocketPeer` adds the probing + fallback dance on top.
+- **Not suitable for more than two peers.** The model is pairwise. Multi-peer topologies should use a dedicated sync server. (Mechanically the listener hosts N channels, but the negotiation is designed for pairwise heal.)
+- **Not the same as the fixed-role transports.** `createUnixSocketClient` + `UnixSocketServerTransport` give fixed roles. `createUnixSocketPeer` adds the probing + in-place role-switch on top, reusing the same drivers.
 
 ### Two programs, not one
 
-`createPeerProgram` and `createUnixSocketClientProgram` are separate for a reason: the peer program's concern is *which role to play* (listener or connector); the client program's concern is *when to reconnect* if I'm a connector. Collapsing them would merge the "probe / become listener" state machine with the "connect / reconnect with backoff" state machine — two independent responsibilities.
+Now composed inside one transport. `createPeerProgram` and `createUnixSocketClientProgram` stay separate: the peer program's concern is *which role to play*; the client program's concern is *the connect/reconnect lifecycle once connecting*. The `ConnectorDriver` composes the client program inside the peer's connector mode (and is reused verbatim by the fixed-role `UnixSocketClientTransport`). The split is preserved — it just lives behind the driver seam rather than spawning child transports.
 
-The client program is therefore reused by the peer program's `start-connector` effect (running as a child) and directly by applications that already know their role.
+### Drivers and the channel seam
+
+`SocketTransport` (`src/socket-transport.ts`) is the base for all three roles: it is a `Transport<UnixSocketConnection>` — each channel's `send`/`stop` binds straight to its connection via `generate`, so there is **no `peerId`→connection map**. It lends its protected channel ops to a driver as a `ChannelSink`. `attachSocket` (`src/attach-socket.ts`) is the single place a raw socket becomes a live channel (`new UnixSocketConnection(socket)` → `addChannel` → `setChannel` → `start` → optional `establish`); the two drivers differ only in how they acquire sockets and handle close.
 
 ---
 
@@ -280,16 +294,20 @@ Inbound:
 | `UnixSocketServerOptions` | `src/server-transport.ts` | `{ path, ... }`. |
 | `UnixSocketListener` | `src/server-transport.ts` | The platform listening object (wraps Node's `net.Server` or Bun's equivalent). |
 | `OnConnectionCallback` | `src/server-transport.ts` | `(socket: UnixSocket) => void` — fired per inbound accept. |
-| `UnixSocketConnection` | `src/connection.ts` | Per-peer pipeline: parser state, alias-aware binary pipeline, write queue, channel. |
-| `UnixSocketPeer` | `src/peer.ts` | Leaderless peer — imperative shell around `createPeerProgram`. |
-| `UnixSocketPeerOptions` | `src/peer.ts` | `{ path, reconnect?, retryDelayMs? }`. |
-| `createUnixSocketPeer` | `src/peer.ts` | `TransportFactory` for leaderless peers. |
-| `createPeerProgram` | `src/peer-program.ts` | Pure `Program<PeerMsg, PeerModel, PeerEffect>`. |
-| `PeerModel` / `PeerMsg` / `PeerEffect` / `PeerProgramOptions` | `src/peer-program.ts` | Peer program's types. |
+| `UnixSocketConnection` | `src/connection.ts` | Per-connection pipeline: parser state, alias-aware binary pipeline, write queue. Constructed `(socket)`; its channel is wired via `setChannel`. |
+| `SocketTransport` | `src/socket-transport.ts` | Internal base: `Transport<UnixSocketConnection>` for all three roles; `generate` binds send to the connection; lends a `ChannelSink`. |
+| `ChannelSink` / `attachSocket` | `src/socket-transport.ts` / `src/attach-socket.ts` | The channel-lifecycle seam a driver uses, and the one routine that turns a socket into a live channel. |
+| `ConnectorDriver` / `ListenerDriver` | `src/connector-driver.ts` / `src/listener-driver.ts` | Transport-free shells: connect+reconnect (1 channel) / listen+accept (N channels). |
+| `UnixSocketPeerTransport` | `src/peer-transport.ts` | Leaderless peer — one `SocketTransport` that swaps socket mode in place by driving a connector/listener driver. |
+| `UnixSocketPeerHandle` | `src/peer.ts` | `TransportFactory` + `role` / `subscribe`, returned by `createUnixSocketPeer`. |
+| `UnixSocketPeerOptions` | `src/peer-transport.ts` | `{ path, reconnect?, retryDelayMs? }`. |
+| `createUnixSocketPeer` | `src/peer.ts` | Factory returning a `UnixSocketPeerHandle`. |
+| `createPeerProgram` | `src/peer-program.ts` | Pure `Program<PeerMsg, PeerModel, PeerEffect>`; model is `{ role }`. |
+| `PeerModel` / `PeerMsg` / `PeerEffect` / `PeerRole` / `PeerProgramOptions` | `src/peer-program.ts` | Peer program's types. |
 | `ProbeResult` | `src/peer-program.ts` | `"connected" \| "enoent" \| "econnrefused" \| "eaddrinuse"`. |
 | `createUnixSocketClientProgram` | `src/client-program.ts` | Pure client `Program`. |
 | `UnixSocketClientMsg` / `UnixSocketClientEffect` | `src/client-program.ts` | Client program's messages / effects. |
-| `UnixSocketClientState` / `UnixSocketClientStateTransition` | `src/types.ts` | Client state discriminated union. |
+| `UnixSocketClientState` | `src/types.ts` | Client state discriminated union. |
 | `DisconnectReason` | `src/types.ts` | Discriminated union describing why a connection was lost. |
 | `UnixSocket` | `src/types.ts` | Runtime-neutral socket interface. |
 | `NodeUnixSocketLike` / `BunUnixSocketLike` / `BunSocketHandlers` | `src/types.ts` | Runtime-specific structural shapes. |
@@ -301,25 +319,31 @@ Inbound:
 
 | File | Lines | Role |
 |------|-------|------|
-| `src/index.ts` | 47 | Public exports. |
+| `src/index.ts` | 48 | Public exports. |
 | `src/types.ts` | 222 | `UnixSocket`, client state, disconnect reason, runtime wrappers. |
-| `src/client-program.ts` | 211 | Pure `createUnixSocketClientProgram` Mealy machine. |
-| `src/client-transport.ts` | 341 | Imperative shell: runs client program, owns `UnixSocket`, runs CBOR + stream-frame pipeline. |
-| `src/server-transport.ts` | 272 | Server-side `Transport<...>`: listens, accepts, dispatches to `UnixSocketConnection`. |
-| `src/connection.ts` | 234 | Per-connection parser state, write queue, channel ownership. |
-| `src/peer-program.ts` | 151 | Pure `createPeerProgram` Mealy machine for leaderless negotiation. |
-| `src/peer.ts` | 222 | Imperative shell for the peer program: probes, spawns client/server, handles disposal. |
+| `src/socket-transport.ts` | 61 | `SocketTransport` base + `ChannelSink` (no `peerId` map; `generate` binds send to the connection). |
+| `src/attach-socket.ts` | 37 | The one socket → live-channel routine, shared by both drivers. |
+| `src/connection.ts` | 221 | Per-connection parser state, write queue. Constructed `(socket)`. |
+| `src/client-program.ts` | 198 | Pure `createUnixSocketClientProgram` Mealy machine. |
+| `src/connector-driver.ts` | 169 | Connect + bounded reconnect; one outbound channel; `onExhausted`. |
+| `src/listener-driver.ts` | 112 | Listen + accept; N inbound channels; socket-file lifecycle. |
+| `src/client-transport.ts` | 115 | Fixed-role client: thin `SocketTransport` over `ConnectorDriver`. |
+| `src/server-transport.ts` | 62 | Fixed-role server: thin `SocketTransport` over `ListenerDriver`. |
+| `src/peer-program.ts` | 132 | Pure `createPeerProgram` Mealy machine (`{ role }` model). |
+| `src/peer-transport.ts` | 159 | `UnixSocketPeerTransport`: drives a connector/listener driver per role, in place. |
+| `src/peer.ts` | 65 | `createUnixSocketPeer` factory → `UnixSocketPeerHandle`. |
+| `src/probe.ts` | 29 | Classify a socket path (`connected`/`enoent`/`econnrefused`/`eaddrinuse`). |
 | `src/connect.ts` | 105 | Runtime-detected connect helper. |
 | `src/listen.ts` | 128 | Runtime-detected listen helper. |
 | `src/__tests__/client-program.test.ts` | 574 | Pure tests: every client state transition and effect asserted on data. |
-| `src/__tests__/peer-program.test.ts` | 327 | Pure tests: every peer state transition and effect asserted on data. |
-| `src/__tests__/connection.test.ts` | 339 | Stream framing round-trips, backpressure, write queue. |
-| `src/__tests__/peer.test.ts` | 132 | Imperative peer tests: probe outcomes drive correct transport spawning. |
-| `src/__tests__/unix-socket-transport.test.ts` | 360 | End-to-end tests with real Unix sockets: client reconnects after server restart, full sync round-trips. |
+| `src/__tests__/peer-program.test.ts` | 293 | Pure tests: every peer state transition and effect asserted on data. |
+| `src/__tests__/connection.test.ts` | 345 | Stream framing round-trips, backpressure, write queue. |
+| `src/__tests__/peer-role-flip.test.ts` | 125 | E2E: the in-place connector→listener heal (transportId stable, docs survive, probe silence). |
+| `src/__tests__/unix-socket-transport.test.ts` | 360 | E2E with real Unix sockets: client reconnects after server restart, full sync round-trips. |
 | `src/__tests__/mock-unix-socket.ts` | 130 | A test-only `UnixSocket` with scripted behaviour and backpressure control. |
 
 ## Testing
 
-The two pure programs (`createUnixSocketClientProgram`, `createPeerProgram`) are tested by dispatching messages and asserting on the returned `[state, ...effects]` tuples — no sockets, no real timers (`vi.useFakeTimers` where time is relevant). The connection tests use a scripted mock `UnixSocket`. The `unix-socket-transport.test.ts` file runs real Unix-socket servers for end-to-end verification (including reconnect after server restart).
+The two pure programs (`createUnixSocketClientProgram`, `createPeerProgram`) are tested by dispatching messages and asserting on the returned `[state, ...effects]` tuples — no sockets. The connection tests use a scripted mock `UnixSocket`. The drivers are not unit-tested directly: they are imperative shells over the already-tested pure programs + `UnixSocketConnection`, and the real-socket E2E suites exercise their composition. `unix-socket-transport.test.ts` covers the fixed-role transports (incl. reconnect after server restart); `peer-role-flip.test.ts` covers the leaderless peer's in-place heal.
 
-**Tests**: 82 passed, 0 skipped across 5 files (`client-program.test.ts`: 37, `peer-program.test.ts`: 23, `connection.test.ts`: 13, `peer.test.ts`: 3, `unix-socket-transport.test.ts`: 6). Run with `cd packages/exchange/transports/unix-socket && pnpm exec vitest run`.
+**Tests**: 77 passed, 0 skipped across 5 files (`client-program.test.ts`: 37, `peer-program.test.ts`: 20, `connection.test.ts`: 13, `unix-socket-transport.test.ts`: 6, `peer-role-flip.test.ts`: 1). Run with `cd packages/exchange/transports/unix-socket && pnpm exec vitest run`.

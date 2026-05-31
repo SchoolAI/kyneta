@@ -1,17 +1,19 @@
 // peer-program — pure Mealy machine for leaderless unix socket topology negotiation.
 //
-// The peer program encodes every state transition and effect as data.
-// The imperative shell (peer.ts) interprets effects as I/O. Tests assert
-// on data — no sockets, no timing, never flaky.
+// The peer program encodes the listen-or-connect decision as data. The
+// imperative shell (peer-transport.ts) interprets effects by starting and
+// stopping the connect/accept drivers — there are no Exchange transports to
+// add or remove, so the model is just the current role and the effects name
+// the drivers (`start-listener`, `start-connector`, `teardown`).
 //
 // Algebra: Program<PeerMsg, PeerModel, PeerEffect>
-// Interpreter: peer.ts executePeerEffect()
+// Interpreter: peer-transport.ts
 
 import type { Program } from "@kyneta/machine"
-import type { UnixSocketClientOptions } from "./client-transport.js"
+import type { ReconnectOptions } from "@kyneta/transport"
 
 // ---------------------------------------------------------------------------
-// Probe result — moved here from peer.ts as the canonical source
+// Probe result
 // ---------------------------------------------------------------------------
 
 export type ProbeResult = "connected" | "enoent" | "econnrefused" | "eaddrinuse"
@@ -20,10 +22,9 @@ export type ProbeResult = "connected" | "enoent" | "econnrefused" | "eaddrinuse"
 // Model
 // ---------------------------------------------------------------------------
 
-export type PeerModel = {
-  role: "negotiating" | "listener" | "connector" | "disposed"
-  transportId: string | undefined
-}
+export type PeerRole = "negotiating" | "listener" | "connector" | "disposed"
+
+export type PeerModel = { role: PeerRole }
 
 // ---------------------------------------------------------------------------
 // Messages
@@ -31,13 +32,9 @@ export type PeerModel = {
 
 export type PeerMsg =
   | { type: "probe-result"; result: ProbeResult }
-  | {
-      type: "transport-added"
-      transportId: string
-      role: "listener" | "connector"
-    }
+  | { type: "role-established"; role: "listener" | "connector" }
   | { type: "listen-failed" }
-  | { type: "transport-disconnected" }
+  | { type: "connection-lost" }
   | { type: "dispose" }
 
 // ---------------------------------------------------------------------------
@@ -50,9 +47,9 @@ export type PeerEffect =
   | {
       type: "start-connector"
       path: string
-      reconnect?: UnixSocketClientOptions["reconnect"]
+      reconnect?: Partial<ReconnectOptions>
     }
-  | { type: "remove-transport"; transportId: string }
+  | { type: "teardown" }
   | { type: "delay-then-probe"; ms: number; path: string }
 
 // ---------------------------------------------------------------------------
@@ -61,7 +58,7 @@ export type PeerEffect =
 
 export interface PeerProgramOptions {
   path: string
-  reconnect?: UnixSocketClientOptions["reconnect"]
+  reconnect?: Partial<ReconnectOptions>
   retryDelayMs?: number
 }
 
@@ -70,9 +67,9 @@ const DEFAULT_RETRY_DELAY_MS = 200
 /**
  * Create the peer negotiation program — a pure Mealy machine.
  *
- * The returned `Program<PeerMsg, PeerModel, PeerEffect>` encodes
- * every state transition and effect as inspectable data. The imperative
- * shell interprets `PeerEffect` as actual I/O.
+ * The returned `Program<PeerMsg, PeerModel, PeerEffect>` encodes every state
+ * transition and effect as inspectable data. The imperative shell interprets
+ * `PeerEffect` by driving the connect/accept drivers.
  */
 export function createPeerProgram(
   options: PeerProgramOptions,
@@ -80,13 +77,10 @@ export function createPeerProgram(
   const { path, reconnect, retryDelayMs = DEFAULT_RETRY_DELAY_MS } = options
 
   return {
-    init: [
-      { role: "negotiating", transportId: undefined },
-      { type: "probe", path },
-    ],
+    init: [{ role: "negotiating" }, { type: "probe", path }],
 
     update(msg, model): [PeerModel, ...PeerEffect[]] {
-      // Disposed state absorbs all messages
+      // Disposed state absorbs all messages.
       if (model.role === "disposed") {
         return [model]
       }
@@ -107,44 +101,31 @@ export function createPeerProgram(
                 { type: "delay-then-probe", ms: retryDelayMs, path },
               ]
           }
-          // Unreachable — inner switch is exhaustive over ProbeResult
+          // Unreachable — inner switch is exhaustive over ProbeResult.
           return [model]
         }
 
-        case "transport-added":
-          return [{ role: msg.role, transportId: msg.transportId }]
+        case "role-established":
+          return [{ role: msg.role }]
 
         case "listen-failed":
           return [
-            { role: "negotiating", transportId: undefined },
+            { role: "negotiating" },
             { type: "delay-then-probe", ms: retryDelayMs, path },
           ]
 
-        case "transport-disconnected": {
+        case "connection-lost": {
+          // Only meaningful once a role is held; otherwise a stale signal.
           if (model.role === "negotiating") return [model]
-
-          const effects: PeerEffect[] = []
-          if (model.transportId) {
-            effects.push({
-              type: "remove-transport",
-              transportId: model.transportId,
-            })
-          }
-          effects.push({ type: "probe", path })
-
-          return [{ role: "negotiating", transportId: undefined }, ...effects]
+          return [
+            { role: "negotiating" },
+            { type: "teardown" },
+            { type: "probe", path },
+          ]
         }
 
-        case "dispose": {
-          const effects: PeerEffect[] = []
-          if (model.transportId) {
-            effects.push({
-              type: "remove-transport",
-              transportId: model.transportId,
-            })
-          }
-          return [{ role: "disposed", transportId: undefined }, ...effects]
-        }
+        case "dispose":
+          return [{ role: "disposed" }, { type: "teardown" }]
       }
     },
   }

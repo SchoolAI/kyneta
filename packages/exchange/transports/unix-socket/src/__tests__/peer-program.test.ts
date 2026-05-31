@@ -1,7 +1,8 @@
 // peer-program.test — deterministic tests for the peer negotiation state machine.
 //
 // Every state × event combination is tested. Pure data in, pure data out —
-// no sockets, no timing, never flaky.
+// no sockets, no timing, never flaky. The model is just `{ role }`; effects
+// name the drivers (`start-listener`/`start-connector`/`teardown`).
 
 import { describe, expect, it } from "vitest"
 import {
@@ -22,10 +23,10 @@ function setup(retryDelayMs = RETRY_MS) {
   return { program, update: program.update }
 }
 
-const negotiating: PeerModel = { role: "negotiating", transportId: undefined }
-const listener: PeerModel = { role: "listener", transportId: "t1" }
-const connector: PeerModel = { role: "connector", transportId: "t2" }
-const disposed: PeerModel = { role: "disposed", transportId: undefined }
+const negotiating: PeerModel = { role: "negotiating" }
+const listener: PeerModel = { role: "listener" }
+const connector: PeerModel = { role: "connector" }
+const disposed: PeerModel = { role: "disposed" }
 
 // ---------------------------------------------------------------------------
 // Init
@@ -36,7 +37,7 @@ describe("peer program — init", () => {
     const { program } = setup()
     const [model, ...effects] = program.init
 
-    expect(model).toEqual({ role: "negotiating", transportId: undefined })
+    expect(model).toEqual({ role: "negotiating" })
     expect(effects).toEqual([{ type: "probe", path: PATH }])
   })
 })
@@ -102,27 +103,27 @@ describe("peer program — probe-result", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Transport lifecycle
+// Role established
 // ---------------------------------------------------------------------------
 
-describe("peer program — transport-added", () => {
+describe("peer program — role-established", () => {
   it("as listener → role is listener", () => {
     const { update } = setup()
     const [model, ...effects] = update(
-      { type: "transport-added", transportId: "t1", role: "listener" },
+      { type: "role-established", role: "listener" },
       negotiating,
     )
-    expect(model).toEqual({ role: "listener", transportId: "t1" })
+    expect(model).toEqual({ role: "listener" })
     expect(effects).toEqual([])
   })
 
   it("as connector → role is connector", () => {
     const { update } = setup()
     const [model, ...effects] = update(
-      { type: "transport-added", transportId: "t2", role: "connector" },
+      { type: "role-established", role: "connector" },
       negotiating,
     )
-    expect(model).toEqual({ role: "connector", transportId: "t2" })
+    expect(model).toEqual({ role: "connector" })
     expect(effects).toEqual([])
   })
 })
@@ -143,53 +144,34 @@ describe("peer program — listen-failed", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Transport disconnected (healing)
+// Connection lost (healing) — the bounded-reconnect-then-renegotiate trigger
 // ---------------------------------------------------------------------------
 
-describe("peer program — transport-disconnected", () => {
-  it("while connector → remove-transport + probe (healing)", () => {
+describe("peer program — connection-lost", () => {
+  it("while connector → teardown + re-probe (heal)", () => {
     const { update } = setup()
-    const [model, ...effects] = update(
-      { type: "transport-disconnected" },
-      connector,
-    )
+    const [model, ...effects] = update({ type: "connection-lost" }, connector)
     expect(model).toEqual(negotiating)
     expect(effects).toEqual([
-      { type: "remove-transport", transportId: "t2" },
+      { type: "teardown" },
       { type: "probe", path: PATH },
     ])
   })
 
-  it("while listener → remove-transport + probe", () => {
+  it("while listener → teardown + re-probe", () => {
     const { update } = setup()
-    const [model, ...effects] = update(
-      { type: "transport-disconnected" },
-      listener,
-    )
+    const [model, ...effects] = update({ type: "connection-lost" }, listener)
     expect(model).toEqual(negotiating)
     expect(effects).toEqual([
-      { type: "remove-transport", transportId: "t1" },
+      { type: "teardown" },
       { type: "probe", path: PATH },
     ])
   })
 
-  it("while negotiating → no change", () => {
+  it("while negotiating → no change (stale signal)", () => {
     const { update } = setup()
-    const [model, ...effects] = update(
-      { type: "transport-disconnected" },
-      negotiating,
-    )
+    const [model, ...effects] = update({ type: "connection-lost" }, negotiating)
     expect(model).toEqual(negotiating)
-    expect(effects).toEqual([])
-  })
-
-  it("while disposed → no change", () => {
-    const { update } = setup()
-    const [model, ...effects] = update(
-      { type: "transport-disconnected" },
-      disposed,
-    )
-    expect(model).toEqual(disposed)
     expect(effects).toEqual([])
   })
 })
@@ -199,25 +181,13 @@ describe("peer program — transport-disconnected", () => {
 // ---------------------------------------------------------------------------
 
 describe("peer program — dispose", () => {
-  it("while negotiating → disposed, no transport to remove", () => {
+  it("→ disposed + teardown (idempotent: executor no-ops if nothing active)", () => {
     const { update } = setup()
-    const [model, ...effects] = update({ type: "dispose" }, negotiating)
-    expect(model).toEqual(disposed)
-    expect(effects).toEqual([])
-  })
-
-  it("while listener → disposed + remove-transport", () => {
-    const { update } = setup()
-    const [model, ...effects] = update({ type: "dispose" }, listener)
-    expect(model).toEqual(disposed)
-    expect(effects).toEqual([{ type: "remove-transport", transportId: "t1" }])
-  })
-
-  it("while connector → disposed + remove-transport", () => {
-    const { update } = setup()
-    const [model, ...effects] = update({ type: "dispose" }, connector)
-    expect(model).toEqual(disposed)
-    expect(effects).toEqual([{ type: "remove-transport", transportId: "t2" }])
+    for (const from of [negotiating, listener, connector]) {
+      const [model, ...effects] = update({ type: "dispose" }, from)
+      expect(model).toEqual(disposed)
+      expect(effects).toEqual([{ type: "teardown" }])
+    }
   })
 })
 
@@ -228,9 +198,9 @@ describe("peer program — dispose", () => {
 describe("peer program — disposed state absorbs all", () => {
   const messages: PeerMsg[] = [
     { type: "probe-result", result: "connected" },
-    { type: "transport-added", transportId: "x", role: "listener" },
+    { type: "role-established", role: "listener" },
     { type: "listen-failed" },
-    { type: "transport-disconnected" },
+    { type: "connection-lost" },
     { type: "dispose" },
   ]
 
@@ -249,7 +219,7 @@ describe("peer program — disposed state absorbs all", () => {
 // ---------------------------------------------------------------------------
 
 describe("peer program — lifecycle sequence", () => {
-  it("init → probe → listener → disconnect → re-probe → connector → dispose", () => {
+  it("init → probe → listener → lost → re-probe → connector → dispose", () => {
     const { program, update } = setup()
 
     // 1. Init: negotiating + probe
@@ -261,22 +231,18 @@ describe("peer program — lifecycle sequence", () => {
     const [m1, ...fx1] = update({ type: "probe-result", result: "enoent" }, m0)
     expect(fx1[0]).toEqual({ type: "start-listener", path: PATH })
 
-    // 3. Listener added
+    // 3. Listener established
     const [m2, ...fx2] = update(
-      { type: "transport-added", transportId: "srv-1", role: "listener" },
+      { type: "role-established", role: "listener" },
       m1,
     )
-    expect(m2).toEqual({ role: "listener", transportId: "srv-1" })
+    expect(m2).toEqual({ role: "listener" })
     expect(fx2).toEqual([])
 
-    // 4. Listener dies → remove old transport + re-probe
-    const [m3, ...fx3] = update({ type: "transport-disconnected" }, m2)
-    expect(m3.role).toBe("negotiating")
-    expect(m3.transportId).toBeUndefined()
-    expect(fx3).toEqual([
-      { type: "remove-transport", transportId: "srv-1" },
-      { type: "probe", path: PATH },
-    ])
+    // 4. Listener dies → teardown + re-probe
+    const [m3, ...fx3] = update({ type: "connection-lost" }, m2)
+    expect(m3).toEqual({ role: "negotiating" })
+    expect(fx3).toEqual([{ type: "teardown" }, { type: "probe", path: PATH }])
 
     // 5. Re-probe finds a new listener → become connector
     const [m4, ...fx4] = update(
@@ -285,18 +251,18 @@ describe("peer program — lifecycle sequence", () => {
     )
     expect(fx4[0]).toMatchObject({ type: "start-connector" })
 
-    // 6. Connector added
+    // 6. Connector established
     const [m5, ...fx5] = update(
-      { type: "transport-added", transportId: "cli-1", role: "connector" },
+      { type: "role-established", role: "connector" },
       m4,
     )
-    expect(m5).toEqual({ role: "connector", transportId: "cli-1" })
+    expect(m5).toEqual({ role: "connector" })
     expect(fx5).toEqual([])
 
-    // 7. Dispose while connector → remove transport
+    // 7. Dispose while connector → teardown
     const [m6, ...fx6] = update({ type: "dispose" }, m5)
-    expect(m6).toEqual({ role: "disposed", transportId: undefined })
-    expect(fx6).toEqual([{ type: "remove-transport", transportId: "cli-1" }])
+    expect(m6).toEqual({ role: "disposed" })
+    expect(fx6).toEqual([{ type: "teardown" }])
 
     // 8. Further messages are absorbed
     const [m7, ...fx7] = update(

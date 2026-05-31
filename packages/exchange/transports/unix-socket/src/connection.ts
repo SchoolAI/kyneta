@@ -29,17 +29,19 @@ import type { UnixSocket } from "./types.js"
  * Represents a single unix socket connection to a peer.
  *
  * Manages encoding, stream framing, and backpressure-aware writing
- * for one connected peer. Created by `UnixSocketServerTransport` on
- * incoming connections and by `UnixSocketClientTransport` on connect.
+ * for one connected peer. Created by `attachSocket` for both the
+ * listener (per inbound accept) and connector (per outbound connect).
  *
  * The connection uses Pipeline<"binary"> for the full wire pipeline
  * (alias resolution, CBOR encoding, framing) and FrameStreamParser
  * for extracting frames from the byte stream.
+ *
+ * A connection's `send` works from socket + pipeline alone, so it is
+ * constructed *before* `addChannel` — the channel is wired in afterwards
+ * via `setChannel` (the channel's send binds straight to this connection,
+ * so there is no `peerId`/`channelId` to track here).
  */
 export class UnixSocketConnection {
-  readonly peerId: string
-  readonly channelId: number
-
   #socket: UnixSocket
   #channel: Channel | null = null
   #started = false
@@ -55,9 +57,7 @@ export class UnixSocketConnection {
   #writeQueue: Uint8Array[] = []
   #draining = false
 
-  constructor(peerId: string, channelId: number, socket: UnixSocket) {
-    this.peerId = peerId
-    this.channelId = channelId
+  constructor(socket: UnixSocket) {
     this.#socket = socket
     this.#pipeline = new Pipeline({
       send: "binary",
@@ -71,11 +71,10 @@ export class UnixSocketConnection {
   // ==========================================================================
 
   /**
-   * Set the channel reference.
-   * Called by the transport when the channel is created.
-   * @internal
+   * Wire in the channel this connection delivers inbound messages to.
+   * Called by `attachSocket` once the channel has been created.
    */
-  _setChannel(channel: Channel): void {
+  setChannel(channel: Channel): void {
     this.#channel = channel
   }
 
@@ -184,7 +183,7 @@ export class UnixSocketConnection {
   #handleChannelMessage(msg: ChannelMsg): void {
     if (!this.#channel) {
       console.error(
-        `[UnixSocketConnection] Cannot handle message: channel not set for peer ${this.peerId}`,
+        "[UnixSocketConnection] Cannot handle message: channel not set",
       )
       return
     }

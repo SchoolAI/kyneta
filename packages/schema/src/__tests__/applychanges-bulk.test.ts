@@ -1,17 +1,23 @@
-// applychanges-bulk — blast-radius perf-sanity (NOT a benchmark).
+// applychanges-bulk — blast-radius sanity (NOT a benchmark, NOT a timing test).
 //
 // After the with-changefeed dispatcher refactor (jj:yksllknw), every
-// `executeBatch` calls `ctx.prepare × N` then `ctx.flush × 1`. Each
-// prepare now dispatches an `accumulate` Msg through the per-context
-// dispatcher; the flush dispatches a single `flush` Msg. This test
-// applies 10_000 ops in one batch and verifies:
+// `executeBatch` calls `ctx.prepare × N` then `ctx.flush × 1`. Each prepare
+// dispatches an `accumulate` Msg through the per-context dispatcher; the flush
+// dispatches a single `flush` Msg. This test applies 10_000 ops in one batch
+// and verifies the load-INVARIANT signals:
 //
-// 1. No `BudgetExhaustedError` (default 100k budget is comfortable).
-// 2. Wall-clock stays well under a generous cap.
+// 1. No `BudgetExhaustedError` — a per-op dispatch storm or runaway cascade
+//    would exhaust the default 100k budget. This is the real regression guard.
+// 2. Correctness — the final value reflects all 10_000 ops.
 //
-// If this fails, the fix is to bracket `executeBatch` with a single
-// synthetic begin/end dispatch so all N prepares + 1 flush share one
-// outer dispatch cycle. Almost certainly won't be needed.
+// A wall-clock assertion (`elapsed < 2000ms`) was removed deliberately: under
+// `pnpm verify`'s concurrent turbo load it measured CPU contention, not the
+// code, and flaked (~0.7s standalone vs ~2.5s under load). A genuine
+// O(N²)/dispatch-storm regression trips the budget above (or blows past any
+// cap by orders of magnitude), so the budget + correctness checks catch it
+// without the flake. If item 1 ever fails, bracket `executeBatch` with a
+// single synthetic begin/end dispatch so all N prepares + 1 flush share one
+// outer dispatch cycle.
 
 import { describe, expect, it } from "vitest"
 import { replaceChange } from "../change.js"
@@ -43,12 +49,7 @@ describe("applyChanges bulk perf-sanity", () => {
       change: replaceChange(i),
     }))
 
-    const start = performance.now()
     expect(() => applyChanges(doc, ops)).not.toThrow()
-    const elapsed = performance.now() - start
-
     expect(doc.n()).toBe(9999)
-    // Generous cap; this is a blast-radius check, not a benchmark.
-    expect(elapsed).toBeLessThan(2_000)
   })
 })
