@@ -17,7 +17,7 @@ Batching is **orthogonal to framing**. The frame layer does not distinguish sing
 
 ## Message Types
 
-Six message types form the exchange protocol:
+Seven message types form the exchange protocol:
 
 | Discriminator (CBOR) | Type | Direction | Purpose |
 |----------------------|------|-----------|---------|
@@ -27,10 +27,13 @@ Six message types form the exchange protocol:
 | `0x11` | `interest` | Bidirectional | Request a specific document's state |
 | `0x12` | `offer` | Bidirectional | Deliver document state (snapshot or delta) |
 | `0x13` | `dismiss` | Bidirectional | Retract interest in a document |
+| `0x14` | `vacant` | Point-to-point | Negative ack to interest: "I don't have this doc and won't serve it" |
 
 Discriminator ranges:
 - `0x01–0x0F` — Lifecycle messages (establish, depart)
-- `0x10–0x1F` — Sync messages (present, interest, offer, dismiss)
+- `0x10–0x1F` — Sync messages (present, interest, offer, dismiss, vacant)
+
+Discriminators are allocated **sequentially from the next free value** and classified by exact-value set-membership — numbering carries no semantics (there is no range/mask dispatch anywhere; classification is `Set` membership in `validate-wire-message.ts` and an exact-value decode `switch`). A future datagram-only message type takes the next free value (`0x15+`). Introduce a reserved *range* only alongside range *dispatch*.
 
 The text pipeline uses human-readable type strings (`"establish"`, `"present"`, etc.) instead of integer discriminators.
 
@@ -132,8 +135,8 @@ v1 has no transport-prefix layer. The frame type byte (offset 1 of the 6-byte he
 | `y` | type | `"user" \| "bot" \| "service"` | establish |
 | `f` | features | `WireFeatures` (compact map) | establish (optional) |
 | `docs` | docs | `Array<{d, a?, rt, ms, sh?, sa?, shx?, shs?}>` | present |
-| `doc` | docId | `string` (one of doc/dx required) | interest, offer, dismiss |
-| `dx` | docId alias | non-negative integer | interest, offer, dismiss (one of doc/dx required) |
+| `doc` | docId | `string` (one of doc/dx required) | interest, offer, dismiss, vacant |
+| `dx` | docId alias | non-negative integer | interest, offer, dismiss, vacant (one of doc/dx required) |
 | `sh` | schemaHash | `string` (one of sh/shx required on present-doc) | present (doc entry) |
 | `sa` | schemaHash alias | non-negative integer (alias assignment) | present (doc entry, optional) |
 | `shx` | schemaHash alias | non-negative integer (alias reference) | present (doc entry, alternative to sh) |
@@ -147,7 +150,7 @@ v1 has no transport-prefix layer. The frame type byte (offset 1 of the 6-byte he
 | `pe` | payload encoding | `0x00` (json) or `0x01` (binary) | offer |
 
 **Decoder invariants** (Phase 3):
-- Interest, offer, dismiss: exactly one of `{doc, dx}` must be present. Both → `doc-id-form-conflict`. Neither → same code.
+- Interest, offer, dismiss, vacant: exactly one of `{doc, dx}` must be present. Both → `doc-id-form-conflict`. Neither → same code.
 - Present doc entries: exactly one of `{sh, shx}` must be present. Both → `schema-hash-form-conflict`.
 
 ### Default values for optional fields
@@ -431,9 +434,9 @@ Reserved for QUIC/WebTransport adapters. Each frame would correspond to a QUIC s
 
 Reserved for QUIC datagrams. One MTU-bounded datagram per ephemeral snapshot; aliasing required for compact self-identification. Hand-off rule: a datagram referencing an unknown alias is silently dropped. The `WireFeatures.datagram` flag advertises support.
 
-### Reserved type discriminator range
+### Type discriminator allocation
 
-The discriminator range `0x14–0x17` is reserved for future datagram-only message types (e.g., `EphemeralSnapshot`, `EphemeralAck`). Reserving the range now prevents collisions when datagram mode lands.
+Discriminators are allocated **sequentially from the next free value** and classified by exact-value set-membership; numbering carries no semantics. There is no range/mask dispatch anywhere — `VALID_MESSAGE_TYPES` is a `Set`, the decode path is an exact-value `switch`, and `isLifecycleMsg` is string equality. `vacant` took the next free sync value (`0x14`); future datagram-only message types (e.g. `EphemeralSnapshot`, `EphemeralAck`) take the next free values (`0x15+`). A reserved *range* should be introduced only alongside range *dispatch* (define the range and its masking together).
 
 ### Future hash rule
 
@@ -513,4 +516,4 @@ Shared:
 | Version | Changes |
 |---------|---------|
 | 0 | Pre-release. Unified `Frame<T>` architecture. 7-byte binary header. Single-byte transport prefixes. 8-byte string frameId, 4-byte index/total. |
-| 1 | **Current.** Compact 6-byte binary header (version, type, payloadLength); no hash-algorithm byte (deferred to frame trailer). Numeric uint16 frameId / index / total; uint32 totalSize. Removed transport-prefix layer. **DocId & schemaHash aliasing** with `a`/`dx`/`sa`/`shx` fields. **Wire features negotiation** in `establish` (`f` map; backward-compat). **Identifier length caps** (DocId 512 UTF-8 bytes; schemaHash 256). **Delivery-mode taxonomy** (muxed, streamed-deferred, datagram-deferred). |
+| 1 | **Current.** Compact 6-byte binary header (version, type, payloadLength); no hash-algorithm byte (deferred to frame trailer). Numeric uint16 frameId / index / total; uint32 totalSize. Removed transport-prefix layer. **DocId & schemaHash aliasing** with `a`/`dx`/`sa`/`shx` fields. **Wire features negotiation** in `establish` (`f` map; backward-compat). **Identifier length caps** (DocId 512 UTF-8 bytes; schemaHash 256). **Delivery-mode taxonomy** (muxed, streamed-deferred, datagram-deferred). **`vacant` message** (`0x14`) — additive negative-ack to interest; old peers reject the unknown discriminator harmlessly (set-membership), so it is wire-backward-compatible. |

@@ -42,6 +42,7 @@ import {
   type WireMessage,
   type WireOfferMsg,
   type WirePresentMsg,
+  type WireVacantMsg,
 } from "@kyneta/wire"
 import type {
   ChannelMsg,
@@ -320,6 +321,17 @@ export function applyOutboundAliasing(
       }
       return { state, result: ok(wire) }
     }
+
+    case "vacant": {
+      const wire: WireVacantMsg = { t: MessageType.Vacant }
+      const aliasInfo = state.outboundAliasByDoc.get(msg.docId)
+      if (aliasInfo !== undefined && state.mutualAlias) {
+        wire.dx = aliasInfo
+      } else {
+        wire.doc = msg.docId
+      }
+      return { state, result: ok(wire) }
+    }
   }
 }
 
@@ -473,6 +485,14 @@ export function applyInboundAliasing(
       const docErr = validateDocId(docResult.docId)
       if (docErr) return { state, result: err(docErr) }
       return { state, result: ok({ type: "dismiss", docId: docResult.docId }) }
+    }
+
+    case MessageType.Vacant: {
+      const docResult = resolveDocId(s_get_inbound(state), wire.doc, wire.dx)
+      if ("error" in docResult) return { state, result: err(docResult.error) }
+      const docErr = validateDocId(docResult.docId)
+      if (docErr) return { state, result: err(docErr) }
+      return { state, result: ok({ type: "vacant", docId: docResult.docId }) }
     }
 
     default:

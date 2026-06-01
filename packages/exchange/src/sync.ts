@@ -10,12 +10,12 @@
 //   const s = sync(doc)
 //   s.peerId        // local peer ID
 //   s.docId         // document ID
-//   s.readyStates   // current sync status
+//   s.peerStates    // current per-peer sync state
 //   await s.waitForSync()
 
-import type { DocId, PeerId } from "@kyneta/transport"
+import type { DocId, PeerId, PeerIdentityDetails } from "@kyneta/transport"
 import type { Synchronizer } from "./synchronizer.js"
-import type { ReadyState } from "./types.js"
+import type { Connectivity, PeerSyncState } from "./types.js"
 
 // ---------------------------------------------------------------------------
 // SyncRef — what sync() returns
@@ -38,9 +38,9 @@ export type WaitForSyncOptions = {
  * This interface is returned by `sync(ref)` and provides:
  * - `peerId` — the local peer ID
  * - `docId` — the document ID
- * - `readyStates` — current sync status with all peers
+ * - `peerStates` — current per-peer sync state
  * - `waitForSync()` — wait for sync to complete
- * - `onReadyStateChange()` — subscribe to sync status changes
+ * - `onPeerSyncChange()` — subscribe to per-peer sync state changes
  */
 export interface SyncRef {
   /** The local peer ID. */
@@ -49,8 +49,41 @@ export interface SyncRef {
   /** The document ID. */
   readonly docId: DocId
 
-  /** Current sync status with all peers. */
-  readonly readyStates: ReadyState[]
+  /** Current per-peer sync state with all peers (volatile — can regress). */
+  readonly peerStates: PeerSyncState[]
+
+  /**
+   * Monotonic readiness latch: `true` once this doc has reconciled with ≥1
+   * peer (received data, or a terminal `vacant` reply). Stays `true` across
+   * the `synced→pending→synced` reconnect re-handshake flip and across a
+   * reconciled peer departing. The 90% case that users typically want: "is it
+   * safe to read?" gate.
+   */
+  readonly ready: boolean
+
+  /**
+   * Monotonic latch restricted to peers matching `pred` (the authority /
+   * quorum case) — resolved against stored identities, so it holds even
+   * after the matching peer has left.
+   */
+  readyFor(pred: (peer: PeerIdentityDetails) => boolean): boolean
+
+  /**
+   * Coarse connection lifecycle: `online` (≥1 established peer),
+   * `connecting` (transports configured, none established), or `offline`
+   * (no transports configured).
+   */
+  readonly connectivity: Connectivity
+
+  /**
+   * Resolve when sync has settled — never rejects. Resolves
+   * `{ via: "local" }` immediately when no transports are configured;
+   * `{ via: "peer" }` on first reconciliation; `{ via: "offline" }` after
+   * `opts.offlineAfter` ms with no upstream reconciliation.
+   */
+  settled(opts?: {
+    offlineAfter?: number
+  }): Promise<{ via: "peer" | "local" | "offline" }>
 
   /**
    * Wait for sync to complete with a peer of the specified kind.
@@ -58,7 +91,7 @@ export interface SyncRef {
    * Resolves when we've completed a sync handshake with at least one
    * peer of the requested kind:
    * - Received document data (peer state = "synced")
-   * - Peer confirmed it doesn't have the document (peer state = "absent")
+   * - Peer confirmed it doesn't have the document (peer state = "vacant")
    *
    * @param options - Configuration options
    * @throws If the timeout is reached before sync completes
@@ -66,11 +99,11 @@ export interface SyncRef {
   waitForSync(options?: WaitForSyncOptions): Promise<void>
 
   /**
-   * Subscribe to ready state changes.
-   * @param cb Callback that receives the new ready states
+   * Subscribe to per-peer sync state changes.
+   * @param cb Callback that receives the new peer states
    * @returns Unsubscribe function
    */
-  onReadyStateChange(cb: (readyStates: ReadyState[]) => void): () => void
+  onPeerSyncChange(cb: (peerStates: PeerSyncState[]) => void): () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -98,8 +131,38 @@ class SyncRefImpl implements SyncRef {
     this.#synchronizer = params.synchronizer
   }
 
-  get readyStates(): ReadyState[] {
-    return this.#synchronizer.getReadyStates(this.docId)
+  get peerStates(): PeerSyncState[] {
+    return this.#synchronizer.getPeerStates(this.docId)
+  }
+
+  get ready(): boolean {
+    return this.#synchronizer.hasReconciled(this.docId)
+  }
+
+  readyFor(pred: (peer: PeerIdentityDetails) => boolean): boolean {
+    return this.#synchronizer.reconciledMatching(this.docId, pred)
+  }
+
+  get connectivity(): Connectivity {
+    return this.#synchronizer.connectivity()
+  }
+
+  async settled(opts?: {
+    offlineAfter?: number
+  }): Promise<{ via: "peer" | "local" | "offline" }> {
+    // No transports configured — there is no upstream to wait for.
+    if (this.#synchronizer.connectivity() === "offline") return { via: "local" }
+    // Already reconciled with a peer.
+    if (this.#synchronizer.hasReconciled(this.docId)) return { via: "peer" }
+
+    // Otherwise wait for the monotonic latch. `offlineAfter` (if given) is
+    // the deadline after which we proceed offline; 0 ⇒ wait indefinitely.
+    const result = await this.#synchronizer.awaitReconciliation(
+      this.docId,
+      () => this.#synchronizer.hasReconciled(this.docId),
+      opts?.offlineAfter ?? 0,
+    )
+    return result === "ready" ? { via: "peer" } : { via: "offline" }
   }
 
   async waitForSync(options?: WaitForSyncOptions): Promise<void> {
@@ -108,10 +171,10 @@ class SyncRefImpl implements SyncRef {
     return this.#synchronizer.waitUntilReady(this.docId, timeout)
   }
 
-  onReadyStateChange(cb: (readyStates: ReadyState[]) => void): () => void {
-    return this.#synchronizer.onReadyStateChange((docId, readyStates) => {
+  onPeerSyncChange(cb: (peerStates: PeerSyncState[]) => void): () => void {
+    return this.#synchronizer.onPeerSyncChange((docId, peerStates) => {
       if (docId === this.docId) {
-        cb(readyStates)
+        cb(peerStates)
       }
     })
   }
@@ -152,9 +215,9 @@ export function registerSync(
  * Use this to access:
  * - `peerId` — the local peer ID
  * - `docId` — the document ID
- * - `readyStates` — current sync status with all peers
+ * - `peerStates` — current per-peer sync state
  * - `waitForSync()` — wait for sync to complete
- * - `onReadyStateChange()` — subscribe to sync status changes
+ * - `onPeerSyncChange()` — subscribe to per-peer sync state changes
  *
  * @param ref - A document obtained from `exchange.get()`
  * @returns SyncRef with sync capabilities
@@ -166,7 +229,7 @@ export function registerSync(
  *
  * const doc = exchange.get("my-doc", schema)
  * sync(doc).peerId
- * sync(doc).readyStates
+ * sync(doc).peerStates
  * await sync(doc).waitForSync()
  * ```
  */

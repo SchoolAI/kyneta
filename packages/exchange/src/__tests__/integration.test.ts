@@ -691,6 +691,148 @@ describe("resolve (dynamic document creation)", () => {
 })
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// Vacant — terminal will-not-serve + readiness latch
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+describe("Vacant — terminal will-not-serve", () => {
+  it("a rejected doc reaches state vacant, ready latches true, settled resolves via peer", async () => {
+    const bridge = new Bridge()
+    const exchangeA = createExchange({
+      id: "alice",
+      transports: [createBridgeTransport({ transportId: "alice", bridge })],
+    })
+    createExchange({
+      id: "bob",
+      transports: [createBridgeTransport({ transportId: "bob", bridge })],
+      resolve: () => Reject(),
+    })
+
+    const docA = exchangeA.get("doc-1", SequentialDoc)
+    await drain(40)
+
+    const states = sync(docA).peerStates
+    expect(
+      states.some(s => s.peer.peerId === "bob" && s.state === "vacant"),
+    ).toBe(true)
+    expect(sync(docA).ready).toBe(true)
+    await expect(sync(docA).settled()).resolves.toEqual({ via: "peer" })
+  })
+
+  it("departure-survival: ready stays true after the reconciled peer departs", async () => {
+    const bridge = new Bridge()
+    const exchangeA = createExchange({
+      id: "alice",
+      transports: [createBridgeTransport({ transportId: "alice", bridge })],
+    })
+    const exchangeB = createExchange({
+      id: "bob",
+      transports: [createBridgeTransport({ transportId: "bob", bridge })],
+      resolve: () => Reject(),
+    })
+
+    const docA = exchangeA.get("doc-1", SequentialDoc)
+    await drain(40)
+    expect(sync(docA).ready).toBe(true)
+
+    await exchangeB.shutdown()
+    await drain(40)
+
+    // The reconciled peer is gone, but the latch is monotonic.
+    expect(sync(docA).ready).toBe(true)
+  })
+
+  it("re-arm: a later server-side get() flips vacant → synced, ready stays true", async () => {
+    const bridge = new Bridge()
+    const exchangeA = createExchange({
+      id: "alice",
+      transports: [createBridgeTransport({ transportId: "alice", bridge })],
+    })
+    const exchangeB = createExchange({
+      id: "bob",
+      transports: [createBridgeTransport({ transportId: "bob", bridge })],
+      resolve: () => Reject(),
+    })
+
+    const docA = exchangeA.get("doc-1", SequentialDoc)
+    await drain(40)
+    expect(
+      sync(docA).peerStates.some(
+        s => s.peer.peerId === "bob" && s.state === "vacant",
+      ),
+    ).toBe(true)
+    expect(sync(docA).ready).toBe(true)
+
+    // Server now actually creates/serves the doc (a bare schema registration
+    // would NOT re-announce — the rejected doc left no server-side record).
+    const docB = exchangeB.get("doc-1", SequentialDoc)
+    batch(docB, (d: any) => d.title.set("now-available"))
+    await drain(40)
+
+    expect(
+      sync(docA).peerStates.some(
+        s => s.peer.peerId === "bob" && s.state === "synced",
+      ),
+    ).toBe(true)
+    expect(sync(docA).ready).toBe(true)
+  })
+
+  it("suspend-survival: ready stays true across suspend()/resume()", async () => {
+    const bridge = new Bridge()
+    const exchangeA = createExchange({
+      id: "alice",
+      transports: [createBridgeTransport({ transportId: "alice", bridge })],
+    })
+    const exchangeB = createExchange({
+      id: "bob",
+      transports: [createBridgeTransport({ transportId: "bob", bridge })],
+    })
+
+    const docA = exchangeA.get("doc-1", SequentialDoc)
+    batch(docA, (d: any) => d.title.set("hello"))
+    const docB = exchangeB.get("doc-1", SequentialDoc)
+    await sync(docB).waitForSync({ timeout: 5000 })
+    await drain(20)
+    expect(sync(docB).ready).toBe(true)
+
+    exchangeB.suspend("doc-1")
+    await drain(20)
+    expect(sync(docB).ready).toBe(true) // latch survives suspend
+
+    exchangeB.resume("doc-1")
+    await drain(20)
+    expect(sync(docB).ready).toBe(true)
+  })
+
+  it("waitForSync resolves (does not time out) when the only reply is vacant", async () => {
+    const bridge = new Bridge()
+    const exchangeA = createExchange({
+      id: "alice",
+      transports: [createBridgeTransport({ transportId: "alice", bridge })],
+    })
+    createExchange({
+      id: "bob",
+      transports: [createBridgeTransport({ transportId: "bob", bridge })],
+      resolve: () => Reject(),
+    })
+
+    const docA = exchangeA.get("doc-1", SequentialDoc)
+
+    // Start waiting before the handshake settles — the vacant reply must
+    // resolve the wait through the connection-aware readiness path, not
+    // hang until the timeout.
+    const waited = sync(docA).waitForSync({ timeout: 5000 })
+    await drain(40)
+    await expect(waited).resolves.toBeUndefined()
+  })
+
+  it("settled() resolves { via: 'local' } when no transports are configured", async () => {
+    const exchange = createExchange({ id: "solo" }) // no transports
+    const doc = exchange.get("doc-1", SequentialDoc)
+    await expect(sync(doc).settled()).resolves.toEqual({ via: "local" })
+  })
+})
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 // canShare predicate
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
@@ -1278,7 +1420,7 @@ describe("waitForSync", () => {
     expect(docB.count()).toBe(1)
   })
 
-  it("onReadyStateChange fires only for the doc that synced", async () => {
+  it("onPeerSyncChange fires only for the doc that synced", async () => {
     const bridge = new Bridge()
 
     const exchangeA = createExchange({
@@ -1303,7 +1445,7 @@ describe("waitForSync", () => {
 
     // Track which docIds fire ready-state changes on Bob's synchronizer
     const notifiedDocIds = new Set<string>()
-    exchangeB.synchronizer.onReadyStateChange(docId => {
+    exchangeB.synchronizer.onPeerSyncChange(docId => {
       notifiedDocIds.add(docId)
     })
 
@@ -1658,16 +1800,16 @@ describe("waitForSync semantics", () => {
     await drain(50)
 
     // Bob should see Alice as synced
-    const bobReadyStates = sync(docB).readyStates
-    expect(bobReadyStates).toHaveLength(1)
-    expect(bobReadyStates[0].identity.peerId).toBe("alice")
-    expect(bobReadyStates[0].status).toBe("synced")
+    const bobPeerStates = sync(docB).peerStates
+    expect(bobPeerStates).toHaveLength(1)
+    expect(bobPeerStates[0].peer.peerId).toBe("alice")
+    expect(bobPeerStates[0].state).toBe("synced")
 
     // Alice should see Bob as synced
-    const aliceReadyStates = sync(docA).readyStates
-    expect(aliceReadyStates).toHaveLength(1)
-    expect(aliceReadyStates[0].identity.peerId).toBe("bob")
-    expect(aliceReadyStates[0].status).toBe("synced")
+    const alicePeerStates = sync(docA).peerStates
+    expect(alicePeerStates).toHaveLength(1)
+    expect(alicePeerStates[0].peer.peerId).toBe("bob")
+    expect(alicePeerStates[0].state).toBe("synced")
   })
 
   it("originator sees peer as 'synced' — waitForSync is receiver-side", async () => {
@@ -1698,10 +1840,10 @@ describe("waitForSync semantics", () => {
 
     // From Alice's perspective, Bob is "synced" — Alice sent an offer
     // and doesn't expect one back.
-    const readyStates = sync(docA).readyStates
-    expect(readyStates).toHaveLength(1)
-    expect(readyStates[0].identity.peerId).toBe("bob")
-    expect(readyStates[0].status).toBe("synced")
+    const peerStates = sync(docA).peerStates
+    expect(peerStates).toHaveLength(1)
+    expect(peerStates[0].peer.peerId).toBe("bob")
+    expect(peerStates[0].state).toBe("synced")
   })
 
   it("three-peer hub: receiver-side waitForSync resolves through relay", async () => {

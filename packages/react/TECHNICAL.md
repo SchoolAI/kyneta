@@ -4,13 +4,13 @@
 > **Role**: Thin React bindings over `@kyneta/schema` + `@kyneta/exchange`. Bridges the `[CHANGEFEED]` reactive protocol to React's rendering cycle via `useSyncExternalStore`, and provides a framework-agnostic text-adapter for binding native `<input>` / `<textarea>` elements to collaborative `TextRef`s.
 > **Depends on**: `@kyneta/schema` (peer), `@kyneta/changefeed` (peer), `@kyneta/exchange` (peer), `react` (>=18, peer)
 > **Depended on by**: Application code that renders Kyneta documents in React.
-> **Canonical symbols**: `ExchangeProvider`, `useExchange`, `useDocument`, `useValue`, `useSyncStatus`, `useText`, `ExchangeProviderProps`, `UseTextOptions`, `CallableRef`, `ExternalStore`, `createChangefeedStore`, `createSyncStore`, `createNullishStore`, `attach`, `diffText`, `transformSelection`, `TextRefLike`, `AttachOptions`
+> **Canonical symbols**: `ExchangeProvider`, `useExchange`, `useDocument`, `useValue`, `useSyncState`, `useDocReady`, `useText`, `ExchangeProviderProps`, `UseTextOptions`, `CallableRef`, `ExternalStore`, `createChangefeedStore`, `createSyncStore`, `createDerivedSyncStore`, `createNullishStore`, `attach`, `diffText`, `transformSelection`, `TextRefLike`, `AttachOptions`
 > **Key invariant(s)**:
 > 1. The package is an **adapter**, not a renderer. Every hook is a ≤10-line `useSyncExternalStore` wrapper over a pure, React-agnostic store factory. Zero React imports in `store.ts` or `text-adapter.ts`.
 > 2. `useValue` returns the same object reference between renders when the underlying value has not changed — downstream `React.memo` and `useMemo` remain stable.
 > 3. `useText` never causes re-renders on text changes. Collaborative text binds imperatively through `text-adapter.ts`; the textarea is an *uncontrolled* element.
 
-A minimal React binding kit. Applications wrap their tree in `ExchangeProvider`, consume documents via `useDocument(bound)`, read values with `useValue(ref)`, observe sync status with `useSyncStatus(doc)`, and bind collaborative text fields with `useText(textRef)`. That's the full surface. Heavy lifting — the `[CHANGEFEED]` subscription, the snapshot caching, the text diffing + selection rebasing — lives in framework-agnostic pure modules.
+A minimal React binding kit. Applications wrap their tree in `ExchangeProvider`, consume documents via `useDocument(bound)`, read values with `useValue(ref)`, gate on sync readiness with `useDocReady(doc)` (or read raw per-peer state with `useSyncState(doc)`), and bind collaborative text fields with `useText(textRef)`. That's the full surface. Heavy lifting — the `[CHANGEFEED]` subscription, the snapshot caching, the text diffing + selection rebasing — lives in framework-agnostic pure modules.
 
 Consumed by application code. Not imported by any other Kyneta package.
 
@@ -33,13 +33,15 @@ Consumed by application code. Not imported by any other Kyneta package.
 | `ExternalStore<T>` | `{ subscribe(onStoreChange): unsubscribe, getSnapshot(): T }` — the contract `useSyncExternalStore` consumes. | A state container, a Zustand store — this is the React built-in contract |
 | `CallableRef` | Structural type: a callable `(...args) => any` that also carries `[CHANGEFEED]`. Every `Ref<S>` from the standard interpreter stack satisfies it. | A React `ref`, a DOM ref |
 | `createChangefeedStore(ref)` | Pure factory: `ref → ExternalStore<Plain<S>>`. Subscribes to `[CHANGEFEED]`, caches snapshots, dispatches deep or shallow based on ref kind. | `createSyncStore` |
-| `createSyncStore(syncRef)` | Pure factory: `SyncRef → ExternalStore<ReadonlyMap<PeerId, ReadyState>>`. Subscribes to `onReadyStateChange`. | `createChangefeedStore` |
+| `createDerivedSyncStore(syncRef, select)` | Pure factory: one `onPeerSyncChange` subscription, snapshot `select(syncRef)`. Backs both `useSyncState` (array select) and `useDocReady` (scalar select). | `createSyncStore` |
+| `createSyncStore(syncRef)` | `createDerivedSyncStore(syncRef, r => r.peerStates)` — `SyncRef → ExternalStore<PeerSyncState[]>`. | `createChangefeedStore` |
 | `createNullishStore(value)` | Pure factory returning a store whose snapshot is `null` / `undefined` and whose `subscribe` is a no-op. Used for conditional hook calls. | A placeholder — this is a real `ExternalStore` with stable identity |
 | `ExchangeProvider` | React context provider that publishes an `Exchange` to descendants. | A DI container |
 | `useExchange()` | Reads the `Exchange` from context. Throws if no provider is in the tree. | `useContext` on some generic `ExchangeContext` — this is the curated hook |
 | `useDocument(bound)` | Returns `Ref<S>` for `exchange.get(docId, bound)`. Stable across renders; memoizes by `(exchange, docId, bound)`. | `useValue` — `useDocument` returns the *ref*, not the plain value |
 | `useValue(ref)` | Returns `Plain<S>`. Re-renders when the ref's changefeed fires. Memoized for referential stability. | `useDocument` |
-| `useSyncStatus(doc)` | Returns `ReadonlyMap<PeerId, ReadyState>` describing per-peer sync progress. Re-renders on ready-state changes. | `useValue(doc)` — `useSyncStatus` looks at the sync surface, not the doc's data |
+| `useDocReady(doc, opts?)` | Returns a monotonic `boolean` readiness latch (flicker-free scalar). The 90% gate. | `useSyncState(doc)` — raw per-peer array |
+| `useSyncState(doc)` | Returns `PeerSyncState[]` describing per-peer sync progress. Re-renders on per-peer sync changes. | `useValue(doc)` — `useSyncState` looks at the sync surface, not the doc's data |
 | `useText(textRef, options?)` | React ref callback that binds a native `<input>` / `<textarea>` to a `TextRef`. Does not re-render on text changes. | `useValue(textRef)` — use that if you want to *read* the text reactively (e.g., for a character count) |
 | `attach(element, textRef, options?)` | Imperative, framework-agnostic: bind an element to a text ref, return a detach function. The foundation of `useText`. | A React hook — `attach` has no React dependency |
 | `diffText(oldText, newText, cursorHint)` | Pure function: produce the `TextChange` describing a single contiguous edit from `oldText` to `newText`, disambiguated by cursor position. | A general-purpose string diff — `diffText` assumes a single contiguous edit |
@@ -58,7 +60,7 @@ Two layers:
 | Layer | Module | React? |
 |-------|--------|--------|
 | **Functional Core** | `store.ts`, `text-adapter.ts` | No imports |
-| **Imperative Shell** | `exchange-context.tsx`, `use-value.ts`, `use-document.ts`, `use-sync-status.ts`, `use-text.ts` | Thin React wrappers |
+| **Imperative Shell** | `exchange-context.tsx`, `use-value.ts`, `use-document.ts`, `use-sync-state.ts`, `use-text.ts` | Thin React wrappers |
 
 ```
 Application code
@@ -66,7 +68,8 @@ Application code
      ├─ ExchangeProvider, useExchange ──── React context
      ├─ useDocument(bound)             ─── exchange.get
      ├─ useValue(ref)                  ─── useSyncExternalStore ──► createChangefeedStore(ref)
-     ├─ useSyncStatus(doc)             ─── useSyncExternalStore ──► createSyncStore(syncRef)
+     ├─ useSyncState(doc)              ─── useSyncExternalStore ──► createSyncStore(syncRef)
+     ├─ useDocReady(doc)               ─── useSyncExternalStore ──► createDerivedSyncStore(syncRef, r => r.ready)
      └─ useText(textRef)               ─── ref callback         ──► attach(el, textRef)
                                                                      │
                                                                      └─ diffText, transformSelection (pure)
@@ -86,7 +89,7 @@ Every hook file is ≤100 lines — most are 40–80 — because the work lives 
 
 ## The FC/IS split
 
-Source: `packages/react/src/store.ts` (Functional Core) + `packages/react/src/use-value.ts`, `use-sync-status.ts` (Imperative Shell).
+Source: `packages/react/src/store.ts` (Functional Core) + `packages/react/src/use-value.ts`, `use-sync-state.ts` (Imperative Shell).
 
 ### Functional Core — `store.ts`
 
@@ -94,7 +97,7 @@ Two framework-agnostic pure factories:
 
 ```ts
 createChangefeedStore(ref: CallableRef): ExternalStore<unknown>
-createSyncStore(syncRef: SyncRef):       ExternalStore<ReadonlyMap<PeerId, ReadyState>>
+createSyncStore(syncRef: SyncRef):       ExternalStore<PeerSyncState[]>
 ```
 
 Plus a utility:
@@ -113,7 +116,7 @@ createNullishStore<T extends null | undefined>(value: T): ExternalStore<T>
 
 The cache is the key detail — without it, `getSnapshot` would return `ref()` fresh each call, producing different object references across tearing-check reads and forcing React to bail out.
 
-`createSyncStore(syncRef)` has the same shape over `SyncRef.onReadyStateChange`.
+`createSyncStore(syncRef)` has the same shape over `SyncRef.onPeerSyncChange`.
 
 `createNullishStore(value)` is a degenerate `ExternalStore` with a no-op `subscribe` and a fixed snapshot. Used by `useValue` to handle `null` / `undefined` inputs without calling a hook conditionally (React rule).
 
@@ -131,7 +134,7 @@ export function useValue<R extends CallableRef | null | undefined>(ref: R): UseV
 }
 ```
 
-That's the entire pattern. `use-sync-status.ts` is the same shape.
+That's the entire pattern. `use-sync-state.ts` is the same shape.
 
 ### Testing the core without React
 
@@ -170,7 +173,7 @@ This relies on an implicit contract: **`ref()` must return a new reference when 
 
 ### Eager snapshot on mount
 
-The initial snapshot is computed synchronously during `createChangefeedStore` construction. There is no `null` / loading state — the ref always has a current value (that's the `[CHANGEFEED]` contract). Applications that need a loading indicator use `useSyncStatus` for sync progress, not `useValue` state.
+The initial snapshot is computed synchronously during `createChangefeedStore` construction. There is no `null` / loading state — the ref always has a current value (that's the `[CHANGEFEED]` contract). Applications that need a loading indicator use `useDocReady` for the readiness gate (or `useSyncState` for per-peer progress), not `useValue` state.
 
 ### What snapshot caching is NOT
 
@@ -288,22 +291,25 @@ function Counter({ count }: { count: Ref<CounterSchema> }) {
 
 ---
 
-## `useSyncStatus`
+## `useDocReady` and `useSyncState`
 
-Source: `packages/react/src/use-sync-status.ts`.
+Source: `packages/react/src/use-doc-ready.ts`, `packages/react/src/use-sync-state.ts`.
 
 ```ts
-useSyncStatus(doc: Ref<S>): ReadonlyMap<PeerId, ReadyState>
+useDocReady(doc: Ref<S>, opts?: { peer?: (p: PeerIdentityDetails) => boolean }): boolean
+useSyncState(doc: Ref<S>): PeerSyncState[]
 ```
 
-Given a document ref, returns a live map of per-peer sync readiness. Re-renders when any peer's ready state flips (via the exchange's `onReadyStateChange` feed).
+`useDocReady` is the common gate: a **monotonic** boolean latch that flips to `true` on first reconciliation (`synced` or `vacant`) and never regresses across the reconnect re-handshake flip or a reconciled peer departing. Because the snapshot is a scalar, `useSyncExternalStore` bails out of re-render via `Object.is` when it's unchanged — flicker-free even as the underlying per-peer array churns. `opts.peer` requires a matching reconciled peer (authority / quorum).
 
-Applications use this for UI like "syncing with 3 peers" or "all synced" indicators.
+`useSyncState` (renamed from `useSyncStatus` in 2.0) is the raw escape hatch: a live `PeerSyncState[]` (`{ docId, peer, state }`), re-rendering on any per-peer change. Volatile — an entry can regress `synced → pending` on reconnect. Both hooks share one subscription primitive, `createDerivedSyncStore(syncRef, select)`.
 
-### What `useSyncStatus` is NOT
+Applications use `useDocReady` for "safe to read?" gates and `useSyncState` for "syncing with 3 peers" / per-peer indicators.
 
-- **Not a connectivity indicator.** It reflects sync readiness per peer per doc, not transport connectivity. Peers may be connected but not yet caught up; others may be synced but currently disconnected (the map still shows their last-known state).
-- **Not reactive to peer joining / leaving the connection graph.** That's `exchange.peers`. `useSyncStatus` tracks readiness transitions on docs that already have peer entries.
+### What these are NOT
+
+- **Not a connectivity indicator.** They reflect sync reconciliation per doc, not transport connectivity — see `sync(doc).connectivity` (`"online" | "connecting" | "offline"`) and the presentational `describeSyncStatus(peerStates, connectivity, ready)`.
+- **`useSyncState` is not reactive to peers joining / leaving the connection graph.** That's `exchange.peers`. It tracks per-peer sync-state transitions on docs that already have peer entries.
 
 ---
 
@@ -447,7 +453,7 @@ The barrel (`src/index.ts`) re-exports a curated subset of `@kyneta/schema`, `@k
 |------|-------------|
 | `@kyneta/changefeed` | `CHANGEFEED`, `Changeset` (type) |
 | `@kyneta/schema` | `Schema`, `change`, `applyChanges`, `subscribe`, `subscribeNode`, `BoundSchema`, `Op`, `Plain`, `Ref`, `RRef`, `CommitOptions` (types) |
-| `@kyneta/exchange` | `AsyncQueue`, `createLineDocSchema`, `DocChange`, `DocId`, `DocInfo`, `ExchangeParams`, `GatePredicate`, `LineListener`, `LineProtocol`, `Policy`, `ReadyState`, `SyncRef`, `TransportFactory` (types and values as applicable) |
+| `@kyneta/exchange` | `AsyncQueue`, `createLineDocSchema`, `describeSyncStatus`, `Connectivity`, `DocChange`, `DocId`, `DocInfo`, `ExchangeParams`, `GatePredicate`, `LineListener`, `LineProtocol`, `PeerIdentityDetails`, `Policy`, `PeerSyncState`, `SyncRef`, `SyncStatusSummary`, `TransportFactory` (types and values as applicable) |
 
 This is a convenience, not a hard coupling — direct imports from the upstream packages work identically.
 
@@ -460,7 +466,7 @@ This is a convenience, not a hard coupling — direct imports from the upstream 
 | `ExternalStore<T>` | `src/store.ts` | `{ subscribe, getSnapshot }` — the `useSyncExternalStore` contract. |
 | `CallableRef` | `src/store.ts` | Callable + `[CHANGEFEED]` structural type. |
 | `createChangefeedStore` | `src/store.ts` | Pure factory: ref → `ExternalStore<Plain<S>>`. |
-| `createSyncStore` | `src/store.ts` | Pure factory: `SyncRef` → `ExternalStore<ReadonlyMap<PeerId, ReadyState>>`. |
+| `createSyncStore` | `src/store.ts` | Pure factory: `SyncRef` → `ExternalStore<PeerSyncState[]>`. |
 | `createNullishStore` | `src/store.ts` | No-op store for `null` / `undefined`. |
 | `TextRefLike` | `src/text-adapter.ts` | Structural shape of a text ref for the adapter. |
 | `AttachOptions` | `src/text-adapter.ts` | `{ undo?: "prevent" \| "browser" }`. |
@@ -472,7 +478,8 @@ This is a convenience, not a hard coupling — direct imports from the upstream 
 | `ExchangeProviderProps` | `src/exchange-context.tsx` | `{ exchange, children }`. |
 | `useDocument` | `src/use-document.ts` | `(bound, docId) → Ref<S>`. |
 | `useValue` | `src/use-value.ts` | `(ref) → Plain<S>`; handles null/undefined. |
-| `useSyncStatus` | `src/use-sync-status.ts` | `(doc) → ReadonlyMap<PeerId, ReadyState>`. |
+| `useSyncState` | `src/use-sync-state.ts` | `(doc) → PeerSyncState[]`. |
+| `useDocReady` | `src/use-doc-ready.ts` | `(doc, opts?) → boolean` monotonic latch. |
 | `useText` | `src/use-text.ts` | `(textRef, options?) → React.RefCallback`. |
 | `UseTextOptions` | `src/use-text.ts` | `{ undo?: "prevent" \| "browser" }`. |
 
@@ -481,12 +488,13 @@ This is a convenience, not a hard coupling — direct imports from the upstream 
 | File | Lines | Role |
 |------|-------|------|
 | `src/index.ts` | 90 | Public barrel + curated re-exports from upstream packages. |
-| `src/store.ts` | 149 | Pure store factories: `createChangefeedStore`, `createSyncStore`, `createNullishStore`, `CallableRef`, `ExternalStore`. Zero React imports. |
+| `src/store.ts` | 149 | Pure store factories: `createChangefeedStore`, `createDerivedSyncStore`, `createSyncStore`, `createNullishStore`, `CallableRef`, `ExternalStore`. Zero React imports. |
 | `src/text-adapter.ts` | 355 | Pure text-adapter: `attach`, `diffText`, `transformSelection`, `TextRefLike`, `AttachOptions`. Zero React imports. |
 | `src/exchange-context.tsx` | 96 | `ExchangeProvider`, `useExchange`, `ExchangeProviderProps`. |
 | `src/use-value.ts` | 70 | `useValue` — `useSyncExternalStore` wrapper over `createChangefeedStore` / `createNullishStore`. |
 | `src/use-document.ts` | 67 | `useDocument` — memoized `exchange.get(docId, bound)`. |
-| `src/use-sync-status.ts` | 40 | `useSyncStatus` — `useSyncExternalStore` wrapper over `createSyncStore`. |
+| `src/use-sync-state.ts` | 44 | `useSyncState` — `useSyncExternalStore` wrapper over `createSyncStore`. |
+| `src/use-doc-ready.ts` | 54 | `useDocReady` — `useSyncExternalStore` wrapper over `createDerivedSyncStore`. |
 | `src/use-text.ts` | 82 | `useText` — ref callback wrapping `attach`. |
 | `src/__tests__/store.test.ts` | 291 | `createChangefeedStore` + `createSyncStore` — snapshot caching, deep vs shallow, subscription lifecycle. No React. |
 | `src/__tests__/text-adapter.test.ts` | 543 | `diffText`, `transformSelection`, `attach` — edit detection, selection rebasing, IME composition, undo interception. |

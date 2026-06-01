@@ -17,6 +17,7 @@ import {
   type WireMessage,
   type WireOfferMsg,
   type WirePresentMsg,
+  type WireVacantMsg,
 } from "../../wire-types.js"
 
 // ---------------------------------------------------------------------------
@@ -135,4 +136,12 @@ export function offerWire(opts: {
 
 export function dismissWire(docId: string): WireDismissMsg {
   return { t: MessageType.Dismiss, doc: docId }
+}
+
+// ---------------------------------------------------------------------------
+// Vacant
+// ---------------------------------------------------------------------------
+
+export function vacantWire(docId: string): WireVacantMsg {
+  return { t: MessageType.Vacant, doc: docId }
 }

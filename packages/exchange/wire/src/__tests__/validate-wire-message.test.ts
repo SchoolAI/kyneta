@@ -457,3 +457,34 @@ describe("dismiss (t: 0x13)", () => {
     if (!r.ok) expect(r.error.reason).toContain("exactly one of doc or dx")
   })
 })
+
+describe("vacant (t: 0x14)", () => {
+  it("accepts vacant with doc", () => {
+    const r = validateWireMessage({
+      t: MessageType.Vacant,
+      doc: "doc1",
+    })
+    expect(r.ok).toBe(true)
+  })
+
+  it("accepts vacant with dx", () => {
+    const r = validateWireMessage({
+      t: MessageType.Vacant,
+      dx: 3,
+    })
+    expect(r.ok).toBe(true)
+  })
+
+  it("rejects both doc and dx, labeling the variant 'vacant'", () => {
+    const r = validateWireMessage({
+      t: MessageType.Vacant,
+      doc: "doc1",
+      dx: 3,
+    })
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.error.reason).toContain("exactly one of doc or dx")
+      expect(r.error.reason).toContain("vacant")
+    }
+  })
+})

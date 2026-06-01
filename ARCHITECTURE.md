@@ -73,7 +73,7 @@ Kyneta is a framework for collaborative, substrate-agnostic documents. You defin
 | `@kyneta/prisma-store` | `Store` over a caller-supplied `PrismaClient`. Loose `unknown` typing for Prisma-version portability. | `PrismaStore`, `createPrismaStore` |
 | `@kyneta/exchange` | Sync runtime — TEA session + sync programs, governance, capabilities, Line, reactive peer/doc collections. | `Exchange`, `Policy`, `Governance`, `Line`, `LineProtocol` |
 | `@kyneta/index` | DBSP-grounded reactive indexing — ℤ-set algebra, `Source`, `Collection`, `SecondaryIndex`, `JoinIndex`. | `Source.of`, `Collection.from`, `Index.by`, `Index.join` |
-| `@kyneta/react` | React bindings — hooks + text-adapter, all `useSyncExternalStore` over pure stores. | `ExchangeProvider`, `useValue`, `useDocument`, `useSyncStatus`, `useText` |
+| `@kyneta/react` | React bindings — hooks + text-adapter, all `useSyncExternalStore` over pure stores. | `ExchangeProvider`, `useValue`, `useDocument`, `useDocReady`, `useSyncState`, `useText` |
 | `@kyneta/compiler` (exp.) | Target-agnostic IR producer. Parses builder patterns → classified IR for rendering targets. | IR + `analyze`, `walk`, `transforms` |
 | `@kyneta/cast` (exp.) | Web rendering target — consumes compiler IR, emits code calling delta regions. | `mount`, `hydrate`, five region primitives, `state()` |
 | `@kyneta/perspective` (exp., private) | Convergent Constraint Systems — standalone constraint-based approach to CRDTs. | `createReality`, `solve`, Datalog evaluator |

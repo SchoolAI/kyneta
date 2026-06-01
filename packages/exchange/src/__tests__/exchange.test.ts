@@ -261,10 +261,10 @@ describe("Exchange", () => {
       expect(() => sync({})).toThrow("exchange.get()")
     })
 
-    it("readyStates is initially empty", () => {
+    it("peerStates is initially empty", () => {
       const exchange = new Exchange({ id: "test" })
       const doc = exchange.get("doc-1", TestDoc)
-      expect(sync(doc).readyStates).toEqual([])
+      expect(sync(doc).peerStates).toEqual([])
     })
   })
 

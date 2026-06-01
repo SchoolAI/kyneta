@@ -366,11 +366,14 @@ export class Exchange {
           if (this.#capabilities.supportsReplicaType(replicaType)) {
             // Supported replica type but no schema match — defer.
             // Promotion is plausible: a later exchange.get() or registerSchema()
-            // will expand the schema set and auto-promote.
+            // will expand the schema set and auto-promote. NOT terminal, so
+            // no `vacant` — the peer's interest stays live.
             this.#deferDoc(docId, replicaType, syncProtocol, schemaHash)
+          } else {
+            // Unsupported replica type — terminal will-not-serve. Tell the
+            // requester so it can record us `vacant` instead of hanging.
+            this.#synchronizer.declareVacant(docId, peer.peerId)
           }
-          // Unsupported replica type — reject silently.
-          // No callback, no schema, no replica capability. Nothing to do.
           return
         }
 
@@ -389,6 +392,8 @@ export class Exchange {
                   `is registered for replicaType [${replicaType}] with syncProtocol ${JSON.stringify(syncProtocol)}. ` +
                   `Add the appropriate BoundReplica to ExchangeParams.replicas.`,
               )
+              // Terminal will-not-serve — tell the requester.
+              this.#synchronizer.declareVacant(docId, peer.peerId)
               return
             }
             this.#replicateDoc(
@@ -403,7 +408,9 @@ export class Exchange {
             this.#deferDoc(docId, replicaType, syncProtocol, schemaHash)
             break
           case "reject":
-            // Explicitly rejected — do nothing
+            // Explicitly rejected — terminal will-not-serve. Tell the
+            // requester so it records us `vacant` rather than hanging.
+            this.#synchronizer.declareVacant(docId, peer.peerId)
             break
         }
       },

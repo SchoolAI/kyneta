@@ -74,6 +74,7 @@ const VALID_MESSAGE_TYPES = new Set<number>([
   MessageType.Interest,
   MessageType.Offer,
   MessageType.Dismiss,
+  MessageType.Vacant,
 ])
 
 const VALID_PEER_TYPES = new Set<string>(["user", "bot", "service"])
@@ -223,6 +224,14 @@ function validateDismiss(
   return ok(obj as unknown as WireMessage)
 }
 
+function validateVacant(
+  obj: Record<string, unknown>,
+): Result<WireMessage, WireValidationError> {
+  const docCheck = validateDocOrDx(obj, "vacant")
+  if (!docCheck.ok) return docCheck
+  return ok(obj as unknown as WireMessage)
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch table
 // ---------------------------------------------------------------------------
@@ -237,6 +246,7 @@ const validators: Record<
   [MessageType.Interest]: validateInterest,
   [MessageType.Offer]: validateOffer,
   [MessageType.Dismiss]: validateDismiss,
+  [MessageType.Vacant]: validateVacant,
 }
 
 // ---------------------------------------------------------------------------

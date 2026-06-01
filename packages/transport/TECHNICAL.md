@@ -5,7 +5,7 @@
 > **Depends on**: `@kyneta/wire` (workspace), `@kyneta/machine`, `@kyneta/schema`
 > **Depended on by**: `@kyneta/exchange`, `@kyneta/websocket-transport`, `@kyneta/sse-transport`, `@kyneta/unix-socket-transport`, `@kyneta/webrtc-transport`, `@kyneta/bridge-transport`
 > **Canonical symbols**: `Transport<G>`, `TransportFactory`, `TransportContext`, `Channel`, `ConnectedChannel`, `EstablishedChannel`, `GeneratedChannel`, `ChannelDirectory<G>`, `ChannelMsg`, `LifecycleMsg`, `SyncMsg`, `EstablishMsg`, `DepartMsg`, `PresentMsg`, `InterestMsg`, `OfferMsg`, `DismissMsg`, `AddressedEnvelope`, `ReturnEnvelope`, `PeerIdentityDetails`, `WireFeatures`, `Pipeline`, `Encoding`, `PayloadOf`, `WireOpts`, `FrameStreamParser`, `computeBackoffDelay`, `DEFAULT_RECONNECT`. Re-exports: `Result`, `Ok`, `Err`, `ok`, `err`, `WireError`.
-> **Key invariant(s)**: The protocol is exactly six messages. Two lifecycle (`establish`, `depart`) for channel presence, four sync (`present`, `interest`, `offer`, `dismiss`) for document exchange. The `Pipeline` is the single wire orchestrator — all concrete transports use it rather than calling `@kyneta/wire` directly.
+> **Key invariant(s)**: The protocol is exactly seven messages. Two lifecycle (`establish`, `depart`) for channel presence, five sync (`present`, `interest`, `offer`, `dismiss`, `vacant`) for document exchange. The `Pipeline` is the single wire orchestrator — all concrete transports use it rather than calling `@kyneta/wire` directly.
 
 A small kit of shared types, one abstract base class, and one wire pipeline that every concrete transport extends and uses. It fixes the shape of a channel, the vocabulary of messages, the split between "channel created" / "channel connected" / "channel established", and the `ChannelMsg ↔ wire` transformation — so that the runtime in `@kyneta/exchange` can drive any transport without caring whether bytes flow over a WebSocket, an SSE stream, a Unix socket, or an in-process bridge.
 
@@ -90,6 +90,7 @@ Exactly six messages (source: `packages/transport/src/messages.ts`). Two groups:
 | `interest` | Sync | Either peer | `{ docId, version?, reciprocate? }` | "I want this document; here is my version" |
 | `offer` | Sync | Either peer | `{ docId, payload: SubstratePayload, version, reciprocate? }` | "Here is state for this document" |
 | `dismiss` | Sync | Leaving peer | `{ docId }` | "I am leaving the sync graph for this document" — dual of `present` |
+| `vacant` | Sync | Serving peer | `{ docId }` | "You expressed interest, but I don't have this document and won't serve it" — terminal negative ack; receiver records the sender `vacant` without tearing down its own replica |
 
 `isLifecycleMsg` and `isSyncMsg` type-narrow a `ChannelMsg`. A `ConnectedChannel` may only send `LifecycleMsg`; an `EstablishedChannel` may only send `SyncMsg`. The type system enforces the ordering constraint — no sync message can be sent before `establish` completes.
 

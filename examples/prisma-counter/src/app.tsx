@@ -8,14 +8,14 @@
 //   Imports from @kyneta/react:
 //     useDocument   — get (or create) a document from the Exchange
 //     useValue      — subscribe to a ref's plain snapshot (re-renders)
-//     useSyncStatus — observe sync connection state
+//     useSyncState  — observe per-peer sync state
 //
 //   Counter refs auto-commit: doc.count.increment(n) writes directly.
 //   No batch() wrapper needed for single-counter mutations.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useDocument, useValue, useSyncStatus } from "@kyneta/react"
+import { useDocument, useSyncState, useValue } from "@kyneta/react"
 import { CounterDoc } from "./schema.js"
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -23,8 +23,8 @@ import { CounterDoc } from "./schema.js"
 // ─────────────────────────────────────────────────────────────────────────
 
 function SyncIndicator({ doc }: { doc: object }) {
-  const readyStates = useSyncStatus(doc)
-  const synced = readyStates.some(s => s.status === "synced")
+  const peerStates = useSyncState(doc)
+  const synced = peerStates.some(s => s.state === "synced")
 
   return (
     <span

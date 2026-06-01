@@ -42,6 +42,7 @@ import {
   interestWire,
   offerWire,
   presentWire,
+  vacantWire,
 } from "./__helpers__/wire-fixtures.js"
 
 // ---------------------------------------------------------------------------
@@ -241,6 +242,20 @@ describe("CBOR codec — dismiss", () => {
     const wire = dismissWire("doc-to-leave")
     const decoded = roundTrip(wire)
     expect(decoded).toEqual(wire)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Vacant
+// ---------------------------------------------------------------------------
+
+describe("CBOR codec — vacant", () => {
+  it("round-trips vacant message and carries the 0x14 discriminator", () => {
+    const wire = vacantWire("doc-we-wont-serve")
+    const decoded = roundTrip(wire)
+    expect(decoded).toEqual(wire)
+    expect(decoded.t).toBe(MessageType.Vacant)
+    expect(MessageType.Vacant).toBe(0x14)
   })
 })
 

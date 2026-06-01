@@ -12,18 +12,13 @@
 //     useDocument   — get (or create) a document from the Exchange
 //     useValue      — subscribe to a ref's plain snapshot (re-renders)
 //     useText       — bind a CRDT text ref to an <input> or <textarea>
-//     useSyncStatus — observe sync connection state
+//     useSyncState  — observe per-peer sync state
 //     change        — transact mutations on the document ref
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import {
-  useDocument,
-  useValue,
-  useText,
-  useSyncStatus,
-} from "@kyneta/react"
 import type { TextRefLike } from "@kyneta/react"
+import { useDocument, useSyncState, useText, useValue } from "@kyneta/react"
 import { TodoDoc } from "./schema.js"
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -31,8 +26,8 @@ import { TodoDoc } from "./schema.js"
 // ─────────────────────────────────────────────────────────────────────────
 
 function SyncIndicator({ doc }: { doc: object }) {
-  const readyStates = useSyncStatus(doc)
-  const synced = readyStates.some(s => s.status === "synced")
+  const peerStates = useSyncState(doc)
+  const synced = peerStates.some(s => s.state === "synced")
 
   return (
     <span

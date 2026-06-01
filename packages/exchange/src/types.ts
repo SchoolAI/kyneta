@@ -18,17 +18,32 @@ export type {
 } from "@kyneta/transport"
 
 // ---------------------------------------------------------------------------
-// Ready state — per-doc sync status
+// Peer sync state — the raw per-peer, per-doc projection
 // ---------------------------------------------------------------------------
 
 /**
- * Sync status for a document with a specific peer.
+ * Sync state for a document with a specific peer — the volatile per-peer
+ * fact surfaced by `sync(doc).peerStates`. Can regress (e.g. `synced →
+ * pending` on a reconnect re-handshake); use `sync(doc).ready` for a
+ * monotonic doc-level latch.
  */
-export type ReadyState = {
+export type PeerSyncState = {
   docId: DocId
-  identity: PeerIdentityDetails
-  status: "pending" | "synced" | "absent"
+  peer: PeerIdentityDetails
+  state: "pending" | "synced" | "vacant"
 }
+
+/**
+ * Coarse connection lifecycle for a document's sync, independent of any
+ * single transport's socket state:
+ * - "online": at least one established peer (a live channel)
+ * - "connecting": transports configured, but no established peer yet
+ * - "offline": no transports configured (local-only)
+ *
+ * The time dimension ("proceed offline after N ms") lives in
+ * `sync(doc).settled({ offlineAfter })`, not here.
+ */
+export type Connectivity = "online" | "connecting" | "offline"
 
 // ---------------------------------------------------------------------------
 // Peer document sync tracking
@@ -36,14 +51,12 @@ export type ReadyState = {
 
 /**
  * Discriminated union for peer document awareness.
- * - "unknown": We don't know if the peer has this document
- * - "absent": Peer explicitly doesn't have this document
+ * - "vacant": Peer confirmed it doesn't have — and won't serve — this doc
  * - "pending": Peer has this document but we haven't synced yet
  * - "synced": Peer has this document with a known version
  */
 export type PeerDocSyncState =
-  | { status: "unknown"; lastUpdated: Date }
-  | { status: "absent"; lastUpdated: Date }
+  | { status: "vacant"; lastUpdated: Date }
   | { status: "pending"; lastUpdated: Date }
   | { status: "synced"; lastKnownVersion: string; lastUpdated: Date }
 

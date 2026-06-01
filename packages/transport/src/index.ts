@@ -31,6 +31,7 @@ export type {
   PresentMsg,
   ReturnEnvelope,
   SyncMsg,
+  VacantMsg,
   WireFeatures,
 } from "./messages.js"
 export { isLifecycleMsg, isSyncMsg } from "./messages.js"

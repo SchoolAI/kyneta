@@ -13,26 +13,26 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  batch,
   useDocument,
   useExchange,
+  useSyncState,
   useValue,
-  useSyncStatus,
-  batch,
 } from "@kyneta/react"
 import type { Ref } from "@kyneta/schema"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { CAR_COLORS, type CarColor } from "../constants.js"
-import { GameStateDoc, PlayerInputDoc } from "../schema.js"
 import type { PlayerInputSchema } from "../schema.js"
+import { GameStateDoc, PlayerInputDoc } from "../schema.js"
 import type { CarState, PlayerScore } from "../types.js"
 import { ArenaCanvas } from "./components/arena-canvas.js"
 import { JoinScreen } from "./components/join-screen.js"
 import { PlayerList } from "./components/player-list.js"
 import { Scoreboard } from "./components/scoreboard.js"
+import { useInputSender } from "./hooks/use-input-sender.js"
 import { useJoystick } from "./hooks/use-joystick.js"
 import { useKeyboardInput } from "./hooks/use-keyboard-input.js"
-import { useInputSender } from "./hooks/use-input-sender.js"
 import { combineInputs, getActivePlayers, sortScores } from "./logic.js"
 
 type BumperCarsAppProps = {
@@ -77,8 +77,8 @@ export default function BumperCarsApp({
 
   // ── Sync status ──────────────────────────────────────────────────────
 
-  const readyStates = useSyncStatus(gameStateDoc)
-  const isSynced = readyStates.some(s => s.status === "synced")
+  const peerStates = useSyncState(gameStateDoc)
+  const isSynced = peerStates.some(s => s.state === "synced")
 
   // ── Input ────────────────────────────────────────────────────────────
 
@@ -154,10 +154,7 @@ export default function BumperCarsApp({
 
   const sortedScores = useMemo(() => sortScores(scores, 5), [scores])
 
-  const activePlayers = useMemo(
-    () => getActivePlayers(cars),
-    [cars],
-  )
+  const activePlayers = useMemo(() => getActivePlayers(cars), [cars])
 
   // ── Render ───────────────────────────────────────────────────────────
 

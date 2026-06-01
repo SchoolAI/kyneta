@@ -1,10 +1,11 @@
 // messages — substrate-agnostic message types for the sync protocol.
 //
-// Four sync messages form the document-exchange vocabulary:
+// Five sync messages form the document-exchange vocabulary:
 // - `present` — "I have these documents, here are their properties."
 // - `interest` — "I want document X. Here's my version."
 // - `offer` — "Here is state for document X."
 // - `dismiss` — "I'm leaving the sync graph for this document."
+// - `vacant` — "You want document X, but I don't have it and won't serve it."
 //
 // Two lifecycle messages manage channel presence:
 // - `establish` — symmetric handshake; both peers send on connect
@@ -67,7 +68,7 @@ export type DepartMsg = {
 }
 
 // ---------------------------------------------------------------------------
-// Sync messages — the four-message document-exchange vocabulary
+// Sync messages — the five-message document-exchange vocabulary
 // ---------------------------------------------------------------------------
 
 /**
@@ -142,6 +143,22 @@ export type DismissMsg = {
   docId: DocId
 }
 
+/**
+ * Terminal negative acknowledgement — "you expressed interest in document
+ * X, but I do not have it and will not serve it."
+ *
+ * The semantic opposite of `dismiss`: dismiss means "I am leaving a doc I
+ * *had*" (and its receiver tears down the local replica link), whereas
+ * `vacant` means "I never had it / won't serve it." Point-to-point, one-way,
+ * carries only `docId`. The receiver records the sender as `vacant` for
+ * this doc — reconciliation reached a terminal answer — *without* tearing
+ * down its own replica.
+ */
+export type VacantMsg = {
+  type: "vacant"
+  docId: DocId
+}
+
 // ---------------------------------------------------------------------------
 // Message unions
 // ---------------------------------------------------------------------------
@@ -150,7 +167,12 @@ export type DismissMsg = {
 export type LifecycleMsg = EstablishMsg | DepartMsg
 
 /** Sync messages — document-exchange vocabulary. */
-export type SyncMsg = PresentMsg | InterestMsg | OfferMsg | DismissMsg
+export type SyncMsg =
+  | PresentMsg
+  | InterestMsg
+  | OfferMsg
+  | DismissMsg
+  | VacantMsg
 
 /** All channel messages. */
 export type ChannelMsg = LifecycleMsg | SyncMsg

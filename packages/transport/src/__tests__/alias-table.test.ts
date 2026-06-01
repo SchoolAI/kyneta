@@ -17,7 +17,12 @@ import {
   applyOutboundAliasing,
   emptyAliasState,
 } from "../alias-table.js"
-import type { EstablishMsg, InterestMsg, PresentMsg } from "../messages.js"
+import type {
+  EstablishMsg,
+  InterestMsg,
+  PresentMsg,
+  VacantMsg,
+} from "../messages.js"
 
 const alice: EstablishMsg = {
   type: "establish",
@@ -235,6 +240,64 @@ describe("alias-table — round-trip", () => {
     expect(presentIn.result.ok).toBe(true)
     if (!presentIn.result.ok) return
     expect(presentIn.result.value).toEqual(presentDoc1)
+  })
+})
+
+describe("alias-table — vacant", () => {
+  function setupMutual(): ReturnType<typeof emptyAliasState> {
+    let state = emptyAliasState()
+    state = applyOutboundAliasing(state, alice).state
+    state = applyInboundAliasing(state, {
+      t: 0x01,
+      id: "bob",
+      y: "user",
+      f: { a: true },
+    } as any).state
+    state = applyOutboundAliasing(state, presentDoc1).state
+    return state
+  }
+
+  it("with mutualAlias on, outbound vacant uses dx (alias)", () => {
+    const state = setupMutual()
+    const msg: VacantMsg = { type: "vacant", docId: "doc-1" }
+    const { result } = applyOutboundAliasing(state, msg)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect((result.value as any).t).toBe(0x14)
+    expect((result.value as any).dx).toBe(0)
+    expect((result.value as any).doc).toBeUndefined()
+  })
+
+  it("with mutualAlias off, outbound vacant uses doc (full)", () => {
+    let state = emptyAliasState()
+    state = applyOutboundAliasing(state, alice).state
+    state = applyOutboundAliasing(state, presentDoc1).state
+    const msg: VacantMsg = { type: "vacant", docId: "doc-1" }
+    const { result } = applyOutboundAliasing(state, msg)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect((result.value as any).doc).toBe("doc-1")
+    expect((result.value as any).dx).toBeUndefined()
+  })
+
+  it("round-trips outbound → inbound preserving the vacant message", () => {
+    let outState = emptyAliasState()
+    let inState = emptyAliasState()
+
+    const aliceOut = applyOutboundAliasing(outState, alice)
+    outState = aliceOut.state
+    if (!aliceOut.result.ok) return
+    inState = applyInboundAliasing(inState, aliceOut.result.value).state
+
+    const vacant: VacantMsg = { type: "vacant", docId: "doc-1" }
+    const out = applyOutboundAliasing(outState, vacant)
+    outState = out.state
+    expect(out.result.ok).toBe(true)
+    if (!out.result.ok) return
+    const inbound = applyInboundAliasing(inState, out.result.value)
+    expect(inbound.result.ok).toBe(true)
+    if (!inbound.result.ok) return
+    expect(inbound.result.value).toEqual(vacant)
   })
 })
 

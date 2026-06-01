@@ -4,7 +4,8 @@
 //   ExchangeProvider, useExchange — Exchange context
 //   useDocument — document access from Exchange
 //   useValue — reactive subscription to a ref's plain value
-//   useSyncStatus — reactive sync ready-state
+//   useSyncState — reactive per-peer sync state (raw array)
+//   useDocReady — reactive monotonic readiness latch (the 90% gate)
 //
 // Re-exports a curated subset of @kyneta/schema and @kyneta/exchange
 // so most app code only imports from @kyneta/react.
@@ -19,14 +20,16 @@ export type { CallableRef, ExternalStore } from "./store.js"
 // Store factories (Functional Core — framework-agnostic, independently testable)
 export {
   createChangefeedStore,
+  createDerivedSyncStore,
   createNullishStore,
   createSyncStore,
 } from "./store.js"
 // Text adapter (framework-agnostic textarea ↔ TextRef binding)
 export type { AttachOptions, TextRefLike } from "./text-adapter.js"
 export { attach, diffText, transformSelection } from "./text-adapter.js"
+export { useDocReady } from "./use-doc-ready.js"
 export { useDocument } from "./use-document.js"
-export { useSyncStatus } from "./use-sync-status.js"
+export { useSyncState } from "./use-sync-state.js"
 export type { UseTextOptions } from "./use-text.js"
 export { useText } from "./use-text.js"
 export { useValue } from "./use-value.js"
@@ -63,6 +66,7 @@ export {
 // ---------------------------------------------------------------------------
 
 export type {
+  Connectivity,
   DocChange,
   DocId,
   DocInfo,
@@ -70,14 +74,17 @@ export type {
   GatePredicate,
   LineListener,
   LineProtocol,
+  PeerIdentityDetails,
+  PeerSyncState,
   Policy,
-  ReadyState,
   SyncRef,
+  SyncStatusSummary,
   TransportFactory,
 } from "@kyneta/exchange"
 export {
   AsyncQueue,
   createLineDocSchema,
+  describeSyncStatus,
   Exchange,
   Governance,
   hasSync,

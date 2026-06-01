@@ -57,13 +57,21 @@ import {
 import {
   createSyncUpdate,
   type DocEntry,
+  hasReconciled,
   initSync,
+  reconciledMatching,
   type SyncEffect,
   type SyncInput,
   type SyncModel,
 } from "./sync-program.js"
 import { TransportManager } from "./transport/transport-manager.js"
-import type { DocChange, DocInfo, PeerChange, ReadyState } from "./types.js"
+import type {
+  Connectivity,
+  DocChange,
+  DocInfo,
+  PeerChange,
+  PeerSyncState,
+} from "./types.js"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -251,6 +259,25 @@ type OuterMsg =
   | { type: "tick" }
 
 // ---------------------------------------------------------------------------
+// Connectivity classifier (pure — unit-testable without a Synchronizer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Classify connection lifecycle from two counts:
+ * - `online` if any peer is established (has a live channel),
+ * - `offline` if no transports are configured,
+ * - `connecting` otherwise (transports present, no established peer yet).
+ */
+export function deriveConnectivity(input: {
+  establishedPeers: number
+  transportCount: number
+}): Connectivity {
+  if (input.establishedPeers > 0) return "online"
+  if (input.transportCount === 0) return "offline"
+  return "connecting"
+}
+
+// ---------------------------------------------------------------------------
 // Synchronizer
 // ---------------------------------------------------------------------------
 
@@ -299,9 +326,9 @@ export class Synchronizer {
   // Document lifecycle — changefeed
   #docHandle: ReactiveMapHandle<DocId, DocInfo, DocChange> | null = null
 
-  // Ready-state listeners
-  readonly #readyStateListeners = new Set<
-    (docId: DocId, readyStates: ReadyState[]) => void
+  // Peer-sync-state listeners
+  readonly #peerSyncListeners = new Set<
+    (docId: DocId, peerStates: PeerSyncState[]) => void
   >()
 
   // State-advanced listeners
@@ -702,20 +729,67 @@ export class Synchronizer {
   // PUBLIC API — Ready state
   // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-  getReadyStates(docId: DocId): ReadyState[] {
-    const states: ReadyState[] = []
+  /**
+   * Tell a peer we will not serve a doc it asked for. Routes a `vacant`
+   * message through the sync program; the shell drops it if the peer has
+   * no live channel. Does not affect our own replica.
+   */
+  declareVacant(docId: DocId, peerId: PeerId): void {
+    this.#dispatchSync({ type: "sync/declare-vacant", docId, to: peerId })
+  }
+
+  /**
+   * Monotonic doc-level latch: has this doc reconciled with ≥1 peer
+   * (`synced` or `vacant`) at any point? Connection-independent — survives
+   * the reconnect re-handshake flip and a reconciled peer departing.
+   */
+  hasReconciled(docId: DocId): boolean {
+    return hasReconciled(this.#syncHandle.getState(), docId)
+  }
+
+  /**
+   * Monotonic doc-level latch restricted to peers matching `pred` —
+   * resolved against stored identities, so it holds even after the matching
+   * peer has left.
+   */
+  reconciledMatching(
+    docId: DocId,
+    pred: (peer: PeerIdentityDetails) => boolean,
+  ): boolean {
+    return reconciledMatching(this.#syncHandle.getState(), docId, pred)
+  }
+
+  /**
+   * Coarse connection lifecycle for sync: `online` if any peer is
+   * established, `offline` if no transports are configured, else
+   * `connecting`. Gathers the two counts and delegates to the pure
+   * `deriveConnectivity` classifier.
+   */
+  connectivity(): Connectivity {
+    let establishedPeers = 0
+    for (const [, sessionPeer] of this.#sessionHandle.getState().peers) {
+      if (sessionPeer.channels.size > 0) establishedPeers++
+    }
+    return deriveConnectivity({
+      establishedPeers,
+      transportCount: this.transports.size,
+    })
+  }
+
+  getPeerStates(docId: DocId): PeerSyncState[] {
+    const states: PeerSyncState[] = []
 
     for (const [_peerId, peerState] of this.#syncHandle.getState().peers) {
       const docSync = peerState.docSyncStates.get(docId)
       if (docSync) {
         states.push({
           docId,
-          identity: peerState.identity,
-          status:
+          peer: peerState.identity,
+          state:
             docSync.status === "synced"
               ? "synced"
-              : docSync.status === "absent"
-                ? "absent"
+              : docSync.status === "vacant"
+                ? "vacant"
                 : "pending",
         })
       }
@@ -724,37 +798,58 @@ export class Synchronizer {
     return states
   }
 
-  async waitUntilReady(docId: DocId, timeoutMs = 30000): Promise<void> {
-    if (this.#isReady(docId)) return
+  /**
+   * Shared wait core: resolve `"ready"` once `isReady()` becomes true (on a
+   * peer-sync change for `docId`), or `"timeout"` after `timeoutMs` (0 ⇒ no
+   * timeout). Never rejects — callers decide what a timeout means. The
+   * resolve predicate is a parameter so the two callers can wait on
+   * different conditions: `waitForSync` passes the connection-aware
+   * `#isReady`; `settled` passes the monotonic `hasReconciled`.
+   */
+  awaitReconciliation(
+    docId: DocId,
+    isReady: () => boolean,
+    timeoutMs: number,
+  ): Promise<"ready" | "timeout"> {
+    if (isReady()) return Promise.resolve("ready")
 
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<"ready" | "timeout">(resolve => {
       let timer: ReturnType<typeof setTimeout> | undefined
 
       const listener = (changedDocId: DocId) => {
-        if (changedDocId === docId && this.#isReady(docId)) {
+        if (changedDocId === docId && isReady()) {
           cleanup()
-          resolve()
+          resolve("ready")
         }
       }
 
       const cleanup = () => {
-        this.#readyStateListeners.delete(listener)
+        this.#peerSyncListeners.delete(listener)
         if (timer) clearTimeout(timer)
       }
 
-      this.#readyStateListeners.add(listener)
+      this.#peerSyncListeners.add(listener)
 
       if (timeoutMs > 0) {
         timer = setTimeout(() => {
           cleanup()
-          reject(
-            new Error(
-              `waitForSync timed out after ${timeoutMs}ms for doc '${docId}'`,
-            ),
-          )
+          resolve("timeout")
         }, timeoutMs)
       }
     })
+  }
+
+  async waitUntilReady(docId: DocId, timeoutMs = 30000): Promise<void> {
+    const result = await this.awaitReconciliation(
+      docId,
+      () => this.#isReady(docId),
+      timeoutMs,
+    )
+    if (result === "timeout") {
+      throw new Error(
+        `waitForSync timed out after ${timeoutMs}ms for doc '${docId}'`,
+      )
+    }
   }
 
   /**
@@ -772,11 +867,11 @@ export class Synchronizer {
     }
   }
 
-  onReadyStateChange(
-    cb: (docId: DocId, readyStates: ReadyState[]) => void,
+  onPeerSyncChange(
+    cb: (docId: DocId, peerStates: PeerSyncState[]) => void,
   ): () => void {
-    this.#readyStateListeners.add(cb)
-    return () => this.#readyStateListeners.delete(cb)
+    this.#peerSyncListeners.add(cb)
+    return () => this.#peerSyncListeners.delete(cb)
   }
 
   #isReady(docId: DocId): boolean {
@@ -785,7 +880,7 @@ export class Synchronizer {
       const docSync = peerState.docSyncStates.get(docId)
       if (!docSync) continue
 
-      if (docSync.status === "synced" || docSync.status === "absent") {
+      if (docSync.status === "synced" || docSync.status === "vacant") {
         const sessionPeer = session.peers.get(peerId)
         if (sessionPeer && sessionPeer.channels.size > 0) {
           return true
@@ -1038,7 +1133,7 @@ export class Synchronizer {
         this.#emitDocEvents(effect.events)
         break
       case "emit-ready-state-changes":
-        this.#emitReadyStateChanges(effect.docIds)
+        this.#emitPeerSyncChanges(effect.docIds)
         break
       case "emit-state-advanced":
         this.#emitStateAdvanced(effect.docIds)
@@ -1315,14 +1410,14 @@ export class Synchronizer {
     this.#docHandle.emit({ changes: [...events] })
   }
 
-  #emitReadyStateChanges(docIds: readonly DocId[]): void {
-    if (this.#readyStateListeners.size === 0 || docIds.length === 0) return
+  #emitPeerSyncChanges(docIds: readonly DocId[]): void {
+    if (this.#peerSyncListeners.size === 0 || docIds.length === 0) return
 
     for (const docId of docIds) {
       if (!this.#docRuntimes.has(docId)) continue
-      const readyStates = this.getReadyStates(docId)
-      for (const listener of this.#readyStateListeners) {
-        listener(docId, readyStates)
+      const peerStates = this.getPeerStates(docId)
+      for (const listener of this.#peerSyncListeners) {
+        listener(docId, peerStates)
       }
     }
   }

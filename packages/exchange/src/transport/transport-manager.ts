@@ -64,6 +64,14 @@ export class TransportManager {
   }
 
   /**
+   * Number of configured transports — a cheap count that avoids allocating
+   * the `transports` array (used by connectivity classification).
+   */
+  get size(): number {
+    return this.#transports.size
+  }
+
+  /**
    * Check if a transport exists by ID.
    */
   hasTransport(transportId: string): boolean {

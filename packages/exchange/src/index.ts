@@ -2,20 +2,25 @@
 //
 // Provides sync infrastructure for any @kyneta/schema substrate.
 // Three sync protocols (authoritative, collaborative, ephemeral) are
-// dispatched by factory declaration over a uniform four-message protocol
-// (present, interest, offer, dismiss).
+// dispatched by factory declaration over a uniform five-message protocol
+// (present, interest, offer, dismiss, vacant).
 
 // ---------------------------------------------------------------------------
 // Core types — sync-specific (defined here)
 // ---------------------------------------------------------------------------
 
+export {
+  describeSyncStatus,
+  type SyncStatusSummary,
+} from "./describe-sync-status.js"
 export type {
+  Connectivity,
   DocChange,
   DocInfo,
   PeerChange,
   PeerDocSyncState,
   PeerState,
-  ReadyState,
+  PeerSyncState,
 } from "./types.js"
 
 // ---------------------------------------------------------------------------

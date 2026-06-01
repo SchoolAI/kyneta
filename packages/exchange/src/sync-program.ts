@@ -27,6 +27,7 @@ import type {
   PeerIdentityDetails,
   PresentMsg,
   SyncMsg,
+  VacantMsg,
 } from "@kyneta/transport"
 import type { DocChange, PeerDocSyncState } from "./types.js"
 
@@ -90,12 +91,12 @@ export type SyncModel = {
   pendingDocEvents: readonly DocChange[]
 
   /**
-   * Doc-ids whose peer sync status changed. Dedup-by-presence — listeners
-   * must receive at most one ready-state change per docId per cycle even
+   * Doc-ids whose peer sync state changed. Dedup-by-presence — listeners
+   * must receive at most one peer-sync change per docId per cycle even
    * if multiple peers' states flipped (consumers rebuild the full state
-   * from `getReadyStates(docId)` on receipt).
+   * from `getPeerStates(docId)` on receipt).
    */
-  pendingReadyStateDocIds: readonly DocId[]
+  pendingPeerSyncDocIds: readonly DocId[]
 
   /**
    * Doc-ids whose state advanced (local mutation or remote import).
@@ -105,6 +106,22 @@ export type SyncModel = {
    * delta wastefully.
    */
   pendingStateAdvancedDocIds: readonly DocId[]
+
+  /**
+   * Monotonic, grow-only per-doc accumulator of reconciled peer identities
+   * — the doc-level readiness latch. The monotonic complement to the
+   * volatile `docSyncStates`: both are folds of the same peer-sync
+   * transition, advanced at the single `setPeerDocState` fold point when a
+   * peer reaches `synced` or `vacant`. Never pulled down by the
+   * `synced→pending` reconnect flip. Stores the **identity** (not just the
+   * `PeerId`) so the `readyFor` predicate works and the fact survives the
+   * peer leaving `model.peers`. Mirrors `@kyneta/schema`'s
+   * `populated`/`isPopulated` set, lifted to the sync layer.
+   *
+   * Cleared only on *our* doc removal (`handleDocDelete`, true-removal
+   * `handleDocDismiss`) and `initSync` — never by an inbound `dismiss`.
+   */
+  reconciledIdentities: Map<DocId, Map<PeerId, PeerIdentityDetails>>
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -164,6 +181,7 @@ export type SyncInput =
       version: string
       peerId: PeerId
     }
+  | { type: "sync/declare-vacant"; docId: DocId; to: PeerId }
   | { type: "sync/queue-doc-event"; event: DocChange }
   | { type: "sync/tick-quiescent" }
   | { type: "sync/synthetic-doc-removed-all"; docIds: readonly DocId[] }
@@ -254,6 +272,101 @@ function appendUniqueDocIds(
     }
   }
   return result
+}
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// HELPER — single fold point for a peer's per-doc sync transition
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+/**
+ * Apply a per-peer, per-doc sync-state transition immutably and queue the
+ * doc for a peer-sync change notification at quiescence.
+ *
+ * This is the **single fold point** for the volatile `docSyncStates` map:
+ * `handlePeerSynced`, `handleInterestForKnownDoc`, `handleDocImported`, and
+ * `handleVacant` all route through it, so "a peer's state changed" is
+ * recorded in exactly one place.
+ *
+ * No-op (returns `model` unchanged) when we don't track the peer.
+ */
+function setPeerDocState(
+  model: SyncModel,
+  peerId: PeerId,
+  docId: DocId,
+  next: PeerDocSyncState,
+): SyncModel {
+  const peerState = model.peers.get(peerId)
+  if (!peerState) return model
+
+  const peers = new Map(model.peers)
+  const docSyncStates = new Map(peerState.docSyncStates)
+  docSyncStates.set(docId, next)
+  peers.set(peerId, { ...peerState, docSyncStates })
+
+  // Second fold: when this transition reaches a terminal reconciled state
+  // (`synced` or `vacant`), record the peer's identity in the monotonic
+  // readiness accumulator. `pending` does NOT touch it — that is what makes
+  // `ready` survive the `synced→pending` reconnect flip. Recording exactly
+  // here makes "reconciliation is captured at synced/vacant" a single-site,
+  // by-construction invariant.
+  let reconciledIdentities = model.reconciledIdentities
+  if (next.status === "synced" || next.status === "vacant") {
+    reconciledIdentities = new Map(reconciledIdentities)
+    const inner = new Map(reconciledIdentities.get(docId) ?? [])
+    inner.set(peerId, peerState.identity)
+    reconciledIdentities.set(docId, inner)
+  }
+
+  return {
+    ...model,
+    peers,
+    pendingPeerSyncDocIds: appendUniqueDocId(
+      model.pendingPeerSyncDocIds,
+      docId,
+    ),
+    reconciledIdentities,
+  }
+}
+
+/**
+ * Remove a doc's readiness accumulator entry (our doc removed). Returns the
+ * same map reference when the doc is absent so callers avoid a needless copy.
+ */
+function clearReconciled(
+  map: Map<DocId, Map<PeerId, PeerIdentityDetails>>,
+  docId: DocId,
+): Map<DocId, Map<PeerId, PeerIdentityDetails>> {
+  if (!map.has(docId)) return map
+  const next = new Map(map)
+  next.delete(docId)
+  return next
+}
+
+/**
+ * Pure projection: has this doc reconciled with ≥1 peer (ever)? The
+ * connection-independent monotonic latch behind `sync(doc).ready`.
+ */
+export function hasReconciled(model: SyncModel, docId: DocId): boolean {
+  const inner = model.reconciledIdentities.get(docId)
+  return inner !== undefined && inner.size > 0
+}
+
+/**
+ * Pure projection: has this doc reconciled with a peer matching `pred`?
+ * Resolves the predicate against the stored identities, so it works even
+ * after the matching peer has left `model.peers`.
+ */
+export function reconciledMatching(
+  model: SyncModel,
+  docId: DocId,
+  pred: (peer: PeerIdentityDetails) => boolean,
+): boolean {
+  const inner = model.reconciledIdentities.get(docId)
+  if (!inner) return false
+  for (const identity of inner.values()) {
+    if (pred(identity)) return true
+  }
+  return false
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -482,8 +595,9 @@ export function initSync(identity: PeerIdentityDetails): SyncModel {
     documents: new Map(),
     peers: new Map(),
     pendingDocEvents: [],
-    pendingReadyStateDocIds: [],
+    pendingPeerSyncDocIds: [],
     pendingStateAdvancedDocIds: [],
+    reconciledIdentities: new Map(),
   }
 }
 
@@ -554,6 +668,8 @@ export function createSyncUpdate(
         return handleDocImported(input, model, canShare)
       case "sync/peer-synced":
         return handlePeerSynced(input, model)
+      case "sync/declare-vacant":
+        return handleDeclareVacant(input, model)
       case "sync/queue-doc-event":
         return [
           {
@@ -589,6 +705,8 @@ function handleMessageReceived(
       return handleOffer(from, message, model, canAccept)
     case "dismiss":
       return handleDismiss(from, message, model)
+    case "vacant":
+      return handleVacant(from, message, model)
   }
 }
 
@@ -645,8 +763,8 @@ function handlePeerUnavailable(
     return [
       {
         ...model,
-        pendingReadyStateDocIds: appendUniqueDocIds(
-          model.pendingReadyStateDocIds,
+        pendingPeerSyncDocIds: appendUniqueDocIds(
+          model.pendingPeerSyncDocIds,
           peerState.docSyncStates.keys(),
         ),
       },
@@ -675,8 +793,8 @@ function handlePeerDeparted(
       {
         ...model,
         peers,
-        pendingReadyStateDocIds: appendUniqueDocIds(
-          model.pendingReadyStateDocIds,
+        pendingPeerSyncDocIds: appendUniqueDocIds(
+          model.pendingPeerSyncDocIds,
           peerState.docSyncStates.keys(),
         ),
       },
@@ -831,6 +949,12 @@ function handleDocDelete(
     {
       ...model,
       documents,
+      // Our doc is gone — clear its readiness latch so a destroyed-then-
+      // recreated doc doesn't report a stale `ready`.
+      reconciledIdentities: clearReconciled(
+        model.reconciledIdentities,
+        msg.docId,
+      ),
       pendingDocEvents: msg.event
         ? [...model.pendingDocEvents, msg.event]
         : model.pendingDocEvents,
@@ -850,9 +974,19 @@ function handleDocDismiss(
   const allPeers = getAvailablePeers(model)
   const peerIds = filterPeersByShare(model, allPeers, msg.docId, canShare)
 
+  // `suspendDocument` and `dismissDocument` BOTH dispatch this input,
+  // differing only in `event` (`doc-suspended` vs `doc-removed`). Clear the
+  // readiness latch only on a true removal: suspend keeps the runtime/data
+  // alive (the latch must survive resume), whereas dismiss deletes it.
+  const reconciledIdentities =
+    msg.event?.type === "doc-suspended"
+      ? model.reconciledIdentities
+      : clearReconciled(model.reconciledIdentities, msg.docId)
+
   const nextModel: SyncModel = {
     ...model,
     documents,
+    reconciledIdentities,
     pendingDocEvents: msg.event
       ? [...model.pendingDocEvents, msg.event]
       : model.pendingDocEvents,
@@ -883,38 +1017,24 @@ function handleDocImported(
   // for delta export, so peers receive exactly the imported ops.
   const effect = buildPush(msg.docId, docEntry, model, canShare, msg.fromPeerId)
 
-  // Update version
+  // Bump version + record state-advanced (always, regardless of peer presence).
   const documents = new Map(model.documents)
   documents.set(msg.docId, { ...docEntry, version: msg.version })
-
-  // Update peer sync state
-  const peers = new Map(model.peers)
-  const peerState = peers.get(msg.fromPeerId)
-  let pendingReadyStateDocIds = model.pendingReadyStateDocIds
-  if (peerState) {
-    const docSyncStates = new Map(peerState.docSyncStates)
-    docSyncStates.set(msg.docId, {
-      status: "synced",
-      lastKnownVersion: msg.version,
-      lastUpdated: new Date(),
-    })
-    peers.set(msg.fromPeerId, { ...peerState, docSyncStates })
-    pendingReadyStateDocIds = appendUniqueDocId(
-      pendingReadyStateDocIds,
-      msg.docId,
-    )
-  }
-
-  const nextModel: SyncModel = {
+  const bumped: SyncModel = {
     ...model,
     documents,
-    peers,
-    pendingReadyStateDocIds,
     pendingStateAdvancedDocIds: appendUniqueDocId(
       model.pendingStateAdvancedDocIds,
       msg.docId,
     ),
   }
+
+  // Fold the peer's sync transition through the single fold point.
+  const nextModel = setPeerDocState(bumped, msg.fromPeerId, msg.docId, {
+    status: "synced",
+    lastKnownVersion: msg.version,
+    lastUpdated: new Date(),
+  })
   return effect ? [nextModel, effect] : [nextModel]
 }
 
@@ -925,30 +1045,12 @@ function handlePeerSynced(
   const docEntry = model.documents.get(msg.docId)
   if (!docEntry) return [model]
 
-  const peers = new Map(model.peers)
-  const peerState = peers.get(msg.peerId)
-  let pendingReadyStateDocIds = model.pendingReadyStateDocIds
-
-  if (peerState) {
-    const docSyncStates = new Map(peerState.docSyncStates)
-    docSyncStates.set(msg.docId, {
+  return [
+    setPeerDocState(model, msg.peerId, msg.docId, {
       status: "synced",
       lastKnownVersion: msg.version,
       lastUpdated: new Date(),
-    })
-    peers.set(msg.peerId, { ...peerState, docSyncStates })
-    pendingReadyStateDocIds = appendUniqueDocId(
-      pendingReadyStateDocIds,
-      msg.docId,
-    )
-  }
-
-  return [
-    {
-      ...model,
-      peers,
-      pendingReadyStateDocIds,
-    },
+    }),
   ]
 }
 
@@ -961,10 +1063,10 @@ function handleTickQuiescent(model: SyncModel): [SyncModel, ...SyncEffect[]] {
 
   // Order: ready-state → state-advanced → doc-events.
   // (peer-events emit lives in the session program's tick.)
-  if (model.pendingReadyStateDocIds.length > 0) {
+  if (model.pendingPeerSyncDocIds.length > 0) {
     effects.push({
       type: "emit-ready-state-changes",
-      docIds: model.pendingReadyStateDocIds,
+      docIds: model.pendingPeerSyncDocIds,
     })
   }
   if (model.pendingStateAdvancedDocIds.length > 0) {
@@ -985,7 +1087,7 @@ function handleTickQuiescent(model: SyncModel): [SyncModel, ...SyncEffect[]] {
   return [
     {
       ...model,
-      pendingReadyStateDocIds: [],
+      pendingPeerSyncDocIds: [],
       pendingStateAdvancedDocIds: [],
       pendingDocEvents: [],
     },
@@ -1153,47 +1255,19 @@ function handleInterestForKnownDoc(
 
   const effects = buildInterestResponse(fromPeerId, message, docEntry)
 
-  const peers = new Map(model.peers)
-  const docSyncStates = new Map(peerState.docSyncStates)
+  // Reciprocate ⇒ we expect an offer back (pending); otherwise the peer is
+  // read-only and we treat it as synced immediately. Both fold through the
+  // single fold point (the old pending/synced if/else for the dedup list
+  // was redundant — both branches appended the same docId).
+  const next: PeerDocSyncState = message.reciprocate
+    ? { status: "pending", lastUpdated: new Date() }
+    : {
+        status: "synced",
+        lastKnownVersion: message.version || "",
+        lastUpdated: new Date(),
+      }
 
-  if (message.reciprocate) {
-    // We expect an offer back, so status is pending
-    docSyncStates.set(message.docId, {
-      status: "pending",
-      lastUpdated: new Date(),
-    })
-  } else {
-    // We don't expect an offer back (read-only peer), so status is synced
-    docSyncStates.set(message.docId, {
-      status: "synced",
-      lastKnownVersion: message.version || "",
-      lastUpdated: new Date(),
-    })
-  }
-
-  peers.set(fromPeerId, { ...peerState, docSyncStates })
-
-  let pendingReadyStateDocIds = model.pendingReadyStateDocIds
-  if (!message.reciprocate) {
-    pendingReadyStateDocIds = appendUniqueDocId(
-      pendingReadyStateDocIds,
-      message.docId,
-    )
-  } else {
-    pendingReadyStateDocIds = appendUniqueDocId(
-      pendingReadyStateDocIds,
-      message.docId,
-    )
-  }
-
-  return [
-    {
-      ...model,
-      peers,
-      pendingReadyStateDocIds,
-    },
-    ...effects,
-  ]
+  return [setPeerDocState(model, fromPeerId, message.docId, next), ...effects]
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -1271,8 +1345,8 @@ function handleDismiss(
     {
       ...model,
       peers,
-      pendingReadyStateDocIds: appendUniqueDocId(
-        model.pendingReadyStateDocIds,
+      pendingPeerSyncDocIds: appendUniqueDocId(
+        model.pendingPeerSyncDocIds,
         message.docId,
       ),
     },
@@ -1280,6 +1354,64 @@ function handleDismiss(
       type: "ensure-doc-dismissed",
       docId: message.docId,
       peer: peerState.identity,
+    },
+  ]
+}
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// HANDLER: Vacant — terminal negative ack ("I won't serve this doc")
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+/**
+ * A peer told us it does not have — and will not serve — a doc we asked
+ * for. Record the peer's per-doc state as terminal (`vacant`) so
+ * readiness can settle.
+ *
+ * Critically, this emits **no** `ensure-doc-dismissed`: the *peer* lacks
+ * the doc, but our own replica must survive (unlike `dismiss`, where the
+ * peer is leaving a doc it had). Early-returns if we don't track the doc.
+ */
+function handleVacant(
+  from: PeerId,
+  message: VacantMsg,
+  model: SyncModel,
+): [SyncModel, ...SyncEffect[]] {
+  if (!model.peers.has(from)) return [model]
+  // Early-return if we don't track the doc — there is nothing to reconcile.
+  if (!model.documents.has(message.docId)) return [model]
+
+  // Fold the terminal state through the single fold point. Emits NO
+  // `ensure-doc-dismissed`: the *peer* lacks the doc, but our replica
+  // must survive (the opposite of `dismiss`).
+  return [
+    setPeerDocState(model, from, message.docId, {
+      status: "vacant",
+      lastUpdated: new Date(),
+    }),
+  ]
+}
+
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+// HANDLER: Declare-vacant — producer trigger (we won't serve a doc)
+// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+/**
+ * Send a `vacant` to a peer that asked us for a doc we will not serve.
+ * Pure: emits a single `send-to-peer` effect (no new effect type). Guarded
+ * on the peer still being tracked — `send-to-peer` is itself a no-op in the
+ * shell if the peer has no channel.
+ */
+function handleDeclareVacant(
+  msg: Extract<SyncInput, { type: "sync/declare-vacant" }>,
+  model: SyncModel,
+): [SyncModel, ...SyncEffect[]] {
+  if (!model.peers.has(msg.to)) return [model]
+  return [
+    model,
+    {
+      type: "send-to-peer",
+      to: msg.to,
+      message: { type: "vacant", docId: msg.docId },
     },
   ]
 }

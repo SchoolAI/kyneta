@@ -298,7 +298,7 @@ Each BoundSchema carries a `SyncProtocol` — a structured record with three ort
 | `SYNC_AUTHORITATIVE` | serialized + delta-capable + persistent | Request/response | Total (no concurrency) | Plain substrates |
 | `SYNC_EPHEMERAL` | concurrent + snapshot-only + transient | Interest-based broadcast | Total (timestamp-based) | Ephemeral/presence |
 
-All three run over the same four-message sync protocol:
+All three run over the same five-message sync protocol:
 
 - **`present`** — "I have these documents." Carries `docId`, `replicaType`, `syncProtocol`, and `schemaHash` so the receiver can validate compatibility before any data exchange.
 - **`interest`** — "I want document X. Here's my version." Carries `reciprocate` for collaborative bidirectional exchange.
@@ -471,13 +471,18 @@ const doc = exchange.get("doc-id", MyDoc)
 
 sync(doc).peerId        // your peer ID
 sync(doc).docId         // document ID
-sync(doc).readyStates   // sync status with all peers
+sync(doc).peerStates    // raw per-peer sync state (volatile)
+sync(doc).ready         // monotonic readiness latch (the 90% gate)
+sync(doc).connectivity  // "online" | "connecting" | "offline"
 
 await sync(doc).waitForSync()
 await sync(doc).waitForSync({ timeout: 5000 })
 
-sync(doc).onReadyStateChange(states => {
-  console.log("Sync status:", states)
+// Settle without throwing: resolves { via: "peer" | "local" | "offline" }
+await sync(doc).settled({ offlineAfter: 3000 })
+
+sync(doc).onPeerSyncChange(states => {
+  console.log("Per-peer sync state:", states)
 })
 ```
 
@@ -579,9 +584,13 @@ You only engage the next level when you need it. Each level is additive — it d
 |----------------|-------------|
 | `peerId` | The local peer ID. |
 | `docId` | The document ID. |
-| `readyStates` | `ReadyState[]` — sync status with all peers. Each entry has `{ docId, identity, status }` where status is `"pending" \| "synced" \| "absent"`. |
-| `waitForSync(opts?)` | Wait for sync to complete. Options: `{ timeout?: number }` (default 30000ms). |
-| `onReadyStateChange(cb)` | Subscribe to sync status changes. Returns unsubscribe function. |
+| `peerStates` | `PeerSyncState[]` — raw per-peer sync state. Each entry is `{ docId, peer, state }` where state is `"pending" \| "synced" \| "vacant"`. Volatile — can regress on reconnect. |
+| `ready` | `boolean` — monotonic readiness latch: `true` once the doc reconciles with ≥1 peer (data or `vacant`); never regresses. The 90% gate. |
+| `readyFor(pred)` | `boolean` — latch restricted to reconciled peers matching `pred` (authority / quorum). |
+| `connectivity` | `"online" \| "connecting" \| "offline"`. |
+| `waitForSync(opts?)` | Wait for sync to complete. Options: `{ timeout?: number }` (default 30000ms). Throws on timeout. |
+| `settled(opts?)` | Resolve (never reject) to `{ via: "peer" \| "local" \| "offline" }`. Options: `{ offlineAfter?: number }`. |
+| `onPeerSyncChange(cb)` | Subscribe to per-peer sync state changes. Returns unsubscribe function. |
 
 ### Bind Functions
 

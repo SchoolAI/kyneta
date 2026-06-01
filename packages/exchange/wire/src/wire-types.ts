@@ -6,7 +6,11 @@
 //
 // Wire type ranges:
 //   0x01–0x0F: Lifecycle messages (establish, depart)
-//   0x10–0x1F: Sync messages (present, interest, offer, dismiss)
+//   0x10–0x1F: Sync messages (present, interest, offer, dismiss, vacant)
+//
+// Discriminators are allocated sequentially from the next free value and
+// classified by exact-value set-membership — numbering carries no
+// semantics (no range/mask dispatch anywhere). 0x14 = vacant.
 
 import type { SyncProtocol } from "@kyneta/schema"
 import {
@@ -31,6 +35,7 @@ export const MessageType = {
   Interest: 0x11,
   Offer: 0x12,
   Dismiss: 0x13,
+  Vacant: 0x14,
 } as const
 
 export type MessageTypeValue = (typeof MessageType)[keyof typeof MessageType]
@@ -45,6 +50,7 @@ export const MessageTypeToString: Record<MessageTypeValue, string> = {
   [MessageType.Interest]: "interest",
   [MessageType.Offer]: "offer",
   [MessageType.Dismiss]: "dismiss",
+  [MessageType.Vacant]: "vacant",
 }
 
 /**
@@ -57,6 +63,7 @@ export const StringToMessageType: Record<string, MessageTypeValue> = {
   interest: MessageType.Interest,
   offer: MessageType.Offer,
   dismiss: MessageType.Dismiss,
+  vacant: MessageType.Vacant,
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +298,17 @@ export type WireDismissMsg = {
   dx?: number
 }
 
+/**
+ * Compact wire format for vacant.
+ *
+ * Decoder invariant: exactly one of `{doc, dx}` must be present.
+ */
+export type WireVacantMsg = {
+  t: typeof MessageType.Vacant
+  doc?: string
+  dx?: number
+}
+
 /** Union of all compact wire message types. */
 export type WireMessage =
   | WireEstablishMsg
@@ -299,3 +317,4 @@ export type WireMessage =
   | WireInterestMsg
   | WireOfferMsg
   | WireDismissMsg
+  | WireVacantMsg

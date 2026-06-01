@@ -12,12 +12,12 @@
 //   RecursiveChangefeedProtocol) and shallow (subscribe) for universal-protocol
 //   sources like ReactiveMap.
 //
-// createSyncStore(syncRef) — subscribes to SyncRef.onReadyStateChange(),
-//   caches readyStates for referential stability.
+// createSyncStore(syncRef) — subscribes to SyncRef.onPeerSyncChange(),
+//   caches peerStates for referential stability.
 
 import type { ChangeBase, ChangefeedProtocol } from "@kyneta/changefeed"
 import { CHANGEFEED } from "@kyneta/changefeed"
-import type { ReadyState, SyncRef } from "@kyneta/exchange"
+import type { PeerSyncState, SyncRef } from "@kyneta/exchange"
 import { hasRecursiveChangefeed } from "@kyneta/schema"
 
 // ---------------------------------------------------------------------------
@@ -131,27 +131,45 @@ export function createNullishStore<T extends null | undefined>(
 // ---------------------------------------------------------------------------
 
 /**
- * Create an external store backed by a SyncRef's ready state.
+ * Create an external store backed by a projection over a SyncRef.
  *
- * - Captures the initial `syncRef.readyStates` as the snapshot.
- * - On `onReadyStateChange`, updates the cached snapshot.
- * - `getSnapshot()` returns the cached array — stable identity unless
- *   a ready state change occurred.
+ * One subscription (`onPeerSyncChange`) drives any number of derived views:
+ * the snapshot is `select(syncRef)`, recomputed on each peer-sync change and
+ * cached for referential stability. A scalar select (e.g. `ref.ready`, a
+ * boolean) is flicker-free — `useSyncExternalStore` bails out of re-render
+ * via `Object.is` when the value is unchanged, even though the underlying
+ * per-peer array churned.
  *
  * @param syncRef - A SyncRef from `sync(doc)`.
- * @returns An ExternalStore<ReadyState[]>.
+ * @param select - Pure projection from the SyncRef to the snapshot value.
  */
-export function createSyncStore(syncRef: SyncRef): ExternalStore<ReadyState[]> {
-  let snapshot: ReadyState[] = syncRef.readyStates
+export function createDerivedSyncStore<T>(
+  syncRef: SyncRef,
+  select: (ref: SyncRef) => T,
+): ExternalStore<T> {
+  let snapshot: T = select(syncRef)
 
   const subscribe = (onStoreChange: () => void): (() => void) => {
-    return syncRef.onReadyStateChange(readyStates => {
-      snapshot = readyStates
+    return syncRef.onPeerSyncChange(() => {
+      snapshot = select(syncRef)
       onStoreChange()
     })
   }
 
-  const getSnapshot = (): ReadyState[] => snapshot
+  const getSnapshot = (): T => snapshot
 
   return { subscribe, getSnapshot }
+}
+
+/**
+ * Create an external store backed by a SyncRef's per-peer sync state — the
+ * `peerStates` array projection over {@link createDerivedSyncStore}.
+ *
+ * @param syncRef - A SyncRef from `sync(doc)`.
+ * @returns An ExternalStore<PeerSyncState[]>.
+ */
+export function createSyncStore(
+  syncRef: SyncRef,
+): ExternalStore<PeerSyncState[]> {
+  return createDerivedSyncStore(syncRef, ref => ref.peerStates)
 }

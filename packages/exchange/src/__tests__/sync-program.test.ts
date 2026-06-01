@@ -9,7 +9,9 @@ import {
 import { describe, expect, it } from "vitest"
 import {
   createSyncUpdate,
+  hasReconciled,
   initSync,
+  reconciledMatching,
   type SyncEffect,
   type SyncModel,
   type SyncUpdate,
@@ -293,7 +295,7 @@ describe("sync-program", () => {
         model,
       )
 
-      expect(m2.pendingReadyStateDocIds).toContain("doc-1")
+      expect(m2.pendingPeerSyncDocIds).toContain("doc-1")
     })
 
     it("no-op for unknown peer", () => {
@@ -346,7 +348,7 @@ describe("sync-program", () => {
         model,
       )
 
-      expect(m2.pendingReadyStateDocIds).toContain("doc-1")
+      expect(m2.pendingPeerSyncDocIds).toContain("doc-1")
     })
 
     it("no-op for unknown peer", () => {
@@ -1122,7 +1124,7 @@ describe("sync-program", () => {
         docId: "doc-1",
       })
 
-      expect(m2.pendingReadyStateDocIds).toContain("doc-1")
+      expect(m2.pendingPeerSyncDocIds).toContain("doc-1")
     })
   })
 
@@ -1360,7 +1362,7 @@ describe("sync-program", () => {
         model,
       )
 
-      expect(m2.pendingReadyStateDocIds).toContain("doc-1")
+      expect(m2.pendingPeerSyncDocIds).toContain("doc-1")
       expect(m2.pendingStateAdvancedDocIds).toContain("doc-1")
     })
   })
@@ -1502,6 +1504,177 @@ describe("sync-program", () => {
       expect(imports.length).toBe(1)
       expect(defined(imports[0]).docId).toBe("doc-1")
       expect(defined(imports[0]).fromPeerId).toBe("bob")
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Vacant message + monotonic readiness latch
+// ---------------------------------------------------------------------------
+
+describe("vacant + reconciliation latch", () => {
+  function setup(): { update: SyncUpdate; model: SyncModel } {
+    const update = makeUpdate()
+    let model = initSync(alice)
+    ;[model] = addPeer(update, model, "bob", bob)
+    ;[model] = ensureDoc(update, model, "doc-1")
+    return { update, model }
+  }
+
+  function markSynced(
+    update: SyncUpdate,
+    model: SyncModel,
+    peerId: string,
+    version = "v2",
+  ): SyncModel {
+    const [m] = applyUpdate(
+      update,
+      { type: "sync/peer-synced", docId: "doc-1", version, peerId },
+      model,
+    )
+    return m
+  }
+
+  describe("handleVacant (consumer)", () => {
+    it("records the peer vacant, queues the doc, emits no ensure-doc-dismissed", () => {
+      const { update, model } = setup()
+      const [m2, fx] = receiveMessage(update, model, "bob", {
+        type: "vacant",
+        docId: "doc-1",
+      })
+      expect(m2.peers.get("bob")?.docSyncStates.get("doc-1")?.status).toBe(
+        "vacant",
+      )
+      expect(m2.pendingPeerSyncDocIds).toContain("doc-1")
+      expect(effectsOfType(fx, "ensure-doc-dismissed")).toHaveLength(0)
+    })
+
+    it("a vacant reply makes the doc reconciled (ready latch)", () => {
+      const { update, model } = setup()
+      const [m2] = receiveMessage(update, model, "bob", {
+        type: "vacant",
+        docId: "doc-1",
+      })
+      expect(hasReconciled(m2, "doc-1")).toBe(true)
+    })
+
+    it("ignores a doc we don't track", () => {
+      const { update, model } = setup()
+      const [m2, fx] = receiveMessage(update, model, "bob", {
+        type: "vacant",
+        docId: "doc-unknown",
+      })
+      expect(m2).toBe(model)
+      expect(fx).toHaveLength(0)
+    })
+  })
+
+  describe("sync/declare-vacant (producer)", () => {
+    it("emits exactly one send-to-peer vacant for a known peer", () => {
+      const { update, model } = setup()
+      const [, fx] = applyUpdate(
+        update,
+        { type: "sync/declare-vacant", docId: "doc-1", to: "bob" },
+        model,
+      )
+      const sends = effectsOfType(fx, "send-to-peer")
+      expect(sends).toHaveLength(1)
+      expect(defined(sends[0]).to).toBe("bob")
+      expect(defined(sends[0]).message).toEqual({
+        type: "vacant",
+        docId: "doc-1",
+      })
+    })
+
+    it("emits nothing when the target peer is unknown", () => {
+      const { update, model } = setup()
+      const [, fx] = applyUpdate(
+        update,
+        { type: "sync/declare-vacant", docId: "doc-1", to: "nobody" },
+        model,
+      )
+      expect(fx).toHaveLength(0)
+    })
+  })
+
+  describe("reconciledIdentities (monotonic latch)", () => {
+    it("retains the identity across a synced → pending → synced flip", () => {
+      const { update, model } = setup()
+      let m = markSynced(update, model, "bob")
+      expect(hasReconciled(m, "doc-1")).toBe(true)
+
+      // Reciprocal interest flips volatile state back to pending…
+      ;[m] = receiveMessage(update, m, "bob", {
+        type: "interest",
+        docId: "doc-1",
+        version: "v2",
+        reciprocate: true,
+      })
+      expect(m.peers.get("bob")?.docSyncStates.get("doc-1")?.status).toBe(
+        "pending",
+      )
+      // …but the latch survives the flip.
+      expect(hasReconciled(m, "doc-1")).toBe(true)
+
+      m = markSynced(update, m, "bob", "v3")
+      expect(hasReconciled(m, "doc-1")).toBe(true)
+    })
+
+    it("survives the peer leaving model.peers; reconciledMatching resolves the stored identity", () => {
+      const { update, model } = setup()
+      let m = markSynced(update, model, "bob")
+      ;[m] = applyUpdate(
+        update,
+        { type: "sync/peer-departed", peerId: "bob" },
+        m,
+      )
+      expect(m.peers.has("bob")).toBe(false)
+      expect(hasReconciled(m, "doc-1")).toBe(true)
+      expect(reconciledMatching(m, "doc-1", p => p.peerId === "bob")).toBe(true)
+      expect(reconciledMatching(m, "doc-1", p => p.peerId === "zzz")).toBe(
+        false,
+      )
+    })
+  })
+
+  describe("clear lifecycle (suspend vs dismiss)", () => {
+    it("retains the latch on a doc-suspended dismiss but clears it on a true removal", () => {
+      const { update, model } = setup()
+      const m = markSynced(update, model, "bob")
+      expect(hasReconciled(m, "doc-1")).toBe(true)
+
+      const [suspended] = applyUpdate(
+        update,
+        {
+          type: "sync/doc-dismiss",
+          docId: "doc-1",
+          event: { type: "doc-suspended", docId: "doc-1" },
+        },
+        m,
+      )
+      expect(hasReconciled(suspended, "doc-1")).toBe(true)
+
+      const [removed] = applyUpdate(
+        update,
+        {
+          type: "sync/doc-dismiss",
+          docId: "doc-1",
+          event: { type: "doc-removed", docId: "doc-1" },
+        },
+        m,
+      )
+      expect(hasReconciled(removed, "doc-1")).toBe(false)
+    })
+
+    it("handleDocDelete clears the latch", () => {
+      const { update, model } = setup()
+      const m = markSynced(update, model, "bob")
+      const [deleted] = applyUpdate(
+        update,
+        { type: "sync/doc-delete", docId: "doc-1" },
+        m,
+      )
+      expect(hasReconciled(deleted, "doc-1")).toBe(false)
     })
   })
 })

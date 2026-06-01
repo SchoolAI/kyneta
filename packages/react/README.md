@@ -110,14 +110,29 @@ const maybeValue = useValue(optionalRef) // null/undefined pass through
 - Composite refs (products, sequences, maps) subscribe deep via `subscribeTree` — any descendant change triggers a re-render.
 - Leaf refs (scalars, text, counters) subscribe at node level — only own-path changes trigger a re-render.
 
-### `useSyncStatus(doc)`
+### `useDocReady(doc, opts?)`
 
-Subscribes to a document's sync ready-state. Returns `ReadyState[]` and re-renders when the sync status changes.
+The 90% gate. Returns a **monotonic** `boolean` that flips to `true` the first time the doc reconciles with a peer (receives data, **or** a terminal `vacant` reply) and never regresses — across the reconnect re-handshake flip or a reconciled peer departing. Flicker-free (a stable scalar). Pass `opts.peer` to require reconciliation with a peer matching a predicate (authority / quorum).
 
 ```tsx
-const readyStates = useSyncStatus(doc)
-const synced = readyStates.some((s) => s.state === "ready")
+const ready = useDocReady(doc)
+if (!ready) return <Spinner />
+// require a service peer specifically:
+const authReady = useDocReady(doc, { peer: (p) => p.type === "service" })
 ```
+
+### `useSyncState(doc)`
+
+The raw escape hatch (renamed from `useSyncStatus` in 2.0 — **breaking**). Returns `PeerSyncState[]` (`{ docId, peer, state: "pending" | "synced" | "vacant" }`) and re-renders on any per-peer change. Volatile — an entry can regress `synced → pending` on reconnect; for a stable gate use `useDocReady`.
+
+```tsx
+const peerStates = useSyncState(doc)
+const synced = peerStates.some((s) => s.state === "synced")
+```
+
+### `sync(doc).settled(opts?)`
+
+Promise that resolves (never rejects): `{ via: "local" }` immediately when no transports are configured, `{ via: "peer" }` on first reconciliation, or `{ via: "offline" }` after `opts.offlineAfter` ms with no upstream. `describeSyncStatus(peerStates, connectivity, ready)` projects the primitives into a single display label (`"connecting" | "pending" | "synced" | "vacant" | "offline"`).
 
 ### Mutations
 
@@ -136,14 +151,14 @@ batch(doc, (d) => {
 
 From `@kyneta/schema`: `batch`, `applyChanges`, `subscribe`, `subscribeNode`, `Schema`, `CHANGEFEED`, and types `Ref`, `RRef`, `Plain`, `Changeset`, `Op`, `BoundSchema`.
 
-From `@kyneta/exchange`: `Exchange`, `sync`, `hasSync`, and types `ExchangeParams`, `SyncRef`, `ReadyState`, `DocId`.
+From `@kyneta/exchange`: `Exchange`, `sync`, `hasSync`, `describeSyncStatus`, and types `ExchangeParams`, `SyncRef`, `PeerSyncState`, `Connectivity`, `SyncStatusSummary`, `PeerIdentityDetails`, `DocId`.
 
 ## Architecture
 
 The package follows a **Functional Core / Imperative Shell** pattern:
 
 - **Functional Core** (`src/store.ts`): Pure `createChangefeedStore(ref)` and `createSyncStore(syncRef)` functions translate from kyneta's reactive protocols into the `{ subscribe, getSnapshot }` contract. Zero React imports. Independently testable.
-- **Imperative Shell** (hooks): `useValue`, `useSyncStatus`, etc. are thin wrappers that feed the pure stores into React's `useSyncExternalStore`.
+- **Imperative Shell** (hooks): `useValue`, `useSyncState`, `useDocReady`, etc. are thin wrappers that feed the pure stores into React's `useSyncExternalStore`.
 
 See [TECHNICAL.md](./TECHNICAL.md) for details on snapshot memoization, type recovery, and subscription strategy.
 
