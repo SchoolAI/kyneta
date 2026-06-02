@@ -225,43 +225,6 @@ export function planReplace(
   }
 }
 
-// ---------------------------------------------------------------------------
-// failOnNthCall — fault-injection helper for the conformance suite
-// ---------------------------------------------------------------------------
-
-/**
- * Why this exists separately from each backend's own fault harness:
- * conformance tests need a uniform way to provoke "the Nth write
- * fails" without coupling to driver-specific seams. Each backend
- * decides which method to wrap; this helper handles the counting
- * and the sync-vs-async dispatch (async methods reject rather than
- * throw, so awaiters see a rejection instead of a synchronous throw).
- */
-export function failOnNthCall<T extends object>(
-  target: T,
-  methodName: keyof T,
-  n: number,
-  error: Error = new Error(`fault-injected: ${String(methodName)} call #${n}`),
-): T {
-  if (n < 1) throw new Error(`failOnNthCall: n must be >= 1, got ${n}`)
-
-  let count = 0
-  return new Proxy(target, {
-    get(obj, prop, receiver) {
-      const value = Reflect.get(obj, prop, receiver) as unknown
-      if (prop !== methodName || typeof value !== "function") {
-        return value
-      }
-      const fn = value as (...args: unknown[]) => unknown
-      const isAsync = fn.constructor.name === "AsyncFunction"
-      return function (this: unknown, ...args: unknown[]) {
-        count += 1
-        if (count === n) {
-          if (isAsync) return Promise.reject(error)
-          throw error
-        }
-        return fn.apply(this === receiver ? obj : this, args)
-      }
-    },
-  })
-}
+// Fault-injection for the Store conformance suite now lives in
+// `@kyneta/exchange/testing` (`makeArmedFault`) — op-weighted and deferred-arm,
+// consumed by every backend's `faultFactory`. jj:vzuwrotu

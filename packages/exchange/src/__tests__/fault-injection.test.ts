@@ -65,6 +65,30 @@ describe("makeArmedFault", () => {
     await expect(proxy.query()).rejects.toThrow()
   })
 
+  it("fires once, then passes through on subsequent calls", () => {
+    const seen: string[] = []
+    const target = {
+      a: (tag: string): string => {
+        seen.push(tag)
+        return tag
+      },
+    }
+    const { proxy, arm } = makeArmedFault(target, { a: 1 })
+
+    arm(1)
+    expect(() => proxy.a("first")).toThrow() // fault fires
+    expect(proxy.a("second")).toBe("second") // disarmed → passes through
+    expect(seen).toEqual(["second"])
+  })
+
+  it("throws the caller-supplied error", () => {
+    const err = new Error("custom-fault")
+    const { proxy, arm } = makeArmedFault({ a: (): void => {} }, { a: 1 }, err)
+
+    arm(1)
+    expect(() => proxy.a()).toThrow("custom-fault")
+  })
+
   it("arm rejects n < 1", () => {
     const { arm } = makeArmedFault({ a: (): void => {} }, { a: 1 })
     expect(() => arm(0)).toThrow(/n must be/)

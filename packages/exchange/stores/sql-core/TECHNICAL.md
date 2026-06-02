@@ -4,10 +4,10 @@
 > **Role**: Pure helpers shared by every SQL-family `Store` backend (`@kyneta/sqlite-store`, `@kyneta/postgres-store`, `@kyneta/prisma-store`).
 > **Depends on**: `@kyneta/exchange` (peer), `@kyneta/schema` (peer). Zero runtime dependencies.
 > **Depended on by**: All three SQL-family store packages.
-> **Canonical symbols**: `RowShape`, `EntryPayloadJson`, `toRow`, `fromRow`, `normalizeBlob`, `DEFAULT_TABLES`, `TableNames`, `resolveTables`, `STORE_FORMAT_VERSION`, `AppendPlan`, `ReplacePlan`, `planAppend`, `planReplace`, `failOnNthCall`.
+> **Canonical symbols**: `RowShape`, `EntryPayloadJson`, `toRow`, `fromRow`, `normalizeBlob`, `DEFAULT_TABLES`, `TableNames`, `resolveTables`, `STORE_FORMAT_VERSION`, `AppendPlan`, `ReplacePlan`, `planAppend`, `planReplace`.
 > **Key invariant(s)**: Pure code only — no SQL templates, no I/O, no driver knowledge. Every SQL-family backend that consumes `toRow`/`fromRow` produces a byte-identical (kind, payload, blob) triple in its records table; round-trip portability through `loadAll` is preserved across backends.
 
-A driver-agnostic foundation for the SQL-family `Store` implementations. Holds the shared serialization core (`RowShape`, `toRow`, `fromRow`, `normalizeBlob`) and a pair of pure planning functions (`planAppend`, `planReplace`) that each backend executes inside a backend-specific transaction. Also exposes `failOnNthCall` for the conformance suite's fault-injection atomicity test.
+A driver-agnostic foundation for the SQL-family `Store` implementations. Holds the shared serialization core (`RowShape`, `toRow`, `fromRow`, `normalizeBlob`) and a pair of pure planning functions (`planAppend`, `planReplace`) that each backend executes inside a backend-specific transaction. (Fault injection for the conformance suite lives in `@kyneta/exchange/testing` — `makeArmedFault` — not here.)
 
 ## What this package is NOT
 
@@ -63,15 +63,9 @@ The win: validation, serialization, and seq math live in one tested place. Each 
 
 `ReplacePlan` carries the per-row inserts (at array-index seqs) plus the resolved meta to upsert.
 
-## `failOnNthCall`
+## Fault injection lives in `@kyneta/exchange/testing`
 
-```ts
-export function failOnNthCall<T>(target: T, methodName: keyof T, n: number, error?: Error): T
-```
-
-Wraps `target` in a `Proxy` so that the `n`-th call to `target[methodName]` throws (or, for async methods, returns a rejected promise). Other methods pass through; calls 1..n−1 and n+1..∞ execute normally.
-
-Used by the conformance suite's fault-injection atomicity test. Each backend constructs the wrapped target appropriate to its own seam — the SQLite adapter for sqlite-store, the `Client.query` method for postgres-store, `$transaction` for prisma-store. The conformance suite sees only "throws on Nth write" and asserts no partial state is observable on a fresh non-faulting Store.
+This package no longer ships a fault-injection helper. The conformance suite's atomicity test uses `makeArmedFault` from `@kyneta/exchange/testing` — an op-weighted, deferred-arm `Proxy` consumed by every backend's `faultFactory` (the SQLite adapter for sqlite-store, a checked-out client via `fromClient` for postgres-store). It superseded the construction-armed `failOnNthCall` that previously lived here. Context: jj:vzuwrotu.
 
 ## Key Types
 
@@ -91,6 +85,5 @@ Used by the conformance suite's fault-injection atomicity test. Each backend con
 - `resolveTables` — defaults, full overrides, partial overrides.
 - `planAppend` — meta input, entry-with-prior-meta, entry-without-prior-meta (throws), incompatible-meta (throws).
 - `planReplace` — valid batch, missing-meta (throws), conflicting-metas (throws).
-- `failOnNthCall` — counts only matching method, throws on Nth, passes through to N+1, supports async, rejects `n < 1`.
 
 Run with: `cd packages/exchange/stores/sql-core && pnpm verify`.

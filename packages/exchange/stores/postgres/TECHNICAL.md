@@ -1,17 +1,17 @@
 # @kyneta/postgres-store — Technical Reference
 
 > **Package**: `@kyneta/postgres-store`
-> **Role**: Postgres `Store` implementation for `@kyneta/exchange`. Async-native, takes a caller-supplied `pg` `Client` or `Pool`, validates schema via an async factory, uses JSONB for meta and BYTEA for blobs.
-> **Depends on**: `pg` (peer), `@kyneta/exchange` (peer), `@kyneta/schema` (peer), `@kyneta/sql-store-core` (peer).
+> **Role**: Postgres `Store` implementation for `@kyneta/exchange`. Async-native, takes an injected `PgAdapter` (`fromPool` / `fromClient` over the caller's `pg` `Pool` / `Client`), validates schema via an async factory, uses JSONB for meta and BYTEA for blobs.
+> **Depends on**: `pg` (peer, **type-only** — no runtime class coupling), `@kyneta/exchange` (peer), `@kyneta/schema` (peer), `@kyneta/sql-store-core` (peer).
 > **Depended on by**: Server applications that want Postgres durability behind an `Exchange`.
-> **Canonical symbols**: `PostgresStore`, `createPostgresStore`, `PostgresStoreOptions`.
-> **Key invariant(s)**: `append` and `replace` are atomic across meta + record writes (single transaction). Schema validation runs once at factory time (no auto-DDL, no runtime drift detection). The seq-tracker mutation in `replace` runs lexically after the awaited transaction — a rejection propagates past it.
+> **Canonical symbols**: `PostgresStore`, `createPostgresStore`, `PostgresStoreOptions`, `PgAdapter`, `PgQuerier`, `fromPool`, `fromClient`.
+> **Key invariant(s)**: `append` and `replace` are atomic across meta + record writes (single transaction, owned by the injected adapter). Schema validation runs once at factory time (no auto-DDL, no runtime drift detection). The seq-tracker mutation in `replace` runs lexically after the awaited transaction — a rejection propagates past it.
 
 ## Architecture
 
-Async-native. The caller supplies a `pg` `Client | Pool`; the store calls `pool.connect()` / `release()` per transaction or runs against the single `Client`. `close()` is a no-op — the caller owns the lifecycle.
+Async-native. The caller wraps their `pg` connection in a `PgAdapter` — `fromPool(pool)` (each transaction checks out a `PoolClient` and releases it) or `fromClient(client)` (transactions run inline). `PostgresStore` consumes the adapter and **never discriminates connection types at runtime** — the `Pool`-vs-`Client` choice is made at the call site, where the type is statically known, mirroring `SqliteStore`'s `SqliteAdapter` / `fromBetterSqlite3`. Consequently `pg` is a **type-only** import: no `instanceof`, no concrete-class coupling. `close()` is a no-op — the caller owns the lifecycle.
 
-Recommended entry point is the async `createPostgresStore(client, options)` factory, which queries `information_schema.columns` to validate that the canonical schema exists with compatible column types. The sync `PostgresStore` constructor is exported for advanced callers.
+Recommended entry point is the async `createPostgresStore(fromPool(pool), options)` factory, which queries `information_schema.columns` to validate that the canonical schema exists with compatible column types. The `PostgresStore` constructor takes the same `PgAdapter` for advanced callers.
 
 ## The `Store` contract mapping
 
@@ -49,11 +49,14 @@ Schema validation runs once at factory time. If a DBA alters the schema while th
 
 `listDocIds(prefix)` uses `WHERE doc_id >= prefix AND doc_id < successor(prefix)` — not `LIKE`. The successor is computed by incrementing the last code unit of the prefix (`/` (0x2F) → `0` (0x30), and so on). Doc IDs containing `%` and `_` are matched literally, eliminating the LIKE-pattern hazard that motivated SQLite's `escapeLike` helper.
 
-## Pool semantics
+## Adapter semantics: `fromPool` vs `fromClient`
 
-When the caller supplies a `Pool`, transaction methods check out one `PoolClient` for the duration of the transaction (BEGIN…COMMIT/ROLLBACK) and release on commit/rollback. Non-transactional reads (`currentMeta`, `loadAll`, `listDocIds`, the cold-start `MAX(seq)` lookup) use the pool directly via `pool.query` — these don't need a held connection.
+The `PgAdapter` interface is `{ query, transaction }` — the two capabilities `PostgresStore` needs. Each factory owns the transaction protocol so the store never branches on connection type:
 
-The `#withTransaction(fn)` helper centralizes the BEGIN/COMMIT/ROLLBACK protocol and the checkout/release plumbing. It re-throws on rollback so callers place post-commit work (e.g. `seqNos.reset` in `replace`) lexically after the awaited call.
+- **`fromPool(pool)`** — `transaction(fn)` checks out one `PoolClient` for the duration (BEGIN…COMMIT/ROLLBACK on that single physical connection, since Postgres transactions are connection-scoped) and `release()`s it in `finally`. `query` (non-transactional reads: `currentMeta`, `loadAll`, `listDocIds`, the cold-start `MAX(seq)`) goes to the pool directly — no held connection needed.
+- **`fromClient(client)`** — `transaction(fn)` runs BEGIN…COMMIT/ROLLBACK inline on the one connection (a standalone `Client` or an already-checked-out `PoolClient`). This is also the seam the conformance fault test wraps: `fromClient(makeArmedFault(client, { query: 1 }))`.
+
+Both re-throw on rollback so callers place post-commit work (e.g. `seqNos.reset` in `replace`) lexically after the awaited call. Replacing the former runtime `Pool`/`Client` sniff with adapter injection also fixed a bug: a bare `Client` previously mis-routed to the pool branch and threw on `release()`; now `fromClient` handles it correctly.
 
 ## Multi-process namespacing
 

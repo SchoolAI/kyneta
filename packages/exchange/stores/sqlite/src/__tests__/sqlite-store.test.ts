@@ -7,48 +7,14 @@ import { StoreFormatVersionError } from "@kyneta/exchange"
 import {
   collectAll,
   describeStore,
+  makeArmedFault,
   makeEntryRecord,
   makeMetaRecord,
   plainMeta,
 } from "@kyneta/exchange/testing"
 import Database from "better-sqlite3"
 import { afterAll, describe, expect, it } from "vitest"
-import { fromBetterSqlite3, type SqliteAdapter, SqliteStore } from "../index.js"
-
-/**
- * Why `arm(n)` instead of a constructor-time `failOnNth`: schema DDL
- * runs `exec` during `SqliteStore` construction. We need the counter
- * latent until after the priming append succeeds, so the conformance
- * test can target a specific subsequent write call.
- */
-function makeFaultyAdapter(base: SqliteAdapter): {
-  adapter: SqliteAdapter
-  arm: (n: number) => void
-} {
-  let armed: number | null = null
-  let count = 0
-  const adapter: SqliteAdapter = {
-    exec(sql, ...params) {
-      if (armed !== null) {
-        count += 1
-        if (count === armed) {
-          throw new Error(`fault-injected: exec call #${count}`)
-        }
-      }
-      base.exec(sql, ...params)
-    },
-    iterate: base.iterate.bind(base),
-    transaction: base.transaction.bind(base),
-    close: base.close.bind(base),
-  }
-  return {
-    adapter,
-    arm: n => {
-      armed = n
-      count = 0
-    },
-  }
-}
+import { fromBetterSqlite3, SqliteStore } from "../index.js"
 
 // ---------------------------------------------------------------------------
 // Temp file management
@@ -96,8 +62,8 @@ describeStore(
       const file = makeTmpFile()
       const db = new Database(file)
       const base = fromBetterSqlite3(db)
-      const { adapter, arm } = makeFaultyAdapter(base)
-      const store = new SqliteStore(adapter)
+      const { proxy, arm } = makeArmedFault(base, { exec: 1 })
+      const store = new SqliteStore(proxy)
       return {
         store,
         injectFault: arm,

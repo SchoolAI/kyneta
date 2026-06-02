@@ -8,10 +8,13 @@
 // isolation across two stores sharing one physical resource).
 //
 // Usage:
-//   import { describeStore } from "@kyneta/exchange/testing"
+//   import { describeStore, makeArmedFault } from "@kyneta/exchange/testing"
 //   describeStore("MyBackend", () => new MyBackend(), {
 //     cleanup: async (b) => { ... },
-//     faultFactory: async (failOnNthCall) => ({ ... }),
+//     faultFactory: async () => {
+//       const { proxy, arm } = makeArmedFault(backing, { write: 1 })
+//       return { store: new MyBackend(proxy), injectFault: arm, ... }
+//     },
 //     isolationFactory: async () => ({ ... }),
 //   })
 

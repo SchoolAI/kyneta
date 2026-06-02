@@ -5,10 +5,19 @@
 // `KYNETA_PG_URL=postgres://localhost:5432/kyneta_test` (or similar)
 // to run.
 
-import { describeStore, makeMetaRecord } from "@kyneta/exchange/testing"
+import {
+  describeStore,
+  makeArmedFault,
+  makeMetaRecord,
+} from "@kyneta/exchange/testing"
 import { Pool } from "pg"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { createPostgresStore, PostgresStore } from "../index.js"
+import {
+  createPostgresStore,
+  fromClient,
+  fromPool,
+  PostgresStore,
+} from "../index.js"
 
 const PG_URL = process.env.KYNETA_PG_URL
 const ENABLED = PG_URL !== undefined && PG_URL.length > 0
@@ -70,7 +79,7 @@ describeIfEnabled("PostgresStore", () => {
       await pool.query(
         `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.docMeta}`,
       )
-      return new PostgresStore(pool)
+      return new PostgresStore(fromPool(pool))
     },
     {
       cleanup: async () => {
@@ -82,43 +91,18 @@ describeIfEnabled("PostgresStore", () => {
         await pool.query(
           `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.docMeta}`,
         )
-        // Wrap a single connection (not the pool) so we can intercept
-        // its `query` method to inject failures. The faulty store uses
-        // a Client-shaped wrapper; the fresh store uses a fresh client
-        // checked out from the pool.
+        // Check out a single connection and wrap its `query` with the shared
+        // op-weighted fault primitive. `fromClient` runs transactions inline
+        // on that one connection, so every query (BEGIN/COMMIT/inserts/reads)
+        // is counted — injectFault(2) fires mid-transaction → rollback.
         const client = await pool.connect()
-        // Forward all queries except after arming, when the Nth post-arm
-        // call throws. Schema DDL ran in beforeAll, so we don't need to
-        // protect those calls.
-        let armed: number | null = null
-        let count = 0
-        const realQuery = client.query.bind(client) as (
-          ...args: unknown[]
-        ) => Promise<unknown>
-        const wrappedClient = {
-          query: ((...args: unknown[]) => {
-            if (armed !== null) {
-              count += 1
-              if (count === armed) {
-                return Promise.reject(
-                  new Error(`fault-injected: query call #${count}`),
-                )
-              }
-            }
-            return realQuery(...args)
-          }) as typeof client.query,
-          // Pretend to be a Client (no .connect method).
-        } as unknown as ConstructorParameters<typeof PostgresStore>[0]
-
-        const store = new PostgresStore(wrappedClient)
+        const { proxy, arm } = makeArmedFault(client, { query: 1 })
+        const store = new PostgresStore(fromClient(proxy))
 
         return {
           store,
-          injectFault: n => {
-            armed = n
-            count = 0
-          },
-          freshStore: async () => new PostgresStore(pool),
+          injectFault: arm,
+          freshStore: async () => new PostgresStore(fromPool(pool)),
           cleanup: async () => {
             client.release()
           },
@@ -149,8 +133,8 @@ describeIfEnabled("PostgresStore", () => {
                    ${tablesB.records}, ${tablesB.docMeta};
         `)
         return {
-          storeA: new PostgresStore(pool, { tables: tablesA }),
-          storeB: new PostgresStore(pool, { tables: tablesB }),
+          storeA: new PostgresStore(fromPool(pool), { tables: tablesA }),
+          storeB: new PostgresStore(fromPool(pool), { tables: tablesB }),
           cleanup: async () => {
             await pool.query(`
               DROP TABLE IF EXISTS ${tablesA.records};
@@ -171,7 +155,7 @@ describeIfEnabled("PostgresStore", () => {
   describe("createPostgresStore — schema validation", () => {
     it("rejects when doc-meta table is missing", async () => {
       await expect(
-        createPostgresStore(pool, {
+        createPostgresStore(fromPool(pool), {
           tables: { docMeta: "nonexistent_meta", records: "kyneta_records" },
         }),
       ).rejects.toThrow(/nonexistent_meta/)
@@ -179,7 +163,7 @@ describeIfEnabled("PostgresStore", () => {
 
     it("rejects when records table is missing", async () => {
       await expect(
-        createPostgresStore(pool, {
+        createPostgresStore(fromPool(pool), {
           tables: {
             docMeta: "kyneta_doc_meta",
             records: "nonexistent_records",
@@ -189,7 +173,7 @@ describeIfEnabled("PostgresStore", () => {
     })
 
     it("returns a ready Store when schema is valid", async () => {
-      const store = await createPostgresStore(pool)
+      const store = await createPostgresStore(fromPool(pool))
       expect(store).toBeDefined()
       await store.close()
     })
@@ -211,9 +195,9 @@ describeIfEnabled("PostgresStore", () => {
         );
       `)
       try {
-        await expect(createPostgresStore(pool, { tables })).rejects.toThrow(
-          /data.*type "text"/,
-        )
+        await expect(
+          createPostgresStore(fromPool(pool), { tables }),
+        ).rejects.toThrow(/data.*type "text"/)
       } finally {
         await pool.query(`
           DROP TABLE IF EXISTS ${tables.records};
@@ -232,7 +216,7 @@ describeIfEnabled("PostgresStore", () => {
       await pool.query(
         `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.docMeta}`,
       )
-      const store = new PostgresStore(pool)
+      const store = new PostgresStore(fromPool(pool))
 
       await store.append("100%_done", makeMetaRecord())
       await store.append("100_other", makeMetaRecord())
@@ -284,7 +268,7 @@ describeIfEnabled("PostgresStore", () => {
       await pool.query(ddl)
       try {
         // First open stamps {major:1,minor:0}.
-        const store = await createPostgresStore(pool, { tables })
+        const store = await createPostgresStore(fromPool(pool), { tables })
         await store.close()
         const stamped = await pool.query<{ value: { major: number } }>(
           `SELECT value FROM ${tables.storeMeta} WHERE key = 'format'`,
@@ -297,7 +281,7 @@ describeIfEnabled("PostgresStore", () => {
           [JSON.stringify({ major: 99, minor: 0 })],
         )
         await expect(
-          createPostgresStore(pool, { tables }),
+          createPostgresStore(fromPool(pool), { tables }),
         ).rejects.toMatchObject({
           name: "StoreFormatVersionError",
           reason: "incompatible-major",

@@ -46,14 +46,90 @@ export interface PostgresStoreOptions {
   tables?: Partial<TableNames>
 }
 
-type PgConnection = Client | Pool
-
 /**
  * Narrow structural type for the methods we actually call. Keeps the
  * package independent of `pg`'s top-level type changes across versions.
  */
-interface PgQuerier {
+export interface PgQuerier {
   query<R = unknown>(text: string, values?: unknown[]): Promise<{ rows: R[] }>
+}
+
+/**
+ * The minimal Postgres capability `PostgresStore` needs, decoupled from any
+ * specific pg surface — mirrors `SqliteAdapter`. `fromPool` / `fromClient`
+ * supply it, so `PostgresStore` never discriminates connection types and `pg`
+ * stays a type-only import (no `instanceof`, no runtime class coupling).
+ */
+export interface PgAdapter extends PgQuerier {
+  /**
+   * Run `fn` with a querier whose statements share one connection under
+   * BEGIN/COMMIT; ROLLBACK and rethrow on failure.
+   */
+  transaction<R>(fn: (q: PgQuerier) => Promise<R>): Promise<R>
+}
+
+/**
+ * Adapter over a `Pool`: each transaction checks out a `PoolClient` so
+ * BEGIN..COMMIT share one physical connection (Postgres transactions are
+ * connection-scoped — checking back out for COMMIT would target a different
+ * connection), then releases it. Non-transactional queries go to the pool
+ * directly (the pool checks out/in per query — fine for single reads).
+ */
+export function fromPool(pool: Pool): PgAdapter {
+  const direct = pool as unknown as PgQuerier
+  return {
+    query<R = unknown>(
+      text: string,
+      values?: unknown[],
+    ): Promise<{ rows: R[] }> {
+      return direct.query<R>(text, values)
+    },
+    async transaction<R>(fn: (q: PgQuerier) => Promise<R>): Promise<R> {
+      const poolClient: PoolClient = await pool.connect()
+      const q = poolClient as unknown as PgQuerier
+      try {
+        await q.query("BEGIN")
+        try {
+          const result = await fn(q)
+          await q.query("COMMIT")
+          return result
+        } catch (e) {
+          await q.query("ROLLBACK")
+          throw e
+        }
+      } finally {
+        poolClient.release()
+      }
+    },
+  }
+}
+
+/**
+ * Adapter over a single `Client` (or an already-checked-out `PoolClient`):
+ * transactions run inline on the one connection. Re-throws on rollback so a
+ * caller can place post-commit work lexically after the awaited call.
+ */
+export function fromClient(client: Client | PoolClient): PgAdapter {
+  const q = client as unknown as PgQuerier
+  return {
+    query<R = unknown>(
+      text: string,
+      values?: unknown[],
+    ): Promise<{ rows: R[] }> {
+      return q.query<R>(text, values)
+    },
+    async transaction<R>(fn: (q: PgQuerier) => Promise<R>): Promise<R> {
+      await q.query("BEGIN")
+      try {
+        const result = await fn(q)
+        await q.query("COMMIT")
+        return result
+      } catch (e) {
+        await q.query("ROLLBACK")
+        throw e
+      }
+    },
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -68,62 +144,13 @@ interface PgQuerier {
  * curated error rather than per-method `column does not exist` later.
  */
 export class PostgresStore implements Store {
-  readonly #client: PgConnection
+  readonly #adapter: PgAdapter
   readonly #seqNos = new SeqNoTracker()
   readonly #tables: TableNames
 
-  constructor(client: PgConnection, options: PostgresStoreOptions = {}) {
-    this.#client = client
+  constructor(adapter: PgAdapter, options: PostgresStoreOptions = {}) {
+    this.#adapter = adapter
     this.#tables = resolveTables(options)
-  }
-
-  /**
-   * For `Pool`: check out a `PoolClient` so BEGIN..COMMIT all run on
-   * the same physical connection (Postgres transactions are
-   * connection-scoped; checking back out for COMMIT would target a
-   * different connection). For `Client`: run inline.
-   *
-   * Re-throws on rollback so callers can put post-commit work
-   * lexically after the awaited call — a rejection skips the next
-   * statement, mirroring sync `transaction()` + throw.
-   */
-  async #withTransaction<R>(
-    fn: (querier: PgQuerier) => Promise<R>,
-  ): Promise<R> {
-    const isPool = typeof (this.#client as Pool).connect === "function"
-    if (isPool) {
-      const poolClient: PoolClient = await (this.#client as Pool).connect()
-      try {
-        await poolClient.query("BEGIN")
-        try {
-          const result = await fn(poolClient as unknown as PgQuerier)
-          await poolClient.query("COMMIT")
-          return result
-        } catch (e) {
-          await poolClient.query("ROLLBACK")
-          throw e
-        }
-      } finally {
-        poolClient.release()
-      }
-    }
-    const client = this.#client as Client
-    await client.query("BEGIN")
-    try {
-      const result = await fn(client as unknown as PgQuerier)
-      await client.query("COMMIT")
-      return result
-    } catch (e) {
-      await client.query("ROLLBACK")
-      throw e
-    }
-  }
-
-  // Non-transactional reads (currentMeta, loadAll, listDocIds, the
-  // cold-start MAX(seq)) don't need a held connection — issuing them
-  // against the pool/client directly avoids unnecessary checkouts.
-  get #q(): PgQuerier {
-    return this.#client as unknown as PgQuerier
   }
 
   // -------------------------------------------------------------------------
@@ -133,7 +160,7 @@ export class PostgresStore implements Store {
   async append(docId: DocId, record: StoreRecord): Promise<void> {
     const existingMeta = await this.currentMeta(docId)
     const seq = await this.#seqNos.next(docId, async () => {
-      const result = await this.#q.query<{ max_seq: number | null }>(
+      const result = await this.#adapter.query<{ max_seq: number | null }>(
         `SELECT MAX(seq)::int AS max_seq FROM ${this.#tables.records} WHERE doc_id = $1`,
         [docId],
       )
@@ -142,7 +169,7 @@ export class PostgresStore implements Store {
 
     const plan = planAppend(docId, record, existingMeta, seq)
 
-    await this.#withTransaction(async q => {
+    await this.#adapter.transaction(async q => {
       if (plan.upsertMeta !== null) {
         await q.query(
           `INSERT INTO ${this.#tables.docMeta} (doc_id, data)
@@ -162,7 +189,7 @@ export class PostgresStore implements Store {
   }
 
   async *loadAll(docId: DocId): AsyncIterable<StoreRecord> {
-    const result = await this.#q.query<RowShape>(
+    const result = await this.#adapter.query<RowShape>(
       `SELECT kind, payload, blob FROM ${this.#tables.records}
        WHERE doc_id = $1 ORDER BY seq`,
       [docId],
@@ -176,7 +203,7 @@ export class PostgresStore implements Store {
     const existingMeta = await this.currentMeta(docId)
     const plan = planReplace(records, existingMeta)
 
-    await this.#withTransaction(async q => {
+    await this.#adapter.transaction(async q => {
       await q.query(`DELETE FROM ${this.#tables.records} WHERE doc_id = $1`, [
         docId,
       ])
@@ -206,7 +233,7 @@ export class PostgresStore implements Store {
   }
 
   async delete(docId: DocId): Promise<void> {
-    await this.#withTransaction(async q => {
+    await this.#adapter.transaction(async q => {
       await q.query(`DELETE FROM ${this.#tables.records} WHERE doc_id = $1`, [
         docId,
       ])
@@ -218,7 +245,7 @@ export class PostgresStore implements Store {
   }
 
   async currentMeta(docId: DocId): Promise<StoreMeta | null> {
-    const result = await this.#q.query<{ data: StoreMeta }>(
+    const result = await this.#adapter.query<{ data: StoreMeta }>(
       `SELECT data FROM ${this.#tables.docMeta} WHERE doc_id = $1`,
       [docId],
     )
@@ -227,7 +254,7 @@ export class PostgresStore implements Store {
 
   async *listDocIds(prefix?: string): AsyncIterable<DocId> {
     if (prefix === undefined) {
-      const result = await this.#q.query<{ doc_id: string }>(
+      const result = await this.#adapter.query<{ doc_id: string }>(
         `SELECT doc_id FROM ${this.#tables.docMeta}`,
       )
       for (const row of result.rows) yield row.doc_id
@@ -239,11 +266,11 @@ export class PostgresStore implements Store {
     const upper = prefixUpperBound(prefix)
     const result =
       upper === null
-        ? await this.#q.query<{ doc_id: string }>(
+        ? await this.#adapter.query<{ doc_id: string }>(
             `SELECT doc_id FROM ${this.#tables.docMeta} WHERE doc_id >= $1`,
             [prefix],
           )
-        : await this.#q.query<{ doc_id: string }>(
+        : await this.#adapter.query<{ doc_id: string }>(
             `SELECT doc_id FROM ${this.#tables.docMeta}
              WHERE doc_id >= $1 AND doc_id < $2`,
             [prefix, upper],
@@ -290,14 +317,13 @@ function prefixUpperBound(prefix: string): string | null {
  * on the next write anyway.
  */
 export async function createPostgresStore(
-  client: PgConnection,
+  adapter: PgAdapter,
   options: PostgresStoreOptions = {},
 ): Promise<Store> {
   const tables = resolveTables(options)
-  const q = client as unknown as PgQuerier
-  await validateSchema(q, tables)
-  await assertFormat(q, tables)
-  return new PostgresStore(client, options)
+  await validateSchema(adapter, tables)
+  await assertFormat(adapter, tables)
+  return new PostgresStore(adapter, options)
 }
 
 /**

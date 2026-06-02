@@ -5,7 +5,6 @@ import { SYNC_AUTHORITATIVE, SYNC_COLLABORATIVE } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
 import {
   DEFAULT_TABLES,
-  failOnNthCall,
   fromRow,
   normalizeBlob,
   planAppend,
@@ -252,47 +251,6 @@ describe("planReplace", () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// failOnNthCall
-// ---------------------------------------------------------------------------
-
-describe("failOnNthCall", () => {
-  it("counts only matching method, throws on Nth call", () => {
-    const target = {
-      a: () => "a",
-      b: () => "b",
-    }
-    const wrapped = failOnNthCall(target, "a", 2)
-
-    expect(wrapped.a()).toBe("a") // call 1
-    expect(wrapped.b()).toBe("b") // does not increment
-    expect(() => wrapped.a()).toThrow(/fault-injected/) // call 2
-  })
-
-  it("passes through to N+1 after the throw", () => {
-    const target = { a: () => "a" }
-    const wrapped = failOnNthCall(target, "a", 1)
-
-    expect(() => wrapped.a()).toThrow() // call 1
-    expect(wrapped.a()).toBe("a") // call 2 succeeds
-  })
-
-  it("supports async methods (rejects on Nth)", async () => {
-    const target = { go: async () => "ok" }
-    const wrapped = failOnNthCall(target, "go", 2)
-
-    await expect(wrapped.go()).resolves.toBe("ok")
-    await expect(wrapped.go()).rejects.toThrow(/fault-injected/)
-  })
-
-  it("uses the supplied error", () => {
-    const target = { boom: () => "ok" }
-    const err = new Error("custom")
-    const wrapped = failOnNthCall(target, "boom", 1, err)
-    expect(() => wrapped.boom()).toThrow("custom")
-  })
-
-  it("rejects n < 1", () => {
-    expect(() => failOnNthCall({ a: () => 0 }, "a", 0)).toThrow(/n must be/)
-  })
-})
+// failOnNthCall was retired in favour of `makeArmedFault`
+// (`@kyneta/exchange/testing`); its behaviours are covered by that primitive's
+// own unit test. jj:vzuwrotu

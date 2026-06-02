@@ -17,10 +17,10 @@ Peer dependencies: `@kyneta/exchange`, `@kyneta/schema`, `@kyneta/sql-store-core
 ```ts
 import { Pool } from "pg"
 import { Exchange } from "@kyneta/exchange"
-import { createPostgresStore } from "@kyneta/postgres-store"
+import { createPostgresStore, fromPool } from "@kyneta/postgres-store"
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL })
-const store = await createPostgresStore(pool)
+const store = await createPostgresStore(fromPool(pool))
 
 const exchange = new Exchange({
   stores: [store],
@@ -32,16 +32,16 @@ const exchange = new Exchange({
 // await pool.end()
 ```
 
-The factory queries `information_schema.columns` to validate that the canonical schema exists with compatible column types, then returns a ready Store. If validation fails, a curated error tells you which column is missing or has the wrong type.
+`createPostgresStore` takes a `PgAdapter` — wrap your connection with `fromPool(pool)` (pooled; each transaction checks out and releases a connection) or `fromClient(client)` (a single dedicated connection). This injection mirrors `@kyneta/sqlite-store`'s `fromBetterSqlite3` and keeps the store free of any runtime `pg`-class coupling. The factory queries `information_schema.columns` to validate that the canonical schema exists with compatible column types, then returns a ready Store; a curated error tells you which column is missing or has the wrong type.
 
 ### Sync constructor (advanced)
 
 For callers that validate the schema separately at process start:
 
 ```ts
-import { PostgresStore } from "@kyneta/postgres-store"
+import { PostgresStore, fromPool } from "@kyneta/postgres-store"
 
-const store = new PostgresStore(pool)
+const store = new PostgresStore(fromPool(pool))
 ```
 
 ## Schema
@@ -91,8 +91,8 @@ Default: `{ docMeta: "kyneta_doc_meta", records: "kyneta_records", storeMeta: "k
 
 The caller owns the connection lifecycle:
 
-- `Pool`: passed in by the caller. The Store calls `pool.connect()`/`release()` per transaction. The caller calls `pool.end()` on shutdown.
-- `Client`: passed in by the caller; transactions run against the same connection. The caller calls `client.end()` on shutdown.
+- `fromPool(pool)`: each transaction checks out a connection via `pool.connect()` and `release()`s it; the caller calls `pool.end()` on shutdown.
+- `fromClient(client)`: transactions run against the one connection; the caller calls `client.end()` on shutdown.
 
 `PostgresStore.close()` is a no-op.
 

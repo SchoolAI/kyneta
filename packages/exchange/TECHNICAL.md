@@ -93,7 +93,7 @@ Plus cross-cutting facilities:
 | Capabilities | `src/capabilities.ts` | Replica-type + schema registry keyed by `ReplicaKey`. |
 | Line | `src/line.ts` | Reliable bidirectional message stream built above `exchange.get`. |
 | Persistent peer ID | `src/persistent-peer-id.ts` | Browser-only lease protocol for per-tab unique, reload-stable `peerId`. |
-| Storage | `src/store/*.ts` | `Store` interface, in-memory implementation, shared utilities (`SeqNoTracker`, `validateAppend`, `resolveMetaFromBatch`); production impls in `@kyneta/leveldb-store`, `@kyneta/indexeddb-store`, `@kyneta/sqlite-store`, `@kyneta/postgres-store`, `@kyneta/prisma-store`. SQL-family stores share pure helpers (`toRow`, `fromRow`, `planAppend`, `planReplace`, `failOnNthCall`) via `@kyneta/sql-store-core`. |
+| Storage | `src/store/*.ts` | `Store` interface, in-memory implementation, shared utilities (`SeqNoTracker`, `validateAppend`, `resolveMetaFromBatch`); production impls in `@kyneta/leveldb-store`, `@kyneta/indexeddb-store`, `@kyneta/sqlite-store`, `@kyneta/postgres-store`, `@kyneta/prisma-store`. SQL-family stores share pure helpers (`toRow`, `fromRow`, `planAppend`, `planReplace`) via `@kyneta/sql-store-core`. |
 
 ### What the exchange is NOT
 
@@ -566,9 +566,9 @@ Applications pass zero or more stores in `ExchangeParams.stores`. Writes fan out
 - `@kyneta/postgres-store` — async-native Postgres backend over `pg`.
 - `@kyneta/prisma-store` — backend that takes a caller-supplied `PrismaClient`.
 
-The three SQL-family backends share pure helpers (`toRow`, `fromRow`, `planAppend`, `planReplace`, `failOnNthCall`) via `@kyneta/sql-store-core` — preserving round-trip portability of a `StoreRecord` stream across SQL backends. The in-memory store in `src/store/in-memory-store.ts` is used for tests and browser-ephemeral cases.
+The three SQL-family backends share pure helpers (`toRow`, `fromRow`, `planAppend`, `planReplace`) via `@kyneta/sql-store-core` — preserving round-trip portability of a `StoreRecord` stream across SQL backends. The in-memory store in `src/store/in-memory-store.ts` is used for tests and browser-ephemeral cases.
 
-For the conformance suite's fault-injection atomicity property, `@kyneta/exchange/testing` exports `makeArmedFault` — a shared op-weighted, deferred-arm write-fault primitive that a backend's `faultFactory` wraps around its write seam (LevelDB `put`/`batch` weighted by op count, etc.). It supersedes the per-backend hand-rolled wrappers and the construction-armed `failOnNthCall`; LevelDB consumes it today, with the remaining backends to migrate.
+For the conformance suite's fault-injection atomicity property, `@kyneta/exchange/testing` exports `makeArmedFault` — a shared op-weighted, deferred-arm write-fault primitive that a backend's `faultFactory` wraps around its write seam (LevelDB `put`/`batch` weighted by op count; the SQLite adapter's `exec`; a checked-out Postgres client's `query` via `fromClient`). Every store backend consumes it; it replaced the per-backend hand-rolled wrappers and the construction-armed `failOnNthCall`.
 
 ### Async-factory pattern for stores requiring async setup
 
