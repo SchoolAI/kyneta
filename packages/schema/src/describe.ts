@@ -30,6 +30,7 @@ import {
   type ScalarSchema,
   type Schema,
 } from "./schema.js"
+import { serializeConstraintValue } from "./serialize-value.js"
 
 // ---------------------------------------------------------------------------
 // describe — the public API
@@ -93,7 +94,7 @@ function walk(
     case "scalar": {
       const s = schema as ScalarSchema
       if (s.constraint !== undefined && s.constraint.length > 0) {
-        const vals = s.constraint.map(v => JSON.stringify(v)).join(" | ")
+        const vals = s.constraint.map(serializeConstraintValue).join(" | ")
         lines.push(`${prefix}${lbl}${schema.scalarKind}(${vals})`)
       } else {
         lines.push(`${prefix}${lbl}${schema.scalarKind}`)
@@ -255,7 +256,7 @@ function inlineOrNull(schema: Schema): string | null {
     case "scalar": {
       const s = schema as ScalarSchema
       if (s.constraint !== undefined && s.constraint.length > 0) {
-        const vals = s.constraint.map(v => JSON.stringify(v)).join(" | ")
+        const vals = s.constraint.map(serializeConstraintValue).join(" | ")
         return `${schema.scalarKind}(${vals})`
       }
       return schema.scalarKind

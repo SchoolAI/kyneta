@@ -467,6 +467,52 @@ describe("Schema API: struct.json() migration support", () => {
 })
 
 // ===========================================================================
+// supportedHashes reflects JSON boundaries — the JSON_BOUNDARY marker must
+// survive the reachable-shape reconstruction (`expandNested`'s
+// `{ ...schema, fields }` + the chain-inverse walk), or a migrated json
+// shape would silently hash equal to its plain counterpart.
+// ===========================================================================
+
+describe("supportedHashes — JSON boundary propagation", () => {
+  const boundOf = (schema: ProductSchema) =>
+    bind({
+      schema,
+      factory: () => plainSubstrateFactory,
+      syncProtocol: SYNC_AUTHORITATIVE,
+    })
+
+  it("a nested .json() field yields a set disjoint from the plain counterpart", () => {
+    const withJson = boundOf(
+      Schema.struct({ inner: Schema.struct.json({ a: Schema.string() }) }),
+    )
+    const withPlain = boundOf(
+      Schema.struct({ inner: Schema.struct({ a: Schema.string() }) }),
+    )
+    for (const h of withJson.supportedHashes) {
+      expect(withPlain.supportedHashes.has(h)).toBe(false)
+    }
+  })
+
+  it("the boundary survives migrated-shape reconstruction (multi-shape set stays disjoint)", () => {
+    const mk = (inner: ProductSchema) =>
+      boundOf(
+        Schema.struct({ inner }).migrated(
+          Migration.rename("oldInner", "inner"),
+        ),
+      )
+    const withJson = mk(Schema.struct.json({ a: Schema.string() }))
+    const withPlain = mk(Schema.struct({ a: Schema.string() }))
+    // The rename yields >1 reachable shape; every json shape must differ
+    // from its plain counterpart, i.e. the marker survived reconstruction
+    // at each reachable shape (not just the current one).
+    expect(withJson.supportedHashes.size).toBeGreaterThan(1)
+    for (const h of withJson.supportedHashes) {
+      expect(withPlain.supportedHashes.has(h)).toBe(false)
+    }
+  })
+})
+
+// ===========================================================================
 // Phase 2 — bind() with migrations
 // ===========================================================================
 

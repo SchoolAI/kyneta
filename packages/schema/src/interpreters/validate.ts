@@ -36,6 +36,7 @@ import {
   type TextSchema,
   type TreeSchema,
 } from "../schema.js"
+import { serializeConstraintValue } from "../serialize-value.js"
 
 /**
  * Converts a typed Path to a human-readable string for error reporting.
@@ -174,7 +175,7 @@ export const validateInterpreter: Interpreter<ValidateContext, unknown> = {
     if (schema.constraint !== undefined && schema.constraint.length > 0) {
       if (!schema.constraint.includes(value as never)) {
         const allowed = schema.constraint
-          .map(v => JSON.stringify(v))
+          .map(serializeConstraintValue)
           .join(" | ")
         ctx.errors.push(
           new SchemaValidationError(path.format(), `one of ${allowed}`, value),

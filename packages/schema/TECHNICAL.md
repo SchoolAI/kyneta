@@ -147,7 +147,7 @@ Each CRDT kind contributes to the `[LAWS]` phantom of every ancestor node. A `Sc
 
 `PlainSchema` is `Schema` restricted to structural kinds. It appears in two places:
 
-1. **`.json()` modifier.** `Schema.struct({...}).json()` marks a product as a plain-JSON merge boundary — the entire subtree is replaced atomically on write, not composed CRDT-style. Inside `.json()`, only `PlainSchema` is permitted.
+1. **`.json()` modifier.** `Schema.struct({...}).json()` marks a product as a plain-JSON merge boundary — the entire subtree is replaced atomically on write, not composed CRDT-style. Inside `.json()`, only `PlainSchema` is permitted. The boundary is part of the schema's identity: `computeSchemaHash` emits it as a `["j", …]` tag, so `struct` and `struct.json` of the same fields hash differently (they materialize differently — nested CRDT containers vs. one opaque JSON value).
 2. **Sum variants.** Variants of a `sum` must all be `PlainSchema` because discriminated-union semantics are structural — a union of CRDTs would require merging *across* variants, which is not well-defined.
 
 ### Composition-law enforcement
@@ -173,7 +173,7 @@ No runtime dispatch, no substrate-specific error messages. The type system is th
 ### What the grammar is NOT
 
 - **Not closed.** `sum` variants are open (you can add more) and `product` fields are open (you can nest arbitrary schemas). The eleven *kinds* are closed; user composition is not.
-- **Not validated at construction.** `Schema.struct({})` with a circular reference via thunks is valid grammar. Cycles are detected only during specific interpretations (e.g. `canonicalizeSchema` for hashing).
+- **Not validated at construction**, but **finite, eager, and acyclic by typing.** Product fields are eager `Schema` values — there is no lazy/thunk field variant and no `lazy`/`recursive` constructor — so a cyclic schema *graph* cannot be built through the typed API (`struct({ next: () => self })` does not typecheck). Recursive/hierarchical *data* is modeled via `Schema.tree(item)`, whose schema is finite. `canonicalizeSchema` relies on this precondition; an `as any`-forced cycle is the only way to violate it, and it is caught by a depth cap that throws a clear error (not an opaque stack overflow).
 - **Not self-describing at runtime.** `[KIND]` is the only tag. Fields, variants, etc. are discovered structurally. Never `Object.keys(schema)` to enumerate its kind — pattern-match on `[KIND]`.
 
 ---
@@ -353,10 +353,12 @@ Source: `packages/schema/src/hash.ts` → `computeSchemaHash`, `HASH_ALGORITHM_V
 
 `computeSchemaHash(schema)` is a pure, content-addressed function:
 
-1. Canonicalize the schema tree (stable field ordering, remove thunks, expand laziness).
-2. Serialize to a deterministic byte representation.
+1. Build a **canonical tuple** (`canonicalTuple`): a recursively-nested value of **arrays and strings only — never objects** (object key order is engine-defined; array order is positional and stable). Field names are alphabetized; the `JSON_BOUNDARY` marker (`.json()`) is emitted as a `["j", inner]` tag; scalar constraint values go through `serializeConstraintValue` (shared with `describe`/`validate`).
+2. Serialize once with `JSON.stringify`. Because JSON escapes every user-controlled string (field names, constraint values, mark names), they cannot forge structural delimiters — canonicalization is **injective by construction** (distinct schemas ⟹ distinct bytes), not by a per-site escaping discipline.
 3. Hash with single-pass FNV-1a-128 over UTF-8 bytes (`@sindresorhus/fnv1a` at `size: 128`).
 4. Return a **34-character** lowercase string: `HASH_ALGORITHM_VERSION` (2 chars) + 32-char hex of the 128-bit hash.
+
+`canonicalTuple` assumes a finite, eager, acyclic node tree — guaranteed by the grammar (see [What the grammar is NOT](#what-the-grammar-is-not)) — and guards the unsupported `as any`-forced-cycle case with a recursion depth cap that throws a clear error rather than overflowing the stack.
 
 The hash is carried in every `present` message (the exchange's doc-announcement protocol). Receivers compare the incoming hash against their local `BoundSchema.schemaHash`:
 
@@ -366,7 +368,10 @@ The hash is carried in every `present` message (the exchange's doc-announcement 
 
 ### `HASH_ALGORITHM_VERSION` — the prefix is part of the wire format
 
-The 2-char prefix is a TLV-style algorithm-version tag. Bumping it signals a coordinated change to the hash bytes (algorithm swap, canonicalization change, or input-encoding shift). Current value is `"01"`. The previous `"00"` (retired) was a two-pass FNV-1a-64 with a shared prime over UTF-16 code units; that overstated its effective entropy and has been replaced with single-pass FNV-1a-128 over UTF-8 bytes. See plan `jj:snrmsznm`.
+The 2-char prefix is a TLV-style algorithm-version tag. Bumping it signals a coordinated change to the hash bytes (algorithm swap, canonicalization change, or input-encoding shift). Current value is `"02"`. Retired versions:
+
+- `"00"` — two-pass FNV-1a-64 with a shared prime over UTF-16 code units; overstated its effective entropy (`jj:snrmsznm`).
+- `"01"` — single-pass FNV-1a-128 over UTF-8, but with an S-expression canonicalization that dispatched on `[KIND]` only: it was *boundary-blind* (`struct` ≡ `struct.json`) and *non-injective* (unescaped field names / constraint values could collide). Replaced by the injective JSON-tuple form (`jj:qnmtvtwn`).
 
 Ecosystem code that asserts on the prefix (wire-format validators, store-migration tooling) should import `HASH_ALGORITHM_VERSION` rather than hardcoding the string.
 
