@@ -39,10 +39,10 @@ The Cloudflare DO factory does not yet exist — only the design accommodates it
 
 ## Schema and the `tables` option
 
-Two tables, created on first use via `#ensureSchema` (sync DDL — fast, errors are immediate, no factory layer needed):
+Three tables, created on first use via `#ensureSchema` (sync DDL — fast, errors are immediate, no factory layer needed):
 
 ```sql
-CREATE TABLE IF NOT EXISTS kyneta_meta (
+CREATE TABLE IF NOT EXISTS kyneta_doc_meta (
   doc_id  TEXT PRIMARY KEY,
   data    TEXT NOT NULL
 ) WITHOUT ROWID;
@@ -55,23 +55,30 @@ CREATE TABLE IF NOT EXISTS kyneta_records (
   blob    BLOB,
   PRIMARY KEY (doc_id, seq)
 ) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS kyneta_store_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+) WITHOUT ROWID;
 ```
 
-`SqliteStoreOptions.tables` overrides either or both names:
+The constructor then runs the **store-format gate**: it reads `store_meta.format`, probes whether `doc_meta` holds rows, and via `@kyneta/exchange`'s `decideStoreFormat` stamps a brand-new store, accepts a compatible one, or throws `StoreFormatVersionError`. `store_meta` is store-global metadata keyed by an opaque `key` (the format version under `key = "format"`), distinct from the per-document `doc_meta`. No migration is performed.
+
+`SqliteStoreOptions.tables` overrides any subset of the names:
 
 ```ts
 new SqliteStore(adapter, {
-  tables: { meta: "app_meta", records: "app_records" },
+  tables: { docMeta: "app_doc_meta", records: "app_records", storeMeta: "app_store_meta" },
 })
 ```
 
-`WITHOUT ROWID` makes the primary key the row identifier directly — saves space and a level of indirection on lookups when the PK is well-shaped (which it is here: short TEXT for meta, composite (TEXT, INTEGER) for records).
+`WITHOUT ROWID` makes the primary key the row identifier directly — saves space and a level of indirection on lookups when the PK is well-shaped (which it is here: short TEXT for doc-meta, composite (TEXT, INTEGER) for records).
 
 ## Breaking change in v2.0.0
 
-v1.x had `SqliteStoreOptions.tablePrefix?: string` defaulting to `""` — tables were named `meta` / `records` by default and `{prefix}meta` / `{prefix}records` with a prefix. v2.0.0 replaces this with `tables: { meta: string, records: string }` defaulting to `kyneta_meta` / `kyneta_records`. There is no compatibility shim. Migration is documented in [README.md](./README.md#migration-from-v1x).
+v1.x had `SqliteStoreOptions.tablePrefix?: string` defaulting to `""` — tables were named `meta` / `records` by default and `{prefix}meta` / `{prefix}records` with a prefix. The current option is `tables: { docMeta, records, storeMeta }` defaulting to `kyneta_doc_meta` / `kyneta_records` / `kyneta_store_meta`. There is no compatibility shim. Migration is documented in [README.md](./README.md#migration-from-v1x).
 
-The two-table contract makes "prefix" a misframing — there are exactly two tables, not arbitrary "kyneta things." Asking for table names directly is more honest.
+The named-table contract makes "prefix" a misframing — there is a fixed set of tables, not arbitrary "kyneta things." Asking for table names directly is more honest.
 
 ## Atomic append
 

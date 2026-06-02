@@ -42,10 +42,10 @@ Consumed by browser applications wiring `stores: [await createIndexedDBStore("my
 
 **Thesis**: in the browser, IndexedDB is the only durable storage API with real transaction semantics. Structured clone eliminates the need for a custom binary envelope, and auto-increment keys eliminate manual seqNo management — the result is a simpler implementation than LevelDB at the cost of being single-tab.
 
-The database (version 1) contains two object stores:
+The database (version 2) contains three object stores:
 
 ```
-Object store "meta":
+Object store "doc_meta":   (per-document metadata)
   keyPath: "docId"
   value: MetaRow { docId, meta: StoreMeta }
 
@@ -53,9 +53,13 @@ Object store "records":
   keyPath: "id" (autoIncrement)
   index "byDoc": keyPath "docId" (non-unique)
   value: RecordRow { id?, docId, record: StoreRecord }
+
+Object store "store_meta": (store-global metadata, e.g. format version)
+  keyPath: "key"
+  value: { key, value }
 ```
 
-The `meta` store is a **materialized index** — it stores the resolved `StoreMeta` for fast lookup via `currentMeta()` without scanning the record stream. Updated on every `meta`-kind `append` and during `replace`.
+The `doc_meta` store is a **materialized index** — it stores the resolved `StoreMeta` for fast lookup via `currentMeta()` without scanning the record stream. Updated on every `meta`-kind `append` and during `replace`. (Renamed from `meta` to disambiguate from `store_meta`.) The `store_meta` store holds store-global facts keyed by an opaque `key` (the on-disk format version under `key = "format"`), read by a bootstrap reader on open — never through the `Store` interface. `DB_VERSION` was bumped 1 → 2 to introduce both via `onupgradeneeded`; that structural version is orthogonal to the data-format version held in `store_meta`.
 
 The entire package is one class plus two factories plus three IDB Promise wrappers:
 
@@ -73,7 +77,7 @@ The entire package is one class plus two factories plus three IDB Promise wrappe
 - **Not a reactive store.** There is no subscribe, no changefeed. The exchange wires its own reactive layer above the store.
 - **Not a query engine.** The only lookup primitive is "give me everything for this doc" (`loadAll`) or "give me the metadata for this doc" (`currentMeta`). No predicates, no ad-hoc secondary indexes beyond the built-in `byDoc` index.
 - **Not shared across tabs.** Each browser tab gets its own connection. Two tabs opening the same `dbName` will see the same data on disk, but concurrent writes from separate `IndexedDBStore` instances can interleave at the transaction boundary. Each tab should have its own `Exchange` with its own store instance, or use a `SharedWorker` / `BroadcastChannel` coordination pattern above this layer.
-- **Not a migration engine.** Schema migrations happen at the `@kyneta/schema` layer. This store just persists whatever `StoreRecord` values the substrate produced.
+- **Not a migration engine.** Schema migrations happen at the `@kyneta/schema` layer. The store-format gate run by `IndexedDBStore.open` is a *compatibility check*, not a migration: it stamps a `{ major, minor }` version into `store_meta` on a brand-new store, accepts a compatible one, or throws `StoreFormatVersionError` (releasing the connection so the refusal doesn't block `deleteDatabase`) — but never rewrites. This store just persists whatever `StoreRecord` values the substrate produced.
 
 ### What "`Store`" means here (and does NOT mean)
 

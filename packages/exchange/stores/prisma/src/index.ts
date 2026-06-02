@@ -9,8 +9,12 @@
 
 import {
   type DocId,
+  decideStoreFormat,
+  parseStoreFormat,
   SeqNoTracker,
+  STORE_META_FORMAT_KEY,
   type Store,
+  StoreFormatVersionError,
   type StoreMeta,
   type StoreRecord,
 } from "@kyneta/exchange"
@@ -19,6 +23,7 @@ import {
   planAppend,
   planReplace,
   type RowShape,
+  STORE_FORMAT_VERSION,
 } from "@kyneta/sql-store-core"
 
 // ---------------------------------------------------------------------------
@@ -51,6 +56,23 @@ interface MetaModel {
   }): Promise<MetaRow>
   delete(args: { where: { docId: string } }): Promise<unknown>
   deleteMany(args: { where: { docId: string } }): Promise<unknown>
+  // Empty-store probe for the store-format gate (does any document exist).
+  count(): Promise<number>
+}
+
+interface StoreMetaRow {
+  key: string
+  value: unknown
+}
+
+/** Store-global metadata model — keyed by an opaque `key`, not a `docId`. */
+interface StoreMetaModel {
+  findUnique(args: { where: { key: string } }): Promise<StoreMetaRow | null>
+  upsert(args: {
+    where: { key: string }
+    create: { key: string; value: unknown }
+    update: { value: unknown }
+  }): Promise<StoreMetaRow>
 }
 
 interface RecordModel {
@@ -87,11 +109,14 @@ export interface PrismaStoreOptions {
   /** The PrismaClient. Pass `prisma` directly. */
   client: unknown
 
-  /** Property name on the client. Default matches `model KynetaMeta`. */
+  /** Property name on the client. Default matches `model KynetaDocMeta`. */
   metaModel?: string
 
   /** Property name on the client. Default matches `model KynetaRecord`. */
   recordModel?: string
+
+  /** Property name on the client. Default matches `model KynetaStoreMeta`. */
+  storeMetaModel?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -103,17 +128,25 @@ export class PrismaStore implements Store {
   readonly #seqNos = new SeqNoTracker()
   readonly #metaModelName: string
   readonly #recordModelName: string
+  readonly #storeMetaModelName: string
 
   constructor(options: PrismaStoreOptions) {
     this.#client = options.client as PrismaClientLike
-    this.#metaModelName = options.metaModel ?? "kynetaMeta"
+    this.#metaModelName = options.metaModel ?? "kynetaDocMeta"
     this.#recordModelName = options.recordModel ?? "kynetaRecord"
+    this.#storeMetaModelName = options.storeMetaModel ?? "kynetaStoreMeta"
   }
 
   get #meta(): MetaModel {
     return (this.#client as unknown as Record<string, unknown>)[
       this.#metaModelName
     ] as MetaModel
+  }
+
+  get #storeMeta(): StoreMetaModel {
+    return (this.#client as unknown as Record<string, unknown>)[
+      this.#storeMetaModelName
+    ] as StoreMetaModel
   }
 
   get #records(): RecordModel {
@@ -258,6 +291,55 @@ export class PrismaStore implements Store {
   async close(): Promise<void> {
     // Caller owns the lifecycle (`prisma.$disconnect()`).
   }
+
+  // Bootstrap reader: stamp/accept/refuse the store-format marker on open.
+  // A `static open` reaches this private method so the gate stays internal.
+  async #assertFormat(): Promise<void> {
+    const row = await this.#storeMeta.findUnique({
+      where: { key: STORE_META_FORMAT_KEY },
+    })
+    const parsed =
+      row === null ? null : parseStoreFormat(parseMetaData(row.value))
+    if (parsed === "malformed") {
+      throw new StoreFormatVersionError({
+        reason: "malformed-version",
+        backend: "prisma",
+        stored: null,
+        current: STORE_FORMAT_VERSION,
+      })
+    }
+
+    const docCount = await this.#meta.count()
+
+    const decision = decideStoreFormat({
+      current: STORE_FORMAT_VERSION,
+      stored: parsed,
+      storeHasData: docCount > 0,
+    })
+
+    if (decision.action === "refuse") {
+      throw new StoreFormatVersionError({
+        reason: decision.reason,
+        backend: "prisma",
+        stored: parsed,
+        current: STORE_FORMAT_VERSION,
+      })
+    }
+    if (decision.action === "stamp") {
+      await this.#storeMeta.upsert({
+        where: { key: STORE_META_FORMAT_KEY },
+        create: { key: STORE_META_FORMAT_KEY, value: decision.value },
+        update: { value: decision.value },
+      })
+    }
+  }
+
+  /** Construct + run the store-format gate. Used by `createPrismaStore`. */
+  static async open(options: PrismaStoreOptions): Promise<Store> {
+    const store = new PrismaStore(options)
+    await store.#assertFormat()
+    return store
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -289,12 +371,13 @@ function prefixUpperBound(prefix: string): string | null {
 }
 
 /**
- * Async only for ergonomic parity with `createPostgresStore` — does
- * no schema validation. Prisma's typed accessors enforce model presence
- * at compile time; runtime failures surface on first call.
+ * Does no schema validation (Prisma's typed accessors enforce model
+ * presence at compile time; runtime failures surface on first call), but
+ * does run the store-format gate on open: it stamps a brand-new store,
+ * accepts a compatible one, or throws `StoreFormatVersionError`.
  */
 export async function createPrismaStore(
   options: PrismaStoreOptions,
 ): Promise<Store> {
-  return new PrismaStore(options)
+  return PrismaStore.open(options)
 }

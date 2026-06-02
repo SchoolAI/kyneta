@@ -3,8 +3,9 @@
 // Implements the Store interface using classic-level.
 //
 // Key-space design (FoundationDB convention — \x00 null-byte separator):
-//   meta\x00{docId}                       → JSON-encoded StoreMeta (materialized index)
+//   doc-meta\x00{docId}                   → JSON-encoded StoreMeta (materialized index)
 //   record\x00{docId}\x00{seqNo}          → binary-encoded StoreRecord (unified stream)
+//   store-meta\x00{key}                   → store-global metadata (e.g. format version)
 //
 // The \x00 separator cannot appear in valid UTF-8 strings, so no docId
 // validation is needed — the key-space imposes zero constraints on callers.
@@ -15,9 +16,14 @@
 
 import {
   type DocId,
+  decideStoreFormat,
+  parseStoreFormat,
   resolveMetaFromBatch,
   SeqNoTracker,
+  STORE_META_FORMAT_KEY,
   type Store,
+  type StoreFormatVersion,
+  StoreFormatVersionError,
   type StoreMeta,
   type StoreRecord,
   validateAppend,
@@ -29,9 +35,24 @@ import { ClassicLevel } from "classic-level"
 // ---------------------------------------------------------------------------
 
 const SEP = "\x00"
-const META_PREFIX = `meta${SEP}`
+const DOC_META_PREFIX = `doc-meta${SEP}`
 const RECORD_PREFIX = `record${SEP}`
 const SEQ_PAD = 16
+
+// Store-global metadata namespace, keyed `store-meta\x00{key}`. It sorts
+// above `doc-meta\x00` ('d' < 's') and `record\x00` ('r' < 's'), so it is
+// outside every `doc-meta`/`record` iteration range and needs no filtering.
+// Do not relocate it into those ranges. The on-disk format version lives at
+// `store-meta\x00format`. This is read by a bootstrap reader on open, never
+// through the Store interface. Context: jj:uvssotsy.
+const STORE_META_PREFIX = `store-meta${SEP}`
+const STORE_FORMAT_KEY = `${STORE_META_PREFIX}${STORE_META_FORMAT_KEY}`
+
+// LevelDB owns its own on-disk format version (its binary envelope), gated on
+// open via `decideStoreFormat`. Distinct from the envelope's per-record bit-7
+// guard (`decodeStoreRecord`): bit-7 guards one record's decode; this marker
+// guards opening the store at all.
+const STORE_FORMAT_VERSION: StoreFormatVersion = { major: 1, minor: 0 }
 
 // ---------------------------------------------------------------------------
 // Binary envelope v2 — pure encode/decode for StoreRecord
@@ -133,8 +154,8 @@ export function decodeStoreRecord(bytes: Uint8Array): StoreRecord {
 // Key helpers
 // ---------------------------------------------------------------------------
 
-function metaKey(docId: DocId): string {
-  return `${META_PREFIX}${docId}`
+function docMetaKey(docId: DocId): string {
+  return `${DOC_META_PREFIX}${docId}`
 }
 
 function recordPrefix(docId: DocId): string {
@@ -145,8 +166,8 @@ function recordKey(docId: DocId, seqNo: number): string {
   return `${recordPrefix(docId)}${String(seqNo).padStart(SEQ_PAD, "0")}`
 }
 
-function parseDocIdFromMetaKey(key: string): DocId {
-  return key.slice(META_PREFIX.length)
+function parseDocIdFromDocMetaKey(key: string): DocId {
+  return key.slice(DOC_META_PREFIX.length)
 }
 
 function parseSeqNoFromRecordKey(key: string, docId: DocId): number {
@@ -174,7 +195,7 @@ export class LevelDBStore implements Store {
 
   async currentMeta(docId: DocId): Promise<StoreMeta | null> {
     try {
-      const raw = await this.#db.get(metaKey(docId))
+      const raw = await this.#db.get(docMetaKey(docId))
       return JSON.parse(decoder.decode(raw)) as StoreMeta
     } catch (error: any) {
       if (error.code === "LEVEL_NOT_FOUND") return null
@@ -188,7 +209,7 @@ export class LevelDBStore implements Store {
 
     if (resolved !== null) {
       await this.#db.put(
-        metaKey(docId),
+        docMetaKey(docId),
         encoder.encode(JSON.stringify(resolved)),
       )
     }
@@ -251,7 +272,7 @@ export class LevelDBStore implements Store {
 
     ops.push({
       type: "put",
-      key: metaKey(docId),
+      key: docMetaKey(docId),
       value: encoder.encode(JSON.stringify(resolved)),
     })
 
@@ -265,7 +286,7 @@ export class LevelDBStore implements Store {
     const prefix = recordPrefix(docId)
 
     // Collect record keys to delete
-    const keysToDelete: string[] = [metaKey(docId)]
+    const keysToDelete: string[] = [docMetaKey(docId)]
     for await (const key of this.#db.keys({
       gte: prefix,
       lt: `${prefix}\xff`,
@@ -283,17 +304,83 @@ export class LevelDBStore implements Store {
 
   async *listDocIds(prefix?: string): AsyncIterable<DocId> {
     const rangePrefix =
-      prefix !== undefined ? `${META_PREFIX}${prefix}` : META_PREFIX
+      prefix !== undefined ? `${DOC_META_PREFIX}${prefix}` : DOC_META_PREFIX
     for await (const key of this.#db.keys({
       gte: rangePrefix,
       lt: `${rangePrefix}\xff`,
     })) {
-      yield parseDocIdFromMetaKey(key)
+      yield parseDocIdFromDocMetaKey(key)
     }
   }
 
   async close(): Promise<void> {
     await this.#db.close()
+  }
+
+  // Bootstrap reader: consult the store-format marker before trusting any
+  // bytes. Stamps a brand-new store, accepts a compatible one, or throws.
+  // A `static open` reaches this private method so the gate stays internal.
+  async #assertFormat(): Promise<void> {
+    let parsed: StoreFormatVersion | "malformed" | null = null
+    try {
+      const raw = await this.#db.get(STORE_FORMAT_KEY)
+      parsed = parseStoreFormat(decoder.decode(raw))
+    } catch (error: any) {
+      if (error.code !== "LEVEL_NOT_FOUND") throw error
+      // absent → parsed stays null
+    }
+    if (parsed === "malformed") {
+      throw new StoreFormatVersionError({
+        reason: "malformed-version",
+        backend: "leveldb",
+        stored: null,
+        current: STORE_FORMAT_VERSION,
+      })
+    }
+
+    // Empty-store probe: does any doc-meta key exist?
+    let hasData = false
+    for await (const _key of this.#db.keys({
+      gte: DOC_META_PREFIX,
+      lt: `${DOC_META_PREFIX}\xff`,
+      limit: 1,
+    })) {
+      hasData = true
+    }
+
+    const decision = decideStoreFormat({
+      current: STORE_FORMAT_VERSION,
+      stored: parsed,
+      storeHasData: hasData,
+    })
+
+    if (decision.action === "refuse") {
+      throw new StoreFormatVersionError({
+        reason: decision.reason,
+        backend: "leveldb",
+        stored: parsed,
+        current: STORE_FORMAT_VERSION,
+      })
+    }
+    if (decision.action === "stamp") {
+      await this.#db.put(
+        STORE_FORMAT_KEY,
+        encoder.encode(JSON.stringify(decision.value)),
+      )
+    }
+  }
+
+  /** Open the store and run the store-format gate. Used by `createLevelDBStore`. */
+  static async open(dbPath: string): Promise<Store> {
+    const store = new LevelDBStore(dbPath)
+    try {
+      await store.#assertFormat()
+    } catch (error) {
+      // A refused store must not leak its file handle / lock.
+      await store.#db.close()
+      throw error
+    }
+    return store
   }
 }
 
@@ -304,7 +391,9 @@ export class LevelDBStore implements Store {
 /**
  * Create a LevelDB storage backend for server-side persistence.
  *
- * Returns a `Store` — pass directly to `Exchange({ stores: [...] })`.
+ * Async: it opens the database and runs the store-format gate (stamping a
+ * brand-new store, accepting a compatible one, or throwing
+ * `StoreFormatVersionError`). `await` it before passing to the `Exchange`.
  *
  * @param dbPath - Directory path where LevelDB stores its files
  *
@@ -313,10 +402,10 @@ export class LevelDBStore implements Store {
  * import { createLevelDBStore } from "@kyneta/leveldb-store"
  *
  * const exchange = new Exchange({
- *   stores: [createLevelDBStore("./data/exchange-db")],
+ *   stores: [await createLevelDBStore("./data/exchange-db")],
  * })
  * ```
  */
-export function createLevelDBStore(dbPath: string): Store {
-  return new LevelDBStore(dbPath)
+export function createLevelDBStore(dbPath: string): Promise<Store> {
+  return LevelDBStore.open(dbPath)
 }

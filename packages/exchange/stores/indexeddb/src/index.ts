@@ -2,8 +2,8 @@
 //
 // Implements the Store interface using the browser's native IndexedDB API.
 //
-// Database schema (version 1):
-//   Object store "meta":
+// Database schema (version 2):
+//   Object store "doc_meta":   (per-document metadata)
 //     keyPath: "docId"
 //     value: { docId: string, meta: StoreMeta }
 //
@@ -12,13 +12,22 @@
 //     indexes: { "byDoc": keyPath "docId", unique: false }
 //     value: { docId: string, record: StoreRecord }
 //
+//   Object store "store_meta": (store-global metadata, e.g. format version)
+//     keyPath: "key"
+//     value: { key: string, value: unknown }
+//
 // Structured clone handles StoreRecord natively — no binary envelope needed.
 // Auto-increment keys preserve insertion order without manual seqNo management.
 
 import {
   type DocId,
+  decideStoreFormat,
+  parseStoreFormat,
   resolveMetaFromBatch,
+  STORE_META_FORMAT_KEY,
   type Store,
+  type StoreFormatVersion,
+  StoreFormatVersionError,
   type StoreMeta,
   type StoreRecord,
 } from "@kyneta/exchange"
@@ -27,10 +36,22 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-const META_STORE = "meta"
+const DOC_META_STORE = "doc_meta"
 const RECORDS_STORE = "records"
 const BY_DOC_INDEX = "byDoc"
-const DB_VERSION = 1
+// Store-global metadata object store, distinct from the per-doc `doc_meta`
+// map. Holds the on-disk format version (under STORE_META_FORMAT_KEY), read
+// by a bootstrap reader on open — never through the Store interface.
+// Context: jj:uvssotsy.
+const STORE_META_STORE = "store_meta"
+// Bumped 1 → 2 to introduce the `doc_meta` (renamed) and `store_meta` object
+// stores via onupgradeneeded.
+const DB_VERSION = 2
+
+// IndexedDB owns its own on-disk format version (its row layout), gated on
+// open via `decideStoreFormat`. Independent of IDB's structural DB_VERSION,
+// which versions object-store layout, not the data format.
+const STORE_FORMAT_VERSION: StoreFormatVersion = { major: 1, minor: 0 }
 
 // ---------------------------------------------------------------------------
 // IDB promise wrappers
@@ -63,8 +84,8 @@ function openDatabase(dbName: string): Promise<IDBDatabase> {
 
       // Guard against re-entry: onupgradeneeded fires on version bump,
       // and the stores may already exist from a prior version.
-      if (!db.objectStoreNames.contains(META_STORE)) {
-        db.createObjectStore(META_STORE, { keyPath: "docId" })
+      if (!db.objectStoreNames.contains(DOC_META_STORE)) {
+        db.createObjectStore(DOC_META_STORE, { keyPath: "docId" })
       }
 
       if (!db.objectStoreNames.contains(RECORDS_STORE)) {
@@ -73,6 +94,10 @@ function openDatabase(dbName: string): Promise<IDBDatabase> {
           autoIncrement: true,
         })
         recordsStore.createIndex(BY_DOC_INDEX, "docId", { unique: false })
+      }
+
+      if (!db.objectStoreNames.contains(STORE_META_STORE)) {
+        db.createObjectStore(STORE_META_STORE, { keyPath: "key" })
       }
     }
 
@@ -115,7 +140,62 @@ export class IndexedDBStore implements Store {
    */
   static async open(dbName: string): Promise<IndexedDBStore> {
     const db = await openDatabase(dbName)
-    return new IndexedDBStore(db)
+    const store = new IndexedDBStore(db)
+    try {
+      await store.#assertFormat()
+    } catch (error) {
+      // A refused store must not leak its connection — an open handle would
+      // block `deleteDatabase` and future opens.
+      db.close()
+      throw error
+    }
+    return store
+  }
+
+  // Bootstrap reader: consult the store-format marker before trusting any
+  // bytes. Stamps a brand-new store, accepts a compatible one, or throws.
+  async #assertFormat(): Promise<void> {
+    const readTx = this.#db.transaction(
+      [STORE_META_STORE, DOC_META_STORE],
+      "readonly",
+    )
+    const markerRow = (await req(
+      readTx.objectStore(STORE_META_STORE).get(STORE_META_FORMAT_KEY),
+    )) as { key: string; value: unknown } | undefined
+    const docCount = await req(readTx.objectStore(DOC_META_STORE).count())
+
+    const parsed =
+      markerRow === undefined ? null : parseStoreFormat(markerRow.value)
+    if (parsed === "malformed") {
+      throw new StoreFormatVersionError({
+        reason: "malformed-version",
+        backend: "indexeddb",
+        stored: null,
+        current: STORE_FORMAT_VERSION,
+      })
+    }
+
+    const decision = decideStoreFormat({
+      current: STORE_FORMAT_VERSION,
+      stored: parsed,
+      storeHasData: docCount > 0,
+    })
+
+    if (decision.action === "refuse") {
+      throw new StoreFormatVersionError({
+        reason: decision.reason,
+        backend: "indexeddb",
+        stored: parsed,
+        current: STORE_FORMAT_VERSION,
+      })
+    }
+    if (decision.action === "stamp") {
+      const writeTx = this.#db.transaction(STORE_META_STORE, "readwrite")
+      writeTx
+        .objectStore(STORE_META_STORE)
+        .put({ key: STORE_META_FORMAT_KEY, value: decision.value })
+      await txDone(writeTx)
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -123,8 +203,11 @@ export class IndexedDBStore implements Store {
   // -----------------------------------------------------------------------
 
   async append(docId: DocId, record: StoreRecord): Promise<void> {
-    const tx = this.#db.transaction([META_STORE, RECORDS_STORE], "readwrite")
-    const metaStore = tx.objectStore(META_STORE)
+    const tx = this.#db.transaction(
+      [DOC_META_STORE, RECORDS_STORE],
+      "readwrite",
+    )
+    const metaStore = tx.objectStore(DOC_META_STORE)
     const recordsStore = tx.objectStore(RECORDS_STORE)
 
     const existing = (await req(metaStore.get(docId))) as MetaRow | undefined
@@ -157,8 +240,11 @@ export class IndexedDBStore implements Store {
   }
 
   async replace(docId: DocId, records: StoreRecord[]): Promise<void> {
-    const tx = this.#db.transaction([META_STORE, RECORDS_STORE], "readwrite")
-    const metaStore = tx.objectStore(META_STORE)
+    const tx = this.#db.transaction(
+      [DOC_META_STORE, RECORDS_STORE],
+      "readwrite",
+    )
+    const metaStore = tx.objectStore(DOC_META_STORE)
     const recordsStore = tx.objectStore(RECORDS_STORE)
 
     // Read + validate + delete + write in one transaction — no TOCTOU race.
@@ -180,8 +266,11 @@ export class IndexedDBStore implements Store {
   }
 
   async delete(docId: DocId): Promise<void> {
-    const tx = this.#db.transaction([META_STORE, RECORDS_STORE], "readwrite")
-    const metaStore = tx.objectStore(META_STORE)
+    const tx = this.#db.transaction(
+      [DOC_META_STORE, RECORDS_STORE],
+      "readwrite",
+    )
+    const metaStore = tx.objectStore(DOC_META_STORE)
     const recordsStore = tx.objectStore(RECORDS_STORE)
 
     metaStore.delete(docId)
@@ -196,16 +285,16 @@ export class IndexedDBStore implements Store {
   }
 
   async currentMeta(docId: DocId): Promise<StoreMeta | null> {
-    const tx = this.#db.transaction(META_STORE, "readonly")
-    const row = (await req(tx.objectStore(META_STORE).get(docId))) as
+    const tx = this.#db.transaction(DOC_META_STORE, "readonly")
+    const row = (await req(tx.objectStore(DOC_META_STORE).get(docId))) as
       | MetaRow
       | undefined
     return row ? row.meta : null
   }
 
   async *listDocIds(prefix?: string): AsyncIterable<DocId> {
-    const tx = this.#db.transaction(META_STORE, "readonly")
-    const store = tx.objectStore(META_STORE)
+    const tx = this.#db.transaction(DOC_META_STORE, "readonly")
+    const store = tx.objectStore(DOC_META_STORE)
     const range =
       prefix !== undefined
         ? IDBKeyRange.bound(prefix, `${prefix}\uffff`, false, true)

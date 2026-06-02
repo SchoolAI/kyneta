@@ -4,7 +4,7 @@
 > **Role**: Pure helpers shared by every SQL-family `Store` backend (`@kyneta/sqlite-store`, `@kyneta/postgres-store`, `@kyneta/prisma-store`).
 > **Depends on**: `@kyneta/exchange` (peer), `@kyneta/schema` (peer). Zero runtime dependencies.
 > **Depended on by**: All three SQL-family store packages.
-> **Canonical symbols**: `RowShape`, `EntryPayloadJson`, `toRow`, `fromRow`, `normalizeBlob`, `DEFAULT_TABLES`, `TableNames`, `resolveTables`, `AppendPlan`, `ReplacePlan`, `planAppend`, `planReplace`, `failOnNthCall`.
+> **Canonical symbols**: `RowShape`, `EntryPayloadJson`, `toRow`, `fromRow`, `normalizeBlob`, `DEFAULT_TABLES`, `TableNames`, `resolveTables`, `STORE_FORMAT_VERSION`, `AppendPlan`, `ReplacePlan`, `planAppend`, `planReplace`, `failOnNthCall`.
 > **Key invariant(s)**: Pure code only — no SQL templates, no I/O, no driver knowledge. Every SQL-family backend that consumes `toRow`/`fromRow` produces a byte-identical (kind, payload, blob) triple in its records table; round-trip portability through `loadAll` is preserved across backends.
 
 A driver-agnostic foundation for the SQL-family `Store` implementations. Holds the shared serialization core (`RowShape`, `toRow`, `fromRow`, `normalizeBlob`) and a pair of pure planning functions (`planAppend`, `planReplace`) that each backend executes inside a backend-specific transaction. Also exposes `failOnNthCall` for the conformance suite's fault-injection atomicity test.
@@ -15,9 +15,13 @@ A driver-agnostic foundation for the SQL-family `Store` implementations. Holds t
 - **Not a `Store` implementation.** This package exports zero `Store` classes. Each backend constructs its own.
 - **Not a SQL-template library.** Each backend writes its own SQL — there are no shared `INSERT INTO …` templates here. Drivers differ (SQLite `?` parameters vs Postgres `$1`, `INSERT OR REPLACE` vs `ON CONFLICT … DO UPDATE`); the SQL stays where the dialect is known.
 
+## Tables: `doc_meta`, `records`, `store_meta`
+
+A SQL-family backend owns three tables. `kyneta_doc_meta(doc_id, data)` is the per-document metadata map; `kyneta_records(doc_id, seq, …)` is the unified record stream; `kyneta_store_meta(key, value)` is **store-global** metadata keyed by an opaque `key`, not a `doc_id`. The on-disk format version lives in `store_meta` under `key = "format"` and is read by a bootstrap reader on open (see *Store-format gate*) — never through the `Store` interface. The `doc_meta` vs `store_meta` names disambiguate the two kinds (renamed from the former single `kyneta_meta`).
+
 ## The `(kind, payload, blob)` triple
 
-Every SQL-family backend persists each `StoreRecord` as one row with three columns:
+Every SQL-family backend persists each `StoreRecord` into `records` as one row with three columns:
 
 | Column | Type (SQLite) | Type (Postgres) | Carries |
 |--------|---------------|-----------------|---------|
@@ -32,10 +36,18 @@ The records table is **byte-identical** across backends by construction — both
 ## `DEFAULT_TABLES` and `resolveTables`
 
 ```ts
-const DEFAULT_TABLES = { meta: "kyneta_meta", records: "kyneta_records" }
+const DEFAULT_TABLES = {
+  docMeta: "kyneta_doc_meta",
+  records: "kyneta_records",
+  storeMeta: "kyneta_store_meta",
+}
 ```
 
 The `kyneta_` prefix avoids collisions with application tables and signals the storage role in dump output. Each backend's options shape accepts `tables?: Partial<TableNames>` and resolves it via `resolveTables(opts)` — full or partial overrides are honored.
+
+## Store-format gate
+
+`STORE_FORMAT_VERSION` (`{ major: 1, minor: 0 }`) is the SQL-family on-disk format version, shared by all three backends because they share `RowShape`/`EntryPayloadJson` — bumping it here revs them in lockstep. On open, each backend reads `store_meta.format`, probes whether `doc_meta` holds any rows, and runs `@kyneta/exchange`'s pure `decideStoreFormat`: a brand-new (empty) store is stamped with the current version; a same-major store is accepted (minor differences are backward-compatible); an incompatible major, or an unversioned store that already holds documents, throws `StoreFormatVersionError`. The gate is a compatibility check, **not** a migration engine — no rewrite is performed.
 
 ## Pure planning helpers
 

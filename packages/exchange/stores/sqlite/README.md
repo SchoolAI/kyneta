@@ -120,38 +120,39 @@ Not needed for Cloudflare DO — the platform manages durability.
 
 ```ts
 const store = new SqliteStore(adapter, {
-  tables: { meta: "app_meta", records: "app_records" },
+  tables: { docMeta: "app_doc_meta", records: "app_records", storeMeta: "app_store_meta" },
 })
 ```
 
-Default: `{ meta: "kyneta_meta", records: "kyneta_records" }`. Either or both names may be overridden.
+Default: `{ docMeta: "kyneta_doc_meta", records: "kyneta_records", storeMeta: "kyneta_store_meta" }`. Any subset of names may be overridden.
 
-Use `tables` when co-locating Exchange tables alongside application tables in the same SQLite database (for example, in a Cloudflare Durable Object that also stores application state), or when running multiple isolated Exchange instances in one database with distinct table-name pairs.
+Use `tables` when co-locating Exchange tables alongside application tables in the same SQLite database (for example, in a Cloudflare Durable Object that also stores application state), or when running multiple isolated Exchange instances in one database with distinct table-name sets.
 
 ## Migration from v1.x
 
-`v2.0.0` replaces the `tablePrefix` option with an explicit `tables` pair, and changes the default table names from `meta` / `records` to `kyneta_meta` / `kyneta_records`. There is no compatibility shim.
+The current API uses `tables: { docMeta, records, storeMeta }` (replacing v1.x's `tablePrefix`), defaulting to `kyneta_doc_meta` / `kyneta_records` / `kyneta_store_meta`. There is no compatibility shim.
 
 ```ts
 // v1.x
 new SqliteStore(adapter)                                  // tables: meta, records
 new SqliteStore(adapter, { tablePrefix: "app_" })         // tables: app_meta, app_records
 
-// v2.0
-new SqliteStore(adapter)                                  // tables: kyneta_meta, kyneta_records
+// current
+new SqliteStore(adapter)  // tables: kyneta_doc_meta, kyneta_records, kyneta_store_meta
 new SqliteStore(adapter, {
-  tables: { meta: "app_meta", records: "app_records" },
+  tables: { docMeta: "app_doc_meta", records: "app_records", storeMeta: "app_store_meta" },
 })
 ```
 
-If you have existing data under the v1.x default names (`meta` / `records`), pass `tables: { meta: "meta", records: "records" }` explicitly to keep using them, or rename the tables via `ALTER TABLE`.
+To keep using existing table names, pass them explicitly via the `tables` option, or rename via `ALTER TABLE`.
 
 ## Schema
 
-The store creates two tables on first use:
+The store creates three tables on first use:
 
-- **`tables.meta`** (default `kyneta_meta`) — materialized metadata index. `doc_id TEXT PRIMARY KEY`, `data TEXT NOT NULL` (JSON-encoded `StoreMeta`). `WITHOUT ROWID`.
+- **`tables.docMeta`** (default `kyneta_doc_meta`) — per-document materialized metadata index. `doc_id TEXT PRIMARY KEY`, `data TEXT NOT NULL` (JSON-encoded `StoreMeta`). `WITHOUT ROWID`.
 - **`tables.records`** (default `kyneta_records`) — per-document append-only record stream. Composite primary key `(doc_id, seq)`. Binary `Uint8Array` payloads are stored in a `BLOB` column; string/JSON payloads in a `TEXT` column. `WITHOUT ROWID`.
+- **`tables.storeMeta`** (default `kyneta_store_meta`) — store-global metadata. `key TEXT PRIMARY KEY`, `value TEXT NOT NULL`. Holds the on-disk format version (under `key = "format"`), gated on open. `WITHOUT ROWID`.
 
 ## Store interface
 

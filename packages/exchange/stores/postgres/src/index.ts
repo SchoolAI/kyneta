@@ -11,8 +11,12 @@
 
 import {
   type DocId,
+  decideStoreFormat,
+  parseStoreFormat,
   SeqNoTracker,
+  STORE_META_FORMAT_KEY,
   type Store,
+  StoreFormatVersionError,
   type StoreMeta,
   type StoreRecord,
 } from "@kyneta/exchange"
@@ -22,6 +26,7 @@ import {
   planReplace,
   type RowShape,
   resolveTables,
+  STORE_FORMAT_VERSION,
   type TableNames,
 } from "@kyneta/sql-store-core"
 import type { Client, Pool, PoolClient } from "pg"
@@ -32,10 +37,11 @@ import type { Client, Pool, PoolClient } from "pg"
 
 export interface PostgresStoreOptions {
   /**
-   * Override the default table names (`kyneta_meta` and `kyneta_records`).
+   * Override the default table names (`kyneta_doc_meta`, `kyneta_records`,
+   * `kyneta_store_meta`).
    *
    * Use when running multiple isolated Exchange instances against the
-   * same database — each instance owns one `tables` pair.
+   * same database — each instance owns one `tables` set.
    */
   tables?: Partial<TableNames>
 }
@@ -139,7 +145,7 @@ export class PostgresStore implements Store {
     await this.#withTransaction(async q => {
       if (plan.upsertMeta !== null) {
         await q.query(
-          `INSERT INTO ${this.#tables.meta} (doc_id, data)
+          `INSERT INTO ${this.#tables.docMeta} (doc_id, data)
            VALUES ($1, $2::jsonb)
            ON CONFLICT (doc_id) DO UPDATE SET data = EXCLUDED.data`,
           [docId, plan.upsertMeta.data],
@@ -185,7 +191,7 @@ export class PostgresStore implements Store {
       }
 
       await q.query(
-        `INSERT INTO ${this.#tables.meta} (doc_id, data)
+        `INSERT INTO ${this.#tables.docMeta} (doc_id, data)
          VALUES ($1, $2::jsonb)
          ON CONFLICT (doc_id) DO UPDATE SET data = EXCLUDED.data`,
         [docId, plan.upsertMeta.data],
@@ -204,7 +210,7 @@ export class PostgresStore implements Store {
       await q.query(`DELETE FROM ${this.#tables.records} WHERE doc_id = $1`, [
         docId,
       ])
-      await q.query(`DELETE FROM ${this.#tables.meta} WHERE doc_id = $1`, [
+      await q.query(`DELETE FROM ${this.#tables.docMeta} WHERE doc_id = $1`, [
         docId,
       ])
     })
@@ -213,7 +219,7 @@ export class PostgresStore implements Store {
 
   async currentMeta(docId: DocId): Promise<StoreMeta | null> {
     const result = await this.#q.query<{ data: StoreMeta }>(
-      `SELECT data FROM ${this.#tables.meta} WHERE doc_id = $1`,
+      `SELECT data FROM ${this.#tables.docMeta} WHERE doc_id = $1`,
       [docId],
     )
     return result.rows[0]?.data ?? null
@@ -222,7 +228,7 @@ export class PostgresStore implements Store {
   async *listDocIds(prefix?: string): AsyncIterable<DocId> {
     if (prefix === undefined) {
       const result = await this.#q.query<{ doc_id: string }>(
-        `SELECT doc_id FROM ${this.#tables.meta}`,
+        `SELECT doc_id FROM ${this.#tables.docMeta}`,
       )
       for (const row of result.rows) yield row.doc_id
       return
@@ -234,11 +240,11 @@ export class PostgresStore implements Store {
     const result =
       upper === null
         ? await this.#q.query<{ doc_id: string }>(
-            `SELECT doc_id FROM ${this.#tables.meta} WHERE doc_id >= $1`,
+            `SELECT doc_id FROM ${this.#tables.docMeta} WHERE doc_id >= $1`,
             [prefix],
           )
         : await this.#q.query<{ doc_id: string }>(
-            `SELECT doc_id FROM ${this.#tables.meta}
+            `SELECT doc_id FROM ${this.#tables.docMeta}
              WHERE doc_id >= $1 AND doc_id < $2`,
             [prefix, upper],
           )
@@ -288,8 +294,57 @@ export async function createPostgresStore(
   options: PostgresStoreOptions = {},
 ): Promise<Store> {
   const tables = resolveTables(options)
-  await validateSchema(client as unknown as PgQuerier, tables)
+  const q = client as unknown as PgQuerier
+  await validateSchema(q, tables)
+  await assertFormat(q, tables)
   return new PostgresStore(client, options)
+}
+
+/**
+ * Bootstrap reader: stamp/accept/refuse the store-format marker on open.
+ * Writes at most one idempotent row (`ON CONFLICT DO NOTHING`) — not DDL,
+ * so the "no auto-DDL" invariant holds; the operator still owns the table.
+ */
+async function assertFormat(q: PgQuerier, tables: TableNames): Promise<void> {
+  const markerResult = await q.query<{ value: unknown }>(
+    `SELECT value FROM ${tables.storeMeta} WHERE key = $1`,
+    [STORE_META_FORMAT_KEY],
+  )
+  const raw = markerResult.rows[0]?.value
+  const parsed = raw === undefined ? null : parseStoreFormat(raw)
+  if (parsed === "malformed") {
+    throw new StoreFormatVersionError({
+      reason: "malformed-version",
+      backend: "postgres",
+      stored: null,
+      current: STORE_FORMAT_VERSION,
+    })
+  }
+
+  const dataResult = await q.query(`SELECT 1 FROM ${tables.docMeta} LIMIT 1`)
+
+  const decision = decideStoreFormat({
+    current: STORE_FORMAT_VERSION,
+    stored: parsed,
+    storeHasData: dataResult.rows.length > 0,
+  })
+
+  if (decision.action === "refuse") {
+    throw new StoreFormatVersionError({
+      reason: decision.reason,
+      backend: "postgres",
+      stored: parsed,
+      current: STORE_FORMAT_VERSION,
+    })
+  }
+  if (decision.action === "stamp") {
+    await q.query(
+      `INSERT INTO ${tables.storeMeta} (key, value)
+       VALUES ($1, $2::jsonb)
+       ON CONFLICT (key) DO NOTHING`,
+      [STORE_META_FORMAT_KEY, JSON.stringify(decision.value)],
+    )
+  }
 }
 
 interface ColumnInfo {
@@ -299,7 +354,7 @@ interface ColumnInfo {
 }
 
 const EXPECTED_COLUMNS = {
-  meta: [
+  docMeta: [
     { name: "doc_id", types: ["text"] },
     { name: "data", types: ["jsonb"] },
   ],
@@ -310,12 +365,17 @@ const EXPECTED_COLUMNS = {
     { name: "payload", types: ["text"] },
     { name: "blob", types: ["bytea"] },
   ],
+  storeMeta: [
+    { name: "key", types: ["text"] },
+    { name: "value", types: ["jsonb"] },
+  ],
 } as const
 
 async function validateSchema(q: PgQuerier, tables: TableNames): Promise<void> {
   for (const [role, expected] of [
-    ["meta", EXPECTED_COLUMNS.meta] as const,
+    ["docMeta", EXPECTED_COLUMNS.docMeta] as const,
     ["records", EXPECTED_COLUMNS.records] as const,
+    ["storeMeta", EXPECTED_COLUMNS.storeMeta] as const,
   ]) {
     const tableName = tables[role]
     const result = await q.query<ColumnInfo>(

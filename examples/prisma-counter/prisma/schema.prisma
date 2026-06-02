@@ -13,10 +13,10 @@ generator client {
   provider = "prisma-client-js"
 }
 
-model KynetaMeta {
+model KynetaDocMeta {
   docId String @id @map("doc_id")
   data  Json
-  @@map("kyneta_meta")
+  @@map("kyneta_doc_meta")
 }
 
 model KynetaRecord {
@@ -27,4 +27,10 @@ model KynetaRecord {
   blob    Bytes?
   @@id([docId, seq])
   @@map("kyneta_records")
+}
+
+model KynetaStoreMeta {
+  key   String @id
+  value Json
+  @@map("kyneta_store_meta")
 }

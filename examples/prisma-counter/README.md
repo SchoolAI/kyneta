@@ -7,7 +7,7 @@ Open two browser tabs, click `+`/`−` in either tab — the count updates in re
 ## What This Demonstrates
 
 - **Prisma persistence** — `@kyneta/prisma-store` wired into an Exchange with a `PrismaClient`
-- **Prisma migrations** — `npx prisma migrate dev` creates the `kyneta_meta` / `kyneta_records` tables
+- **Prisma migrations** — `npx prisma migrate dev` creates the `kyneta_doc_meta`, `kyneta_records`, and `kyneta_store_meta` tables
 - **Loro Counter CRDT** — `Schema.counter()` with `loro.bind()` — concurrent increments merge additively
 - **Server restart resilience** — counter value survives process restart (persisted in Postgres)
 - **Multi-tab sync** — WebSocket transport + Exchange synchronizes state across browser tabs
@@ -54,7 +54,7 @@ pnpm run generate
 pnpm run migrate
 ```
 
-This creates the `kyneta_meta` and `kyneta_records` tables in Postgres.
+This creates the `kyneta_doc_meta`, `kyneta_records`, and `kyneta_store_meta` tables in Postgres.
 
 ### 5. Start the dev server
 
@@ -100,7 +100,7 @@ Browser Tab A                    Browser Tab B
 ```
 prisma-counter/
 ├── prisma/
-│   └── schema.prisma    # KynetaMeta + KynetaRecord models, Postgres datasource
+│   └── schema.prisma    # KynetaDocMeta + KynetaRecord + KynetaStoreMeta models, Postgres datasource
 ├── src/
 │   ├── schema.ts        # Schema.struct({ count: Schema.counter() }) + loro.bind
 │   ├── server.ts        # Vite middleware + WebSocket + Exchange + PrismaStore

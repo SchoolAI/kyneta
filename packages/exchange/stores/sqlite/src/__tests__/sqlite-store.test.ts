@@ -3,6 +3,7 @@
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import { StoreFormatVersionError } from "@kyneta/exchange"
 import {
   collectAll,
   describeStore,
@@ -117,10 +118,18 @@ describeStore(
       const adapter = fromBetterSqlite3(db)
       return {
         storeA: new SqliteStore(adapter, {
-          tables: { meta: "a_meta", records: "a_records" },
+          tables: {
+            docMeta: "a_meta",
+            records: "a_records",
+            storeMeta: "a_store_meta",
+          },
         }),
         storeB: new SqliteStore(adapter, {
-          tables: { meta: "b_meta", records: "b_records" },
+          tables: {
+            docMeta: "b_meta",
+            records: "b_records",
+            storeMeta: "b_store_meta",
+          },
         }),
         // Both stores share `adapter`; closing it once tears down both.
         cleanup: async () => {
@@ -237,10 +246,18 @@ describe("SqliteStore — tables isolation", () => {
     const adapter = fromBetterSqlite3(db)
 
     const store1 = new SqliteStore(adapter, {
-      tables: { meta: "app1_meta", records: "app1_records" },
+      tables: {
+        docMeta: "app1_meta",
+        records: "app1_records",
+        storeMeta: "app1_store_meta",
+      },
     })
     const store2 = new SqliteStore(adapter, {
-      tables: { meta: "app2_meta", records: "app2_records" },
+      tables: {
+        docMeta: "app2_meta",
+        records: "app2_records",
+        storeMeta: "app2_store_meta",
+      },
     })
 
     await store1.append("doc-1", makeMetaRecord())
@@ -285,5 +302,55 @@ describe("SqliteStore — listDocIds with LIKE-special characters", () => {
     expect(matched2).toEqual(["100_other"])
 
     await store.close()
+  })
+})
+
+// Capture the error thrown by a (synchronous) store open, for asserting its
+// typed `reason` discriminant — the class alone can't distinguish refusals.
+function captureError(open: () => unknown): unknown {
+  try {
+    open()
+    return undefined
+  } catch (e) {
+    return e
+  }
+}
+
+describe("SqliteStore — store-format gate", () => {
+  it("refuses a store whose stamped major is incompatible", () => {
+    const db = new Database(":memory:")
+    // First open stamps {major:1,minor:0}. Keep the connection open — an
+    // in-memory db's data lives only while the connection is open.
+    new SqliteStore(fromBetterSqlite3(db))
+    // Tamper the marker to a future major.
+    db.prepare(
+      "UPDATE kyneta_store_meta SET value = ? WHERE key = 'format'",
+    ).run(JSON.stringify({ major: 99, minor: 0 }))
+
+    const err = captureError(() => new SqliteStore(fromBetterSqlite3(db)))
+    expect(err).toBeInstanceOf(StoreFormatVersionError)
+    expect((err as StoreFormatVersionError).reason).toBe("incompatible-major")
+    db.close()
+  })
+
+  it("refuses an unversioned store that already holds documents", () => {
+    const db = new Database(":memory:")
+    // Hand-create the doc-meta + records tables (no store_meta marker) and
+    // insert a document row — simulating a foreign / pre-marker store.
+    db.exec(`
+      CREATE TABLE kyneta_doc_meta (doc_id TEXT PRIMARY KEY, data TEXT NOT NULL) WITHOUT ROWID;
+      CREATE TABLE kyneta_records (
+        doc_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL,
+        payload TEXT, blob BLOB, PRIMARY KEY (doc_id, seq)
+      ) WITHOUT ROWID;
+      INSERT INTO kyneta_doc_meta (doc_id, data) VALUES ('doc-1', '{}');
+    `)
+
+    const err = captureError(() => new SqliteStore(fromBetterSqlite3(db)))
+    expect(err).toBeInstanceOf(StoreFormatVersionError)
+    expect((err as StoreFormatVersionError).reason).toBe(
+      "unversioned-existing-data",
+    )
+    db.close()
   })
 })

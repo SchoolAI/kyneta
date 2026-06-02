@@ -8,7 +8,7 @@
 -- Default table names. To use different names, override via the
 -- `tables` option and replace the names below to match.
 
-CREATE TABLE IF NOT EXISTS kyneta_meta (
+CREATE TABLE IF NOT EXISTS kyneta_doc_meta (
   doc_id TEXT  PRIMARY KEY,
   data   JSONB NOT NULL
 );
@@ -20,4 +20,12 @@ CREATE TABLE IF NOT EXISTS kyneta_records (
   payload TEXT,
   blob    BYTEA,
   PRIMARY KEY (doc_id, seq)
+);
+
+-- Store-global metadata (keyed by an opaque `key`, not a doc_id). Holds the
+-- on-disk format version under key 'format'; the store factory stamps and
+-- gates it on open. Distinct from kyneta_doc_meta (per-document metadata).
+CREATE TABLE IF NOT EXISTS kyneta_store_meta (
+  key   TEXT  PRIMARY KEY,
+  value JSONB NOT NULL
 );

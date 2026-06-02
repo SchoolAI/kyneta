@@ -27,13 +27,15 @@ Recommended entry point is the async `createPostgresStore(client, options)` fact
 
 ## Schema validation flow
 
-`createPostgresStore` queries `information_schema.columns` for both tables (`meta` and `records`) and asserts:
+`createPostgresStore` queries `information_schema.columns` for all three tables (`doc_meta`, `records`, `store_meta`) and asserts:
 
-- Both tables exist.
+- All three tables exist.
 - Each expected column is present with a compatible `data_type` (Postgres types: `text`, `jsonb`, `integer`, `bytea`).
 - A curated error names the missing table or column on failure.
 
-Validation does **not** auto-DDL. Postgres convention is migrations-as-deployment-step; the `schema.sql` file ships canonical DDL for callers to include in their migration pipeline.
+Validation does **not** auto-DDL. Postgres convention is migrations-as-deployment-step; the `schema.sql` file ships canonical DDL for callers to include in their migration pipeline. (The per-document table was renamed `kyneta_meta` → `kyneta_doc_meta`, and `kyneta_store_meta` was added — adopting both in an existing deployment is an explicit migration.)
+
+After validation, the factory runs the **store-format gate**: it reads `store_meta.format`, probes whether `doc_meta` holds any rows, and via `decideStoreFormat` either stamps a brand-new store (`INSERT … ON CONFLICT DO NOTHING` — one idempotent row, *not* DDL, so the no-auto-DDL invariant holds), accepts a compatible major, or throws `StoreFormatVersionError` (incompatible major, or unversioned data already present). No migration is performed.
 
 ### Runtime drift
 

@@ -18,7 +18,7 @@ import { createLevelDBStore } from "@kyneta/leveldb-store/server"
 
 const exchange = new Exchange({
   identity: { peerId: "my-server", name: "server" },
-  stores: [createLevelDBStore("./data/exchange-db")],
+  stores: [await createLevelDBStore("./data/exchange-db")],
   transports: [networkTransport],
 })
 
@@ -32,27 +32,31 @@ That's it. The Exchange handles hydration (loading from storage on `get()` / `re
 
 ### `createLevelDBStore(dbPath)`
 
-Factory function that returns a `Store`. The `dbPath` is the directory where LevelDB stores its files.
+Async factory that opens the database, runs the store-format gate (see below), and resolves to a `Store`. The `dbPath` is the directory where LevelDB stores its files. `await` it before passing to the `Exchange`.
 
 ```ts
 import { createLevelDBStore } from "@kyneta/leveldb-store/server"
 
-const store = createLevelDBStore("./data/exchange-db")
+const store = await createLevelDBStore("./data/exchange-db")
 ```
 
 ### `LevelDBStore`
 
-The class implementing the `Store` interface. Use `createLevelDBStore` for most cases; use the class directly if you need access to `close()` outside of the Exchange lifecycle.
+The class implementing the `Store` interface. Use `createLevelDBStore` (or `LevelDBStore.open(dbPath)`) for most cases — both are async and run the store-format gate. The bare `new LevelDBStore(dbPath)` constructor opens the database **without** the gate and is for advanced use only.
 
 ```ts
 import { LevelDBStore } from "@kyneta/leveldb-store/server"
 
-const store = new LevelDBStore("./data/exchange-db")
+const store = await LevelDBStore.open("./data/exchange-db")
 
 // ... use with Exchange ...
 
 await store.close() // release file handles
 ```
+
+### Store-format gate
+
+On open, the store stamps a `{ major, minor }` format version into a `store-meta\x00` key namespace (separate from the per-doc `doc-meta\x00` keys), and on subsequent opens refuses — with `StoreFormatVersionError` — a store whose stamped major is incompatible with the running build, or an unversioned store that already holds documents. No automatic migration is performed.
 
 ### Binary Codec
 

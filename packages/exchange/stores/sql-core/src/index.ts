@@ -9,6 +9,7 @@
 
 import {
   resolveMetaFromBatch,
+  type StoreFormatVersion,
   type StoreMeta,
   type StoreRecord,
   validateAppend,
@@ -122,25 +123,50 @@ export function fromRow(row: RowShape): StoreRecord {
  * The `kyneta_` prefix is chosen so these tables don't collide with
  * application tables in shared databases, and so the storage role is
  * obvious in `pg_dump` / `.dump` output.
+ *
+ * `docMeta` is the per-document metadata map (keyed by `doc_id`). `storeMeta`
+ * is store-global metadata keyed by an opaque `key` (the on-disk format
+ * version lives here, under `STORE_META_FORMAT_KEY`); it is read by a
+ * bootstrap reader on open, never through the `Store` interface. The two are
+ * named distinctly (`doc_meta` vs `store_meta`) because they are different
+ * kinds of metadata. Context: jj:uvssotsy.
  */
 export const DEFAULT_TABLES = {
-  meta: "kyneta_meta",
+  docMeta: "kyneta_doc_meta",
   records: "kyneta_records",
+  storeMeta: "kyneta_store_meta",
 } as const satisfies TableNames
 
 export interface TableNames {
-  readonly meta: string
+  readonly docMeta: string
   readonly records: string
+  readonly storeMeta: string
 }
 
 export function resolveTables(opts?: {
   tables?: Partial<TableNames>
 }): TableNames {
   return {
-    meta: opts?.tables?.meta ?? DEFAULT_TABLES.meta,
+    docMeta: opts?.tables?.docMeta ?? DEFAULT_TABLES.docMeta,
     records: opts?.tables?.records ?? DEFAULT_TABLES.records,
+    storeMeta: opts?.tables?.storeMeta ?? DEFAULT_TABLES.storeMeta,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Store-format version — the SQL-family on-disk format revision
+// ---------------------------------------------------------------------------
+
+/**
+ * The on-disk format version shared by every SQL-family backend. Because all
+ * three (`sqlite`, `postgres`, `prisma`) serialize through the same
+ * `RowShape`/`EntryPayloadJson`, this is the single place that revs them in
+ * lockstep: bump it here when the SQL serialization changes incompatibly.
+ *
+ * Gated on open via `@kyneta/exchange`'s `decideStoreFormat` (major mismatch
+ * is refused; minor skew is backward-compatible). See `store-format.ts`.
+ */
+export const STORE_FORMAT_VERSION: StoreFormatVersion = { major: 1, minor: 0 }
 
 // ---------------------------------------------------------------------------
 // Pure planning helpers — gather/plan/execute split

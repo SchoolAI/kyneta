@@ -22,7 +22,7 @@ export function openPgPool(): Pool {
 
 /** Canonical schema DDL — idempotent. */
 export const POSTGRES_SCHEMA_DDL = `
-  CREATE TABLE IF NOT EXISTS kyneta_meta (
+  CREATE TABLE IF NOT EXISTS kyneta_doc_meta (
     doc_id TEXT  PRIMARY KEY,
     data   JSONB NOT NULL
   );
@@ -34,9 +34,13 @@ export const POSTGRES_SCHEMA_DDL = `
     blob    BYTEA,
     PRIMARY KEY (doc_id, seq)
   );
+  CREATE TABLE IF NOT EXISTS kyneta_store_meta (
+    key   TEXT  PRIMARY KEY,
+    value JSONB NOT NULL
+  );
 `
 
 /** Wipe the canonical tables. Useful for per-test isolation. */
 export async function truncateAll(pool: Pool): Promise<void> {
-  await pool.query(`TRUNCATE kyneta_records, kyneta_meta`)
+  await pool.query(`TRUNCATE kyneta_records, kyneta_doc_meta, kyneta_store_meta`)
 }

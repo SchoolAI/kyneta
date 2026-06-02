@@ -16,8 +16,13 @@ import {
   makeMetaRecord,
   plainMeta,
 } from "@kyneta/exchange/testing"
+import { ClassicLevel } from "classic-level"
 import { afterAll, describe, expect, it } from "vitest"
-import { decodeStoreRecord, encodeStoreRecord, LevelDBStore } from "../index.js"
+import {
+  createLevelDBStore,
+  decodeStoreRecord,
+  encodeStoreRecord,
+} from "../index.js"
 
 // ---------------------------------------------------------------------------
 // Temp directory management
@@ -45,7 +50,7 @@ afterAll(() => {
 // Conformance suite — validates the full Store contract
 // ---------------------------------------------------------------------------
 
-describeStore("LevelDBStore", () => new LevelDBStore(makeTmpDir()), {
+describeStore("LevelDBStore", () => createLevelDBStore(makeTmpDir()), {
   cleanup: async backend => {
     await backend.close()
   },
@@ -60,14 +65,14 @@ describe("LevelDBStore — close + reopen", () => {
     const dir = makeTmpDir()
 
     // Phase 1: write data then close
-    const backend1 = new LevelDBStore(dir)
+    const backend1 = await createLevelDBStore(dir)
     await backend1.append("doc-1", makeMetaRecord())
     await backend1.append("doc-1", makeEntryRecord("entirety", "v1"))
     await backend1.append("doc-1", makeEntryRecord("since", "v2"))
     await backend1.close()
 
     // Phase 2: reopen and verify
-    const backend2 = new LevelDBStore(dir)
+    const backend2 = await createLevelDBStore(dir)
     expect(await backend2.currentMeta("doc-1")).toEqual(plainMeta)
 
     const records = await collectAll(backend2.loadAll("doc-1"))
@@ -87,14 +92,14 @@ describe("LevelDBStore — close + reopen", () => {
   it("append after reopen continues with correct seqNo ordering", async () => {
     const dir = makeTmpDir()
 
-    const backend1 = new LevelDBStore(dir)
+    const backend1 = await createLevelDBStore(dir)
     await backend1.append("doc-1", makeMetaRecord())
     await backend1.append("doc-1", makeEntryRecord("entirety", "v1"))
     await backend1.append("doc-1", makeEntryRecord("since", "v2"))
     await backend1.close()
 
     // Reopen and append more
-    const backend2 = new LevelDBStore(dir)
+    const backend2 = await createLevelDBStore(dir)
     await backend2.append("doc-1", makeEntryRecord("since", "v3"))
 
     const records = await collectAll(backend2.loadAll("doc-1"))
@@ -115,7 +120,7 @@ describe("LevelDBStore — close + reopen", () => {
   it("replace then reopen preserves the replacement records", async () => {
     const dir = makeTmpDir()
 
-    const backend1 = new LevelDBStore(dir)
+    const backend1 = await createLevelDBStore(dir)
     await backend1.append("doc-1", makeMetaRecord())
     await backend1.append("doc-1", makeEntryRecord("since", "v1"))
     await backend1.append("doc-1", makeEntryRecord("since", "v2"))
@@ -125,7 +130,7 @@ describe("LevelDBStore — close + reopen", () => {
     ])
     await backend1.close()
 
-    const backend2 = new LevelDBStore(dir)
+    const backend2 = await createLevelDBStore(dir)
     const records = await collectAll(backend2.loadAll("doc-1"))
     expect(records).toHaveLength(2)
     expect(records[0]?.kind).toBe("meta")
@@ -139,16 +144,51 @@ describe("LevelDBStore — close + reopen", () => {
   it("listDocIds works after reopen", async () => {
     const dir = makeTmpDir()
 
-    const backend1 = new LevelDBStore(dir)
+    const backend1 = await createLevelDBStore(dir)
     await backend1.append("alpha", makeMetaRecord())
     await backend1.append("beta", makeMetaRecord())
     await backend1.append("gamma", makeMetaRecord())
     await backend1.close()
 
-    const backend2 = new LevelDBStore(dir)
+    const backend2 = await createLevelDBStore(dir)
     const docIds = await collectAll(backend2.listDocIds())
     expect(docIds.sort()).toEqual(["alpha", "beta", "gamma"])
     await backend2.close()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Store-format gate
+// ---------------------------------------------------------------------------
+
+describe("LevelDBStore — store-format gate", () => {
+  it("refuses an incompatible major and releases the lock so the dir reopens", async () => {
+    const dir = makeTmpDir()
+
+    // First open stamps {major:1,minor:0}; then corrupt it to a future major.
+    const backend1 = await createLevelDBStore(dir)
+    await backend1.append("doc-1", makeMetaRecord())
+    await backend1.close()
+
+    const raw = new ClassicLevel<string, Uint8Array>(dir, {
+      valueEncoding: "binary",
+    })
+    await raw.put(
+      "store-meta\x00format",
+      new TextEncoder().encode(JSON.stringify({ major: 99, minor: 0 })),
+    )
+    await raw.close()
+
+    // Open twice. Each must refuse *through the gate* with the major-mismatch
+    // reason. A refused open that leaked its handle would hold the LevelDB
+    // lock, so the second open would reject with a lock error — which has no
+    // `reason` and would fail this match.
+    const refusal = {
+      name: "StoreFormatVersionError",
+      reason: "incompatible-major",
+    }
+    await expect(createLevelDBStore(dir)).rejects.toMatchObject(refusal)
+    await expect(createLevelDBStore(dir)).rejects.toMatchObject(refusal)
   })
 })
 

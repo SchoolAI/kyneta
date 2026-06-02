@@ -48,14 +48,14 @@ The entire package is one class plus one factory plus a pair of pure envelope fu
 |-----------|------|
 | `LevelDBStore` | Implements `Store`. Owns one `ClassicLevel` handle and an in-memory `Map<DocId, number>` seqNo cache. |
 | `encodeStoreRecord` / `decodeStoreRecord` | Pure functions: `StoreRecord ↔ Uint8Array`. No LevelDB imports. Independently testable. |
-| `createLevelDBStore(dbPath)` | Factory — `new LevelDBStore(dbPath)` behind a plain function signature. |
+| `createLevelDBStore(dbPath)` | **Async** factory (`LevelDBStore.open`) — opens the DB and runs the store-format gate, resolving to a `Store`. The bare `new LevelDBStore(dbPath)` constructor skips the gate (advanced use). |
 
 ### What `LevelDBStore` is NOT
 
 - **Not a reactive store.** There is no subscribe, no changefeed. The exchange wires its own reactive layer above the store.
 - **Not a query engine.** The only lookup primitive is "give me everything for this doc" (`loadAll`) or "give me the metadata for this doc" (`currentMeta`). No predicates, no secondary indexes.
 - **Not thread-safe across processes.** LevelDB is single-process. Two processes opening the same `dbPath` will conflict; the exchange assumes one-writer semantics.
-- **Not a migration engine.** Schema migrations happen at the `@kyneta/schema` layer. This store just persists whatever payload bytes the substrate produced.
+- **Not a migration engine.** Schema migrations happen at the `@kyneta/schema` layer. The store-format gate (below) is a *compatibility check*, not a migration: on open it stamps/accepts/refuses, but never rewrites. This store just persists whatever payload bytes the substrate produced.
 
 ### What "`Store`" means here (and does NOT mean)
 
@@ -88,9 +88,12 @@ Every method is `async`. All writes go through LevelDB's single-writer guarantee
 Source: `packages/exchange/stores/leveldb/src/index.ts` → `META_PREFIX`, `RECORD_PREFIX`, `metaKey`, `recordKey`.
 
 ```
-meta\x00{docId}                        → StoreMeta (JSON-encoded, materialized index)
+doc-meta\x00{docId}                    → StoreMeta (JSON-encoded, materialized index)
 record\x00{docId}\x00{seqNo-padded}   → StoreRecord (binary envelope v2)
+store-meta\x00{key}                    → store-global metadata (e.g. format version)
 ```
+
+The three namespaces sort `doc-meta` < `record` < `store-meta` (`d` < `r` < `s`), so `store-meta\x00…` lies outside every `doc-meta`/`record` iteration range and needs no filtering. `store-meta` holds store-global facts keyed by an opaque `key` (the on-disk format version under `key = "format"`), read by a bootstrap reader on open — never through the `Store` interface. (The per-doc namespace was renamed `meta\x00` → `doc-meta\x00` to disambiguate from `store-meta\x00`.)
 
 Two observations drove this layout:
 
@@ -228,7 +231,11 @@ Bit 2 exists independently of bit 1 because `encoding: "binary"` describes the *
 
 ### What the envelope is NOT
 
-- **Not unversioned.** Bit 7 (future-format flag) provides a forward-compatibility escape hatch. A future format can set bit 7 and use a different layout; current decoders will reject it with a clear error instead of silently misinterpreting.
+- **Not unversioned.** Bit 7 (future-format flag) provides a forward-compatibility escape hatch. A future format can set bit 7 and use a different layout; current decoders will reject it with a clear error instead of silently misinterpreting. This is a *per-record* guard, distinct from the *store-level* format marker (see *Store-format gate*): bit 7 guards decoding a single record; the marker guards opening the store at all.
+
+## Store-format gate
+
+`STORE_FORMAT_VERSION` (`{ major: 1, minor: 0 }`) is LevelDB's own on-disk format version, stored at `store-meta\x00format`. `createLevelDBStore` / `LevelDBStore.open` reads it, probes whether any `doc-meta\x00` key exists, and runs `@kyneta/exchange`'s pure `decideStoreFormat`: a brand-new (empty) store is stamped; a same-major store is accepted (minor differences are backward-compatible); an incompatible major, or an unversioned store that already holds documents, throws `StoreFormatVersionError` (and the file handle is released so the refusal does not leak a lock). No migration is performed.
 - **Not CBOR or Protobuf.** Those tools solve structured, extensible, self-describing encoding. This envelope solves only "one known discriminated-union record type, packed as tightly as possible." The scope is why the code is ~80 lines.
 - **Not exposed to the exchange.** The exchange sees `StoreRecord`; the envelope is this package's internal representation.
 

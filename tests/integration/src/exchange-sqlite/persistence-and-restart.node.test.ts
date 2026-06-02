@@ -85,7 +85,7 @@ function inspectDb(
   const db = new Database(filePath, { readonly: true })
   try {
     const metaRow = db
-      .prepare(`SELECT data FROM kyneta_meta WHERE doc_id = ?`)
+      .prepare(`SELECT data FROM kyneta_doc_meta WHERE doc_id = ?`)
       .get(docId) as { data: string } | undefined
     const metaSchemaHash =
       metaRow !== undefined

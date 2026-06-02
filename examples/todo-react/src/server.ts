@@ -44,7 +44,7 @@ const exchange = new Exchange({
   transports: [() => serverTransport],
 
   /** Uncomment to add local storage persistence via LevelDB */
-  // stores: [createLevelDBStore("./todo.db")],
+  // stores: [await createLevelDBStore("./todo.db")],
 })
 
 // Register the todo document. The server holds the authoritative copy.

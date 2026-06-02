@@ -12,6 +12,20 @@ export type { Store, StoreMeta, StoreRecord } from "./store.js"
 export { resolveMetaFromBatch, validateAppend } from "./store.js"
 
 // ---------------------------------------------------------------------------
+// Store-format gate — store-level on-disk format compatibility
+// ---------------------------------------------------------------------------
+
+export {
+  decideStoreFormat,
+  parseStoreFormat,
+  STORE_META_FORMAT_KEY,
+  type StoreFormatDecision,
+  type StoreFormatRefusal,
+  type StoreFormatVersion,
+  StoreFormatVersionError,
+} from "./store-format.js"
+
+// ---------------------------------------------------------------------------
 // SeqNoTracker — shared per-document sequence number management
 // ---------------------------------------------------------------------------
 

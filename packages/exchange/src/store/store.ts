@@ -63,6 +63,24 @@ export type StoreRecord =
     }
 
 // ---------------------------------------------------------------------------
+// Two kinds of metadata: per-document vs per-store
+// ---------------------------------------------------------------------------
+//
+// `StoreMeta` above is *per-document* metadata — a map keyed by `docId`,
+// reached through `append`/`currentMeta`/`listDocIds`. Backends persist it in
+// a "doc_meta" namespace (a `kyneta_doc_meta` table, a `doc-meta\x00` key
+// prefix, a `doc_meta` object store).
+//
+// Separately, a backend holds *store-global* metadata — facts about the store
+// as a whole, with no `docId`. The first such fact is the on-disk format
+// version (see `./store-format.ts`). It lives in a distinct "store_meta"
+// namespace, physically separate from the per-doc map, and is read by a
+// bootstrap reader on open — *before* the per-doc contract is trusted. It is
+// not a document and never transits this interface. Keeping the two kinds in
+// separate, self-describing namespaces (doc_meta vs store_meta) is why a
+// store-global fact is never addressed by a `docId`. Context: jj:uvssotsy.
+
+// ---------------------------------------------------------------------------
 // Store — the persistence interface
 // ---------------------------------------------------------------------------
 
@@ -213,9 +231,7 @@ export function resolveMetaFromBatch(
             `existing [${existingMeta.replicaType}] vs incoming [${incoming.replicaType}]`,
         )
       }
-      if (
-        !syncModesEqual(incoming.syncMode, existingMeta.syncMode)
-      ) {
+      if (!syncModesEqual(incoming.syncMode, existingMeta.syncMode)) {
         throw new Error(
           `Store: syncMode mismatch for document — ` +
             `existing ${JSON.stringify(existingMeta.syncMode)} vs ` +

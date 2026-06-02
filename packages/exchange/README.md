@@ -165,7 +165,7 @@ doc.theme()  // same API, now backed by a CRDT
 const exchange = new Exchange({
   id: "server",
   transports: [serverTransport],
-  stores: [createLevelDBStore("./data/exchange-db")],  // ← new
+  stores: [await createLevelDBStore("./data/exchange-db")],  // ← new
 })
 // Documents auto-hydrate on restart, auto-persist on mutation
 ```
@@ -433,13 +433,15 @@ import { createLevelDBStore } from "@kyneta/leveldb-store/server"
 
 const exchange = new Exchange({
   id: "server",
-  stores: [createLevelDBStore("./data/exchange-db")],
+  stores: [await createLevelDBStore("./data/exchange-db")],
   transports: [networkTransport],
 })
 
 const doc = exchange.get("my-doc", TodoDoc)
 // Mutations are automatically persisted. On restart, documents hydrate from storage.
 ```
+
+**Store format gate.** On open, every persistent backend stamps a `{ major, minor }` on-disk format version into a dedicated store-metadata namespace (a `kyneta_store_meta` table, an IndexedDB `store_meta` object store, or a `store-meta\x00` key prefix — separate from the per-document `doc_meta` namespace). On a later open it refuses — throwing `StoreFormatVersionError` — a store whose stamped major is incompatible with the running build, or an unversioned store that already holds documents. The gate is a compatibility check only; it performs no automatic migration.
 
 For testing, use `createInMemoryStore()` with shared state to simulate persist → restart → hydrate flows:
 

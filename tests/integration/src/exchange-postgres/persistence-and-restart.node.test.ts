@@ -108,7 +108,7 @@ describeIfEnabled(
       for (const pool of [serverPool, clientPool]) {
         const metaResult = await pool.query<{
           data: { schemaHash: string }
-        }>(`SELECT data FROM kyneta_meta WHERE doc_id = $1`, ["doc-1"])
+        }>(`SELECT data FROM kyneta_doc_meta WHERE doc_id = $1`, ["doc-1"])
         expect(metaResult.rows).toHaveLength(1)
         expect(metaResult.rows[0]?.data.schemaHash).toBe(YjsDoc.schemaHash)
 
@@ -263,14 +263,14 @@ describeIfEnabled(
       })
       await exchange.flush()
 
-      // Transcribe rows: kyneta_meta + kyneta_records → Postgres.
+      // Transcribe rows: kyneta_doc_meta + kyneta_records → Postgres.
       await truncateAll(serverPool)
       const metaRows = db
-        .prepare(`SELECT doc_id, data FROM kyneta_meta`)
+        .prepare(`SELECT doc_id, data FROM kyneta_doc_meta`)
         .all() as Array<{ doc_id: string; data: string }>
       for (const row of metaRows) {
         await serverPool.query(
-          `INSERT INTO kyneta_meta (doc_id, data) VALUES ($1, $2::jsonb)`,
+          `INSERT INTO kyneta_doc_meta (doc_id, data) VALUES ($1, $2::jsonb)`,
           [row.doc_id, row.data],
         )
       }

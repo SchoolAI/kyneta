@@ -49,7 +49,7 @@ const store = new PostgresStore(pool)
 Run [`schema.sql`](./schema.sql) once before constructing the store, or include the canonical DDL as a step in your migration pipeline. The store does not auto-DDL — Postgres convention is migrations-as-deployment-step.
 
 ```sql
-CREATE TABLE IF NOT EXISTS kyneta_meta (
+CREATE TABLE IF NOT EXISTS kyneta_doc_meta (
   doc_id TEXT  PRIMARY KEY,
   data   JSONB NOT NULL
 );
@@ -61,9 +61,17 @@ CREATE TABLE IF NOT EXISTS kyneta_records (
   blob    BYTEA,
   PRIMARY KEY (doc_id, seq)
 );
+-- Store-global metadata (e.g. the on-disk format version). Distinct from
+-- the per-document kyneta_doc_meta.
+CREATE TABLE IF NOT EXISTS kyneta_store_meta (
+  key   TEXT  PRIMARY KEY,
+  value JSONB NOT NULL
+);
 ```
 
-JSONB on `meta.data` enables operator queryability for admin tooling (`data->>'syncMode'`, `data->>'replicaType'`). Round-trip through `loadAll` is structurally portable with `@kyneta/sqlite-store` (both consume `toRow`/`fromRow` from `@kyneta/sql-store-core`); JSONB normalizes whitespace and key order, so a byte-level dump comparison would diverge.
+`createPostgresStore` validates all three tables exist and runs the **store-format gate** on open: it stamps a `{ major, minor }` version into `kyneta_store_meta` (a one-row idempotent write — not DDL) and, on a later open, throws `StoreFormatVersionError` for an incompatible major or an unversioned store that already holds documents. No automatic migration is performed. Adding `kyneta_store_meta` (and the `kyneta_meta` → `kyneta_doc_meta` rename) to an existing deployment is an explicit migration step.
+
+JSONB on `doc_meta.data` enables operator queryability for admin tooling (`data->>'syncMode'`, `data->>'replicaType'`). Round-trip through `loadAll` is structurally portable with `@kyneta/sqlite-store` (both consume `toRow`/`fromRow` from `@kyneta/sql-store-core`); JSONB normalizes whitespace and key order, so a byte-level dump comparison would diverge.
 
 ## Options
 
@@ -71,11 +79,11 @@ JSONB on `meta.data` enables operator queryability for admin tooling (`data->>'s
 
 ```ts
 const store = await createPostgresStore(pool, {
-  tables: { meta: "app_meta", records: "app_records" },
+  tables: { docMeta: "app_doc_meta", records: "app_records", storeMeta: "app_store_meta" },
 })
 ```
 
-Default: `{ meta: "kyneta_meta", records: "kyneta_records" }`. Use to run multiple isolated Exchange instances against the same database — each owns one `tables` pair.
+Default: `{ docMeta: "kyneta_doc_meta", records: "kyneta_records", storeMeta: "kyneta_store_meta" }`. Use to run multiple isolated Exchange instances against the same database — each owns one `tables` set.
 
 `listDocIds(prefix)` uses a range scan (`doc_id >= prefix AND doc_id < successor(prefix)`), not `LIKE`. Doc IDs containing `%` and `_` are matched literally.
 

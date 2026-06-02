@@ -118,30 +118,36 @@ describe("resolveTables", () => {
     expect(resolveTables({ tables: {} })).toEqual(DEFAULT_TABLES)
   })
 
-  it("applies a partial override (meta only)", () => {
-    expect(resolveTables({ tables: { meta: "alt_meta" } })).toEqual({
-      meta: "alt_meta",
+  it("applies a partial override (docMeta only)", () => {
+    expect(resolveTables({ tables: { docMeta: "alt_meta" } })).toEqual({
+      docMeta: "alt_meta",
       records: DEFAULT_TABLES.records,
+      storeMeta: DEFAULT_TABLES.storeMeta,
     })
   })
 
   it("applies a partial override (records only)", () => {
     expect(resolveTables({ tables: { records: "alt_records" } })).toEqual({
-      meta: DEFAULT_TABLES.meta,
+      docMeta: DEFAULT_TABLES.docMeta,
       records: "alt_records",
+      storeMeta: DEFAULT_TABLES.storeMeta,
     })
   })
 
   it("applies a full override", () => {
-    expect(resolveTables({ tables: { meta: "m", records: "r" } })).toEqual({
-      meta: "m",
+    expect(
+      resolveTables({ tables: { docMeta: "m", records: "r", storeMeta: "s" } }),
+    ).toEqual({
+      docMeta: "m",
       records: "r",
+      storeMeta: "s",
     })
   })
 
-  it("default tables are kyneta_meta and kyneta_records", () => {
-    expect(DEFAULT_TABLES.meta).toBe("kyneta_meta")
+  it("default tables are kyneta_doc_meta, kyneta_records, kyneta_store_meta", () => {
+    expect(DEFAULT_TABLES.docMeta).toBe("kyneta_doc_meta")
     expect(DEFAULT_TABLES.records).toBe("kyneta_records")
+    expect(DEFAULT_TABLES.storeMeta).toBe("kyneta_store_meta")
   })
 })
 

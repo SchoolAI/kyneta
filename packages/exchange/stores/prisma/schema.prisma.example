@@ -1,18 +1,20 @@
 // @kyneta/prisma-store — canonical Prisma schema fragment.
 //
 // Copy these models into your existing schema.prisma. The model
-// accessors (e.g. `prisma.kynetaMeta`, `prisma.kynetaRecord`) are
-// what you pass into the PrismaStore constructor.
+// accessors (e.g. `prisma.kynetaDocMeta`, `prisma.kynetaRecord`,
+// `prisma.kynetaStoreMeta`) are what you pass into the PrismaStore
+// constructor.
 //
-// Both models work on Postgres (Json → JSONB, Bytes → BYTEA),
+// All models work on Postgres (Json → JSONB, Bytes → BYTEA),
 // SQLite (Json → TEXT, Bytes → BLOB), and MySQL (Json → JSON,
 // Bytes → LONGBLOB). Round-trip through `loadAll` is portable across
 // these targets.
 
-model KynetaMeta {
+// Per-document metadata, keyed by doc_id.
+model KynetaDocMeta {
   docId String @id @map("doc_id")
   data  Json
-  @@map("kyneta_meta")
+  @@map("kyneta_doc_meta")
 }
 
 model KynetaRecord {
@@ -23,4 +25,12 @@ model KynetaRecord {
   blob    Bytes?
   @@id([docId, seq])
   @@map("kyneta_records")
+}
+
+// Store-global metadata, keyed by an opaque key (not a doc_id). Holds the
+// on-disk format version under key 'format'; stamped and gated on open.
+model KynetaStoreMeta {
+  key   String @id
+  value Json
+  @@map("kyneta_store_meta")
 }

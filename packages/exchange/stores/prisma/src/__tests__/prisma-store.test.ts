@@ -7,8 +7,8 @@
 // integration tests in tests/integration. Here we only verify:
 //
 // 1. PrismaStore accepts a structurally-typed accessor object.
-// 2. The model names default to `kynetaMeta` / `kynetaRecord`,
-//    overridable via options.
+// 2. The model names default to `kynetaDocMeta` / `kynetaRecord` /
+//    `kynetaStoreMeta`, overridable via options.
 // 3. Append, currentMeta, loadAll, listDocIds, delete, replace each
 //    call the expected mock methods with the expected args.
 //
@@ -19,7 +19,7 @@
 import type { StoreMeta } from "@kyneta/exchange"
 import { SYNC_AUTHORITATIVE } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
-import { PrismaStore } from "../index.js"
+import { createPrismaStore, PrismaStore } from "../index.js"
 
 const baseMeta: StoreMeta = {
   replicaType: ["plain", 1, 0] as const,
@@ -29,6 +29,7 @@ const baseMeta: StoreMeta = {
 
 interface MockState {
   metas: Map<string, unknown>
+  storeMetas: Map<string, unknown>
   records: Array<{
     docId: string
     seq: number
@@ -79,6 +80,25 @@ function makeMockClient(state: MockState): unknown {
       state.metas.delete(args.where.docId)
       return null
     },
+    async count() {
+      return state.metas.size
+    },
+  }
+
+  const storeMetaModel = {
+    async findUnique(args: { where: { key: string } }) {
+      const value = state.storeMetas.get(args.where.key)
+      if (value === undefined) return null
+      return { key: args.where.key, value }
+    },
+    async upsert(args: {
+      where: { key: string }
+      create: { key: string; value: unknown }
+      update: { value: unknown }
+    }) {
+      state.storeMetas.set(args.where.key, args.update.value)
+      return { key: args.where.key, value: args.update.value }
+    },
   }
 
   const recordModel = {
@@ -120,8 +140,9 @@ function makeMockClient(state: MockState): unknown {
   // those wrappings inside the transaction too, mirroring real Prisma's
   // behavior where `tx` exposes the same model accessors as the client.
   const client: Record<string, unknown> = {
-    kynetaMeta: metaModel,
+    kynetaDocMeta: metaModel,
     kynetaRecord: recordModel,
+    kynetaStoreMeta: storeMetaModel,
   }
   client.$transaction = async <R>(
     fn: (tx: unknown) => Promise<R>,
@@ -144,7 +165,7 @@ function makeMockClient(state: MockState): unknown {
 }
 
 function freshState(): MockState {
-  return { metas: new Map(), records: [], txCalls: 0 }
+  return { metas: new Map(), storeMetas: new Map(), records: [], txCalls: 0 }
 }
 
 describe("PrismaStore — structural mock", () => {
@@ -250,7 +271,7 @@ describe("PrismaStore — structural mock", () => {
     // visible both at the top level and inside transactions.
     const base = makeMockClient(state) as Record<string, unknown>
     const renamed: Record<string, unknown> = {
-      app_meta: base.kynetaMeta,
+      app_meta: base.kynetaDocMeta,
       app_record: base.kynetaRecord,
     }
     renamed.$transaction = async (fn: (tx: unknown) => Promise<unknown>) =>
@@ -302,5 +323,31 @@ describe("PrismaStore — structural mock", () => {
     const meta = await store.currentMeta("doc-1")
     expect(meta?.schemaHash).toBe("primer")
     expect(state.records).toHaveLength(1)
+  })
+})
+
+describe("PrismaStore — store-format gate", () => {
+  it("createPrismaStore stamps a fresh store, then accepts it on reopen", async () => {
+    const state = freshState()
+    await createPrismaStore({ client: makeMockClient(state) })
+    expect(state.storeMetas.get("format")).toEqual({ major: 1, minor: 0 })
+
+    // Reopen against the same state: the marker round-trips, no throw.
+    await expect(
+      createPrismaStore({ client: makeMockClient(state) }),
+    ).resolves.toBeDefined()
+  })
+
+  it("refuses a store whose stamped major is incompatible", async () => {
+    const state = freshState()
+    state.storeMetas.set("format", { major: 99, minor: 0 })
+    state.metas.set("doc-1", {}) // store already holds a document
+
+    await expect(
+      createPrismaStore({ client: makeMockClient(state) }),
+    ).rejects.toMatchObject({
+      name: "StoreFormatVersionError",
+      reason: "incompatible-major",
+    })
   })
 })

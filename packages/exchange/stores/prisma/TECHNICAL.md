@@ -9,17 +9,17 @@
 
 ## Architecture
 
-The caller supplies their own `PrismaClient` plus model names for the meta and records tables. The store uses Prisma's typed query API natively — no raw SQL, no ORM-as-adapter abstraction. Sync constructor; an async `createPrismaStore` factory is provided for symmetry with `@kyneta/postgres-store` but does no schema validation (Prisma's typed accessors enforce model presence at compile time).
+The caller supplies their own `PrismaClient` plus model names for the doc-meta, records, and store-meta tables. The store uses Prisma's typed query API natively — no raw SQL, no ORM-as-adapter abstraction. Sync constructor; the async `createPrismaStore` factory does no schema validation (Prisma's typed accessors enforce model presence at compile time) but does run the store-format gate on open (see *Store-format gate*).
 
 ## Schema fragment ownership
 
 The caller owns DDL via Prisma migrations. The package ships [`schema.prisma.example`](./schema.prisma.example) — a fragment to copy into the caller's `schema.prisma`:
 
 ```prisma
-model KynetaMeta {
+model KynetaDocMeta {
   docId String @id @map("doc_id")
   data  Json
-  @@map("kyneta_meta")
+  @@map("kyneta_doc_meta")
 }
 
 model KynetaRecord {
@@ -30,6 +30,12 @@ model KynetaRecord {
   blob    Bytes?
   @@id([docId, seq])
   @@map("kyneta_records")
+}
+
+model KynetaStoreMeta {
+  key   String @id
+  value Json
+  @@map("kyneta_store_meta")
 }
 ```
 
@@ -60,12 +66,16 @@ Round-trip portability through `loadAll` works across all of these. Byte-level i
 
 `PrismaStoreOptions.client` is typed as `unknown`. Capturing Prisma's generic typed accessors without depending on `@prisma/client` types directly is genuinely hard, and depending on them pins this package to a specific Prisma major version. The trade-off:
 
-- **Cost**: less compile-time safety inside the package — internal access to model accessors casts once to a narrow structural interface (`MetaModel`, `RecordModel`) for the methods we call (`findUnique`, `findMany`, `upsert`, `create`, `deleteMany`, `aggregate`).
+- **Cost**: less compile-time safety inside the package — internal access to model accessors casts once to narrow structural interfaces (`MetaModel`, `RecordModel`, `StoreMetaModel`) for the methods we call (`findUnique`, `findMany`, `upsert`, `create`, `deleteMany`, `aggregate`, `count`).
 - **Win**: version-portable across Prisma releases. The package works with Prisma 5.x and 6.x without code changes.
 
 The user-facing call site retains full type safety: the caller passes their own typed `PrismaClient` instance in. The cast is internal.
 
-Renamed model accessors (e.g. `prisma.appKynetaMeta`) work via the `metaModel` and `recordModel` options.
+Renamed model accessors work via the `metaModel`, `recordModel`, and `storeMetaModel` options.
+
+## Store-format gate
+
+`createPrismaStore` (via `PrismaStore.open`) runs the store-format gate on open. It reads the `format` row from the store-meta model, probes the doc-meta model's `count()`, and via `@kyneta/exchange`'s `decideStoreFormat` either stamps a brand-new store, accepts a compatible major, or throws `StoreFormatVersionError`. The version value comes from `@kyneta/sql-store-core`'s `STORE_FORMAT_VERSION` (shared with sqlite/postgres). It is a compatibility check, **not** a migration. The bare `new PrismaStore({ client })` constructor skips the gate.
 
 ## seq-tracker post-commit ordering
 
@@ -83,7 +93,7 @@ In `replace`, `this.#seqNos.reset(docId, records.length - 1)` runs **lexically a
 |------|------|
 | `PrismaStore` | Sync-constructed Store. |
 | `createPrismaStore` | Async factory (for ergonomic symmetry with postgres-store). |
-| `PrismaStoreOptions` | `{ client: unknown, metaModel?: string, recordModel?: string }`. |
+| `PrismaStoreOptions` | `{ client: unknown, metaModel?: string, recordModel?: string, storeMetaModel?: string }`. |
 
 ## File Map
 
@@ -98,7 +108,7 @@ In `replace`, `this.#seqNos.reset(docId, records.length - 1)` runs **lexically a
 Per-package tests use a structural mock instead of spinning up a real `PrismaClient` (which would require schema generation). They verify:
 
 - `PrismaStore` accepts an `unknown`-typed accessor object.
-- Default model names (`kynetaMeta`, `kynetaRecord`); overridable via options.
+- Default model names (`kynetaDocMeta`, `kynetaRecord`, `kynetaStoreMeta`); overridable via options.
 - Each `Store` method calls the expected mock methods.
 - Transaction rejection leaves observable state unchanged (the seq-tracker post-commit ordering claim).
 - Range-scan `listDocIds` matches `%` and `_` literally.

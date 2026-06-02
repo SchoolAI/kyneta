@@ -20,12 +20,13 @@ const pool: Pool | null = ENABLED
 // Per-test schema namespace via per-test table names. Truncate between
 // tests via DELETE on the canonical tables for the conformance run.
 const SCHEMA_TABLES = {
-  meta: "kyneta_meta",
+  docMeta: "kyneta_doc_meta",
   records: "kyneta_records",
+  storeMeta: "kyneta_store_meta",
 } as const
 
 const SCHEMA_DDL = `
-  CREATE TABLE IF NOT EXISTS ${SCHEMA_TABLES.meta} (
+  CREATE TABLE IF NOT EXISTS ${SCHEMA_TABLES.docMeta} (
     doc_id TEXT  PRIMARY KEY,
     data   JSONB NOT NULL
   );
@@ -36,6 +37,10 @@ const SCHEMA_DDL = `
     payload TEXT,
     blob    BYTEA,
     PRIMARY KEY (doc_id, seq)
+  );
+  CREATE TABLE IF NOT EXISTS ${SCHEMA_TABLES.storeMeta} (
+    key   TEXT  PRIMARY KEY,
+    value JSONB NOT NULL
   );
 `
 
@@ -63,19 +68,19 @@ describeIfEnabled("PostgresStore", () => {
     async () => {
       // Truncate before each test for a clean slate.
       await pool.query(
-        `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.meta}`,
+        `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.docMeta}`,
       )
       return new PostgresStore(pool)
     },
     {
       cleanup: async () => {
         await pool.query(
-          `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.meta}`,
+          `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.docMeta}`,
         )
       },
       faultFactory: async () => {
         await pool.query(
-          `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.meta}`,
+          `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.docMeta}`,
         )
         // Wrap a single connection (not the pool) so we can intercept
         // its `query` method to inject failures. The faulty store uses
@@ -120,26 +125,28 @@ describeIfEnabled("PostgresStore", () => {
         }
       },
       isolationFactory: async () => {
-        // Two distinct table-name pairs sharing the same Pool.
-        const tablesA = { meta: "iso_a_meta", records: "iso_a_records" }
-        const tablesB = { meta: "iso_b_meta", records: "iso_b_records" }
+        // Two distinct table-name sets sharing the same Pool. These use the
+        // bare `PostgresStore` constructor (no store-format gate), so the
+        // store-metadata table is unused here and not created.
+        const tablesA = { docMeta: "iso_a_meta", records: "iso_a_records" }
+        const tablesB = { docMeta: "iso_b_meta", records: "iso_b_records" }
         await pool.query(`
-          CREATE TABLE IF NOT EXISTS ${tablesA.meta} (
+          CREATE TABLE IF NOT EXISTS ${tablesA.docMeta} (
             doc_id TEXT PRIMARY KEY, data JSONB NOT NULL
           );
           CREATE TABLE IF NOT EXISTS ${tablesA.records} (
             doc_id TEXT, seq INTEGER, kind TEXT, payload TEXT, blob BYTEA,
             PRIMARY KEY (doc_id, seq)
           );
-          CREATE TABLE IF NOT EXISTS ${tablesB.meta} (
+          CREATE TABLE IF NOT EXISTS ${tablesB.docMeta} (
             doc_id TEXT PRIMARY KEY, data JSONB NOT NULL
           );
           CREATE TABLE IF NOT EXISTS ${tablesB.records} (
             doc_id TEXT, seq INTEGER, kind TEXT, payload TEXT, blob BYTEA,
             PRIMARY KEY (doc_id, seq)
           );
-          TRUNCATE ${tablesA.records}, ${tablesA.meta},
-                   ${tablesB.records}, ${tablesB.meta};
+          TRUNCATE ${tablesA.records}, ${tablesA.docMeta},
+                   ${tablesB.records}, ${tablesB.docMeta};
         `)
         return {
           storeA: new PostgresStore(pool, { tables: tablesA }),
@@ -147,9 +154,9 @@ describeIfEnabled("PostgresStore", () => {
           cleanup: async () => {
             await pool.query(`
               DROP TABLE IF EXISTS ${tablesA.records};
-              DROP TABLE IF EXISTS ${tablesA.meta};
+              DROP TABLE IF EXISTS ${tablesA.docMeta};
               DROP TABLE IF EXISTS ${tablesB.records};
-              DROP TABLE IF EXISTS ${tablesB.meta};
+              DROP TABLE IF EXISTS ${tablesB.docMeta};
             `)
           },
         }
@@ -162,10 +169,10 @@ describeIfEnabled("PostgresStore", () => {
   // -------------------------------------------------------------------------
 
   describe("createPostgresStore — schema validation", () => {
-    it("rejects when meta table is missing", async () => {
+    it("rejects when doc-meta table is missing", async () => {
       await expect(
         createPostgresStore(pool, {
-          tables: { meta: "nonexistent_meta", records: "kyneta_records" },
+          tables: { docMeta: "nonexistent_meta", records: "kyneta_records" },
         }),
       ).rejects.toThrow(/nonexistent_meta/)
     })
@@ -173,7 +180,10 @@ describeIfEnabled("PostgresStore", () => {
     it("rejects when records table is missing", async () => {
       await expect(
         createPostgresStore(pool, {
-          tables: { meta: "kyneta_meta", records: "nonexistent_records" },
+          tables: {
+            docMeta: "kyneta_doc_meta",
+            records: "nonexistent_records",
+          },
         }),
       ).rejects.toThrow(/nonexistent_records/)
     })
@@ -186,13 +196,13 @@ describeIfEnabled("PostgresStore", () => {
 
     it("rejects when a column has the wrong type", async () => {
       const tables = {
-        meta: "wrongtype_meta",
+        docMeta: "wrongtype_meta",
         records: "wrongtype_records",
       }
       await pool.query(`
         DROP TABLE IF EXISTS ${tables.records};
-        DROP TABLE IF EXISTS ${tables.meta};
-        CREATE TABLE ${tables.meta} (
+        DROP TABLE IF EXISTS ${tables.docMeta};
+        CREATE TABLE ${tables.docMeta} (
           doc_id TEXT PRIMARY KEY, data TEXT NOT NULL
         );
         CREATE TABLE ${tables.records} (
@@ -207,7 +217,7 @@ describeIfEnabled("PostgresStore", () => {
       } finally {
         await pool.query(`
           DROP TABLE IF EXISTS ${tables.records};
-          DROP TABLE IF EXISTS ${tables.meta};
+          DROP TABLE IF EXISTS ${tables.docMeta};
         `)
       }
     })
@@ -220,7 +230,7 @@ describeIfEnabled("PostgresStore", () => {
   describe("listDocIds — range scan vs LIKE-pattern hazards", () => {
     it("prefix containing % and _ matches literally, not as wildcards", async () => {
       await pool.query(
-        `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.meta}`,
+        `TRUNCATE ${SCHEMA_TABLES.records}, ${SCHEMA_TABLES.docMeta}`,
       )
       const store = new PostgresStore(pool)
 
@@ -238,6 +248,63 @@ describeIfEnabled("PostgresStore", () => {
       const matched2: string[] = []
       for await (const id of store.listDocIds("100_")) matched2.push(id)
       expect(matched2).toEqual(["100_other"])
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Postgres-specific: store-format gate
+  // -------------------------------------------------------------------------
+
+  describe("createPostgresStore — store-format gate", () => {
+    const tables = {
+      docMeta: "fmt_doc_meta",
+      records: "fmt_records",
+      storeMeta: "fmt_store_meta",
+    }
+    const ddl = `
+      CREATE TABLE IF NOT EXISTS ${tables.docMeta} (
+        doc_id TEXT PRIMARY KEY, data JSONB NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS ${tables.records} (
+        doc_id TEXT, seq INTEGER, kind TEXT, payload TEXT, blob BYTEA,
+        PRIMARY KEY (doc_id, seq)
+      );
+      CREATE TABLE IF NOT EXISTS ${tables.storeMeta} (
+        key TEXT PRIMARY KEY, value JSONB NOT NULL
+      );
+    `
+    const drop = `
+      DROP TABLE IF EXISTS ${tables.records};
+      DROP TABLE IF EXISTS ${tables.docMeta};
+      DROP TABLE IF EXISTS ${tables.storeMeta};
+    `
+
+    it("stamps a fresh store and refuses an incompatible major", async () => {
+      await pool.query(drop)
+      await pool.query(ddl)
+      try {
+        // First open stamps {major:1,minor:0}.
+        const store = await createPostgresStore(pool, { tables })
+        await store.close()
+        const stamped = await pool.query<{ value: { major: number } }>(
+          `SELECT value FROM ${tables.storeMeta} WHERE key = 'format'`,
+        )
+        expect(stamped.rows[0]?.value.major).toBe(1)
+
+        // Tamper to a future major → reopen refuses.
+        await pool.query(
+          `UPDATE ${tables.storeMeta} SET value = $1::jsonb WHERE key = 'format'`,
+          [JSON.stringify({ major: 99, minor: 0 })],
+        )
+        await expect(
+          createPostgresStore(pool, { tables }),
+        ).rejects.toMatchObject({
+          name: "StoreFormatVersionError",
+          reason: "incompatible-major",
+        })
+      } finally {
+        await pool.query(drop)
+      }
     })
   })
 })

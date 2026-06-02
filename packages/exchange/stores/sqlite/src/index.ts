@@ -9,8 +9,12 @@
 
 import {
   type DocId,
+  decideStoreFormat,
+  parseStoreFormat,
   SeqNoTracker,
+  STORE_META_FORMAT_KEY,
   type Store,
+  StoreFormatVersionError,
   type StoreMeta,
   type StoreRecord,
 } from "@kyneta/exchange"
@@ -20,6 +24,7 @@ import {
   planReplace,
   type RowShape,
   resolveTables,
+  STORE_FORMAT_VERSION,
   type TableNames,
 } from "@kyneta/sql-store-core"
 
@@ -141,11 +146,12 @@ interface BunSqliteDatabase {
 
 export interface SqliteStoreOptions {
   /**
-   * Override the default table names (`kyneta_meta` and `kyneta_records`).
+   * Override the default table names (`kyneta_doc_meta`, `kyneta_records`,
+   * `kyneta_store_meta`).
    *
    * Use when co-locating Exchange tables alongside application tables in
    * the same SQLite database, or when running multiple isolated Exchange
-   * instances in one database. Either or both names may be overridden.
+   * instances in one database. Any subset of names may be overridden.
    */
   tables?: Partial<TableNames>
 }
@@ -163,11 +169,12 @@ export class SqliteStore implements Store {
     this.#adapter = adapter
     this.#tables = resolveTables(options)
     this.#ensureSchema()
+    this.#assertFormat()
   }
 
   #ensureSchema(): void {
     this.#adapter.exec(`
-      CREATE TABLE IF NOT EXISTS ${this.#tables.meta} (
+      CREATE TABLE IF NOT EXISTS ${this.#tables.docMeta} (
         doc_id  TEXT PRIMARY KEY,
         data    TEXT NOT NULL
       ) WITHOUT ROWID
@@ -182,6 +189,56 @@ export class SqliteStore implements Store {
         PRIMARY KEY (doc_id, seq)
       ) WITHOUT ROWID
     `)
+    this.#adapter.exec(`
+      CREATE TABLE IF NOT EXISTS ${this.#tables.storeMeta} (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      ) WITHOUT ROWID
+    `)
+  }
+
+  // Bootstrap reader: consult the store-format marker before trusting any
+  // bytes. Stamps a brand-new store, accepts a compatible one, or throws.
+  #assertFormat(): void {
+    const [row] = this.#adapter.iterate<{ value: string }>(
+      `SELECT value FROM ${this.#tables.storeMeta} WHERE key = ?`,
+      STORE_META_FORMAT_KEY,
+    )
+    const parsed = row === undefined ? null : parseStoreFormat(row.value)
+    if (parsed === "malformed") {
+      throw new StoreFormatVersionError({
+        reason: "malformed-version",
+        backend: "sqlite",
+        stored: null,
+        current: STORE_FORMAT_VERSION,
+      })
+    }
+
+    const [hasData] = this.#adapter.iterate<{ one: number }>(
+      `SELECT 1 AS one FROM ${this.#tables.docMeta} LIMIT 1`,
+    )
+
+    const decision = decideStoreFormat({
+      current: STORE_FORMAT_VERSION,
+      stored: parsed,
+      storeHasData: hasData !== undefined,
+    })
+
+    if (decision.action === "refuse") {
+      throw new StoreFormatVersionError({
+        reason: decision.reason,
+        backend: "sqlite",
+        stored: parsed,
+        current: STORE_FORMAT_VERSION,
+      })
+    }
+    if (decision.action === "stamp") {
+      this.#adapter.exec(
+        `INSERT INTO ${this.#tables.storeMeta} (key, value) VALUES (?, ?)`,
+        STORE_META_FORMAT_KEY,
+        JSON.stringify(decision.value),
+      )
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -205,7 +262,7 @@ export class SqliteStore implements Store {
     this.#adapter.transaction(() => {
       if (plan.upsertMeta !== null) {
         this.#adapter.exec(
-          `INSERT OR REPLACE INTO ${this.#tables.meta} (doc_id, data) VALUES (?, ?)`,
+          `INSERT OR REPLACE INTO ${this.#tables.docMeta} (doc_id, data) VALUES (?, ?)`,
           docId,
           plan.upsertMeta.data,
         )
@@ -253,7 +310,7 @@ export class SqliteStore implements Store {
       }
 
       this.#adapter.exec(
-        `INSERT OR REPLACE INTO ${this.#tables.meta} (doc_id, data) VALUES (?, ?)`,
+        `INSERT OR REPLACE INTO ${this.#tables.docMeta} (doc_id, data) VALUES (?, ?)`,
         docId,
         plan.upsertMeta.data,
       )
@@ -274,7 +331,7 @@ export class SqliteStore implements Store {
         docId,
       )
       this.#adapter.exec(
-        `DELETE FROM ${this.#tables.meta} WHERE doc_id = ?`,
+        `DELETE FROM ${this.#tables.docMeta} WHERE doc_id = ?`,
         docId,
       )
     })
@@ -283,7 +340,7 @@ export class SqliteStore implements Store {
 
   async currentMeta(docId: DocId): Promise<StoreMeta | null> {
     const [row] = this.#adapter.iterate<{ data: string }>(
-      `SELECT data FROM ${this.#tables.meta} WHERE doc_id = ?`,
+      `SELECT data FROM ${this.#tables.docMeta} WHERE doc_id = ?`,
       docId,
     )
     if (row === undefined) return null
@@ -294,11 +351,11 @@ export class SqliteStore implements Store {
     const rows =
       prefix !== undefined
         ? this.#adapter.iterate<{ doc_id: string }>(
-            `SELECT doc_id FROM ${this.#tables.meta} WHERE doc_id LIKE ? ESCAPE '\\'`,
+            `SELECT doc_id FROM ${this.#tables.docMeta} WHERE doc_id LIKE ? ESCAPE '\\'`,
             `${escapeLike(prefix)}%`,
           )
         : this.#adapter.iterate<{ doc_id: string }>(
-            `SELECT doc_id FROM ${this.#tables.meta}`,
+            `SELECT doc_id FROM ${this.#tables.docMeta}`,
           )
     for (const row of rows) {
       yield row.doc_id

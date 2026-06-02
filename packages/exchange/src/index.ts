@@ -198,10 +198,17 @@ export { hasSync, sync } from "./sync.js"
 export type { Store, StoreMeta, StoreRecord } from "./store/index.js"
 export {
   createInMemoryStore,
+  decideStoreFormat,
   InMemoryStore,
   type InMemoryStoreData,
+  parseStoreFormat,
   resolveMetaFromBatch,
   SeqNoTracker,
+  STORE_META_FORMAT_KEY,
+  type StoreFormatDecision,
+  type StoreFormatRefusal,
+  type StoreFormatVersion,
+  StoreFormatVersionError,
   validateAppend,
 } from "./store/index.js"
 

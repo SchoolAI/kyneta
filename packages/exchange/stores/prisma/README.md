@@ -15,10 +15,10 @@ Peer dependencies: `@kyneta/exchange`, `@kyneta/schema`, `@kyneta/sql-store-core
 Copy [`schema.prisma.example`](./schema.prisma.example) into your existing `schema.prisma` and run `prisma generate` and `prisma migrate dev`:
 
 ```prisma
-model KynetaMeta {
+model KynetaDocMeta {
   docId String @id @map("doc_id")
   data  Json
-  @@map("kyneta_meta")
+  @@map("kyneta_doc_meta")
 }
 
 model KynetaRecord {
@@ -30,19 +30,25 @@ model KynetaRecord {
   @@id([docId, seq])
   @@map("kyneta_records")
 }
+
+model KynetaStoreMeta {
+  key   String @id
+  value Json
+  @@map("kyneta_store_meta")
+}
 ```
 
-Both models work on Postgres (`Json` → JSONB, `Bytes` → BYTEA), SQLite (`Json` → TEXT, `Bytes` → BLOB), and MySQL (`Json` → JSON, `Bytes` → LONGBLOB).
+All models work on Postgres (`Json` → JSONB, `Bytes` → BYTEA), SQLite (`Json` → TEXT, `Bytes` → BLOB), and MySQL (`Json` → JSON, `Bytes` → LONGBLOB). `KynetaStoreMeta` holds store-global metadata (the on-disk format version), distinct from the per-document `KynetaDocMeta`.
 
 ## Usage
 
 ```ts
 import { PrismaClient } from "@prisma/client"
 import { Exchange } from "@kyneta/exchange"
-import { PrismaStore } from "@kyneta/prisma-store"
+import { createPrismaStore } from "@kyneta/prisma-store"
 
 const prisma = new PrismaClient()
-const store = new PrismaStore({ client: prisma })
+const store = await createPrismaStore({ client: prisma })
 
 const exchange = new Exchange({
   stores: [store],
@@ -54,13 +60,16 @@ const exchange = new Exchange({
 // await prisma.$disconnect()
 ```
 
-The model accessors default to `prisma.kynetaMeta` and `prisma.kynetaRecord` (matching `model KynetaMeta` / `model KynetaRecord`). To use different model names:
+`createPrismaStore` runs the **store-format gate** on open: it stamps a `{ major, minor }` version into `KynetaStoreMeta` and, on a later open, throws `StoreFormatVersionError` for an incompatible major or an unversioned store that already holds documents. No automatic migration is performed. (The bare `new PrismaStore({ client })` constructor skips the gate.)
+
+The model accessors default to `prisma.kynetaDocMeta`, `prisma.kynetaRecord`, and `prisma.kynetaStoreMeta` (matching the model names above). To use different model names:
 
 ```ts
-const store = new PrismaStore({
+const store = await createPrismaStore({
   client: prisma,
-  metaModel: "appMeta",      // matches `model AppMeta`
-  recordModel: "appRecord",  // matches `model AppRecord`
+  metaModel: "appDocMeta",        // matches `model AppDocMeta`
+  recordModel: "appRecord",       // matches `model AppRecord`
+  storeMetaModel: "appStoreMeta", // matches `model AppStoreMeta`
 })
 ```
 

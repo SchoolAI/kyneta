@@ -219,3 +219,44 @@ describe("deleteIndexedDBStore", () => {
     await deleteIndexedDBStore(name)
   })
 })
+
+// ---------------------------------------------------------------------------
+// IndexedDB-specific: store-format gate
+// ---------------------------------------------------------------------------
+
+describe("IndexedDBStore — store-format gate", () => {
+  it("refuses a store whose stamped major is incompatible", async () => {
+    const name = uniqueDbName()
+    dbNames.push(name)
+
+    // First open stamps {major:1,minor:0}.
+    const store1 = await IndexedDBStore.open(name)
+    await store1.append("doc-1", makeMetaRecord())
+    await store1.close()
+
+    // Tamper the store_meta `format` row directly via a raw handle (DB is at
+    // version 2, so the object store already exists — no upgrade needed).
+    await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open(name, 2)
+      open.onsuccess = () => {
+        const db = open.result
+        const tx = db.transaction("store_meta", "readwrite")
+        tx.objectStore("store_meta").put({
+          key: "format",
+          value: { major: 99, minor: 0 },
+        })
+        tx.oncomplete = () => {
+          db.close()
+          resolve()
+        }
+        tx.onerror = () => reject(tx.error)
+      }
+      open.onerror = () => reject(open.error)
+    })
+
+    await expect(IndexedDBStore.open(name)).rejects.toMatchObject({
+      name: "StoreFormatVersionError",
+      reason: "incompatible-major",
+    })
+  })
+})
