@@ -1,8 +1,8 @@
 // Postgres Store backend.
 //
 // Why JSONB on meta, not TEXT: operators occasionally need to filter
-// metas by `syncProtocol` or `replicaType` during incident
-// investigations, and JSONB makes `data->>'syncProtocol'` trivial.
+// metas by `syncMode` or `replicaType` during incident
+// investigations, and JSONB makes `data->>'syncMode'` trivial.
 // Cost: JSONB normalizes whitespace and key order at insert time, so
 // `meta.data` bytes don't match SQLite's TEXT-stored meta — but
 // round-trip through `loadAll` still yields a structurally equal

@@ -142,7 +142,7 @@ describe("SSE asymmetric encoding", () => {
             docId: "doc-1",
             schemaHash: "h-1",
             replicaType: ["plain", 1, 0],
-            syncProtocol: SYNC_AUTHORITATIVE,
+            syncMode: SYNC_AUTHORITATIVE,
           },
         ],
       }
@@ -166,7 +166,7 @@ describe("SSE asymmetric encoding", () => {
             docId: "doc-1",
             schemaHash: "h-1",
             replicaType: ["plain", 1, 0],
-            syncProtocol: SYNC_AUTHORITATIVE,
+            syncMode: SYNC_AUTHORITATIVE,
           },
         ],
       }

@@ -46,9 +46,9 @@ Kyneta is a framework for collaborative, substrate-agnostic documents. You defin
 | **Changefeed** | The reactive protocol: `{ current, subscribe }` behind the `[CHANGEFEED]` symbol. Every reactive value in Kyneta implements it. |
 | **Exchange** | The top-level sync runtime — one per participant. Holds transports, stores, governance, and `DocRuntime`s. |
 | **Transport** | The abstract interface between exchange and wire. WebSocket, SSE, WebRTC, Unix socket, in-process bridge — each implements it. |
-| **Session / Sync programs** | Two pure TEA programs inside the exchange — session owns channel topology + peers; sync owns document convergence + sync protocols. |
+| **Session / Sync programs** | Two pure TEA programs inside the exchange — session owns channel topology + peers; sync owns document convergence + sync modes. |
 | **Substrate payload** | Opaque state-transfer blob with `kind: "entirety" \| "since"`. Produced by substrates, carried by transports, consumed by substrates. The exchange never opens it. |
-| **Sync protocol** | A structured record with `writerModel`, `delivery`, and `durability` axes. Three named constants — `SYNC_COLLABORATIVE`, `SYNC_AUTHORITATIVE`, `SYNC_EPHEMERAL` — tell the exchange which sync shape to run per document. Each binding target (`json`, `ephemeral`, `loro`, `yjs`) has a fixed sync protocol. |
+| **Sync mode** | A structured record with `writerModel`, `delivery`, and `durability` axes. Three named constants — `SYNC_COLLABORATIVE`, `SYNC_AUTHORITATIVE`, `SYNC_EPHEMERAL` — tell the exchange which sync shape to run per document. Each binding target (`json`, `ephemeral`, `loro`, `yjs`) has a fixed sync mode. |
 
 ## Package roles
 

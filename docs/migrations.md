@@ -421,7 +421,7 @@ All three return a new schema; the original is untouched.
 
 ### 10.3. Functions
 
-| Function | Returns | Use when | |---------------------------------------|-------------------------------|----------| | `bind({ schema, factory, syncProtocol })` | `BoundSchema` | Create the runtime binding. Validates the chain; throws if malformed. | | `getMigrationChain(schema)` | `MigrationChain \| null` | Read the chain from a schema (introspection / tooling). | | `snapshotManifest(schema)` | `IdentityManifest` | Collapse the full chain to a manifest for pruning. | | `deriveTier(primitive)` | `MigrationTier` | Classify a single primitive (rarely needed directly). | | `deriveStepTier(primitives)` | `MigrationTier` | Classify a list (used internally by `.migrated`). | | `validateChain(schema)` | `{ valid, errors }` | Check for ordering / collision errors before binding. Called by `bind()` automatically. | | `computeSupportedHashes(schema)` | `ReadonlySet<string>` | Inspect the cross-version compat set (used internally by `bind()`). |
+| Function | Returns | Use when | |---------------------------------------|-------------------------------|----------| | `bind({ schema, factory, syncMode })` | `BoundSchema` | Create the runtime binding. Validates the chain; throws if malformed. | | `getMigrationChain(schema)` | `MigrationChain \| null` | Read the chain from a schema (introspection / tooling). | | `snapshotManifest(schema)` | `IdentityManifest` | Collapse the full chain to a manifest for pruning. | | `deriveTier(primitive)` | `MigrationTier` | Classify a single primitive (rarely needed directly). | | `deriveStepTier(primitives)` | `MigrationTier` | Classify a list (used internally by `.migrated`). | | `validateChain(schema)` | `{ valid, errors }` | Check for ordering / collision errors before binding. Called by `bind()` automatically. | | `computeSupportedHashes(schema)` | `ReadonlySet<string>` | Inspect the cross-version compat set (used internally by `bind()`). |
 
 ### 10.4. Types
 
@@ -446,7 +446,7 @@ type BoundSchema = {
   readonly identityBinding:  SchemaBinding      // path↔identity maps
   readonly migrationChain:   MigrationChain | null
   readonly supportedHashes:  ReadonlySet<string>
-  // …factory, syncProtocol
+  // …factory, syncMode
 }
 ```
 

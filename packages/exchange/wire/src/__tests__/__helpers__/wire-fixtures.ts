@@ -5,12 +5,12 @@
 // has moved to @kyneta/transport). Wire tests that need ChannelMsg →
 // WireMessage conversion use these direct constructors instead.
 
-import type { SyncProtocol } from "@kyneta/schema"
+import type { SyncMode } from "@kyneta/schema"
 import {
   MessageType,
   StringToPayloadEncoding,
   StringToPayloadKind,
-  syncProtocolToWire,
+  syncModeToWire,
   type WireDismissMsg,
   type WireEstablishMsg,
   type WireInterestMsg,
@@ -62,7 +62,7 @@ export function presentWire(
     docId: string
     schemaHash: string
     replicaType: readonly [string, number, number]
-    syncProtocol: SyncProtocol
+    syncMode: SyncMode
     supportedHashes?: readonly string[]
   }>,
 ): WirePresentMsg {
@@ -72,7 +72,7 @@ export function presentWire(
       const entry: WirePresentMsg["docs"][number] = {
         d: d.docId,
         rt: [...d.replicaType] as [string, number, number],
-        ms: syncProtocolToWire(d.syncProtocol),
+        ms: syncModeToWire(d.syncMode),
         sh: d.schemaHash,
       }
       if (d.supportedHashes && d.supportedHashes.length > 1) {

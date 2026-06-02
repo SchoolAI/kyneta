@@ -23,7 +23,7 @@ import { PrismaStore } from "../index.js"
 
 const baseMeta: StoreMeta = {
   replicaType: ["plain", 1, 0] as const,
-  syncProtocol: SYNC_AUTHORITATIVE,
+  syncMode: SYNC_AUTHORITATIVE,
   schemaHash: "00test",
 }
 

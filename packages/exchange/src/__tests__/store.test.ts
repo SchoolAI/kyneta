@@ -101,7 +101,7 @@ describe("resolveMetaFromBatch", () => {
     expect(result.schemaHash).toBe("hash-v2")
     // Immutable fields unchanged
     expect(result.replicaType).toEqual(plainMeta.replicaType)
-    expect(result.syncProtocol).toEqual(plainMeta.syncProtocol)
+    expect(result.syncMode).toEqual(plainMeta.syncMode)
   })
 
   it("throws when batch has no meta records", () => {
@@ -120,13 +120,13 @@ describe("resolveMetaFromBatch", () => {
     )
   })
 
-  it("throws when batch meta conflicts with existingMeta on syncProtocol", () => {
+  it("throws when batch meta conflicts with existingMeta on syncMode", () => {
     const existing: StoreMeta = {
       ...plainMeta,
-      syncProtocol: SYNC_COLLABORATIVE,
+      syncMode: SYNC_COLLABORATIVE,
     }
     expect(() => resolveMetaFromBatch([makeMetaRecord()], existing)).toThrow(
-      "syncProtocol mismatch",
+      "syncMode mismatch",
     )
   })
 
@@ -143,7 +143,7 @@ describe("resolveMetaFromBatch", () => {
   it("first write (existingMeta=null) accepts any meta", () => {
     const exotic: StoreMeta = {
       replicaType: ["loro", 2, 0],
-      syncProtocol: SYNC_COLLABORATIVE,
+      syncMode: SYNC_COLLABORATIVE,
       schemaHash: "exotic-hash",
     }
     const result = resolveMetaFromBatch([{ kind: "meta", meta: exotic }], null)

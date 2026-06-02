@@ -29,7 +29,7 @@ import type {
   ReplicaType,
   Substrate,
   SubstratePayload,
-  SyncProtocol,
+  SyncMode,
   Version,
 } from "@kyneta/schema"
 import type {
@@ -86,7 +86,7 @@ type DocRuntimeBase = {
   docId: DocId
   replica: ReplicaLike
   replicaFactory: ReplicaFactoryLike
-  syncProtocol: SyncProtocol
+  syncMode: SyncMode
   schemaHash: string
   /** Optional set of ancestor hashes from the schema's migration chain.
    *  Forwarded to `sync/doc-ensure` so `present` messages can advertise
@@ -120,7 +120,7 @@ export type DocCreationCallback = (
   docId: DocId,
   peer: PeerIdentityDetails,
   replicaType: ReplicaType,
-  syncProtocol: SyncProtocol,
+  syncMode: SyncMode,
   schemaHash: string,
   supportedHashes?: readonly string[],
 ) => void
@@ -145,7 +145,7 @@ export type DocDismissedCallback = (
 export type EpochBoundaryPredicate = (
   docId: DocId,
   peer: PeerIdentityDetails,
-  syncProtocol: SyncProtocol,
+  syncMode: SyncMode,
 ) => boolean
 
 export type SynchronizerParams = {
@@ -540,7 +540,7 @@ export class Synchronizer {
       mode: runtime.mode,
       version: runtime.replica.version().serialize(),
       replicaType: runtime.replicaFactory.replicaType,
-      syncProtocol: runtime.syncProtocol,
+      syncMode: runtime.syncMode,
       schemaHash: runtime.schemaHash,
       ...(runtime.supportedHashes
         ? { supportedHashes: runtime.supportedHashes }
@@ -557,7 +557,7 @@ export class Synchronizer {
   deferDoc(
     docId: DocId,
     replicaType: ReplicaType,
-    syncProtocol: SyncProtocol,
+    syncMode: SyncMode,
     schemaHash: string,
   ): void {
     const sync = this.#syncHandle.getState()
@@ -569,7 +569,7 @@ export class Synchronizer {
       type: "sync/doc-defer",
       docId,
       replicaType,
-      syncProtocol,
+      syncMode,
       schemaHash,
       event,
     })
@@ -580,7 +580,7 @@ export class Synchronizer {
     if (!entry) return undefined
     return {
       replicaType: entry.replicaType,
-      syncProtocol: entry.syncProtocol,
+      syncMode: entry.syncMode,
       schemaHash: entry.schemaHash,
     }
   }
@@ -719,7 +719,7 @@ export class Synchronizer {
       mode: runtime.mode,
       version: runtime.replica.version().serialize(),
       replicaType: runtime.replicaFactory.replicaType,
-      syncProtocol: runtime.syncProtocol,
+      syncMode: runtime.syncMode,
       schemaHash: runtime.schemaHash,
       event: { type: "doc-resumed", docId },
     })
@@ -1121,7 +1121,7 @@ export class Synchronizer {
           effect.docId,
           effect.peer,
           effect.replicaType,
-          effect.syncProtocol,
+          effect.syncMode,
           effect.schemaHash,
           effect.supportedHashes,
         )
@@ -1301,7 +1301,7 @@ export class Synchronizer {
       const accept = this.#canReset(
         effect.docId,
         peerIdentity as PeerIdentityDetails,
-        runtime.syncProtocol,
+        runtime.syncMode,
       )
 
       if (!accept) {

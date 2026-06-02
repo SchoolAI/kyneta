@@ -37,7 +37,7 @@ describe("supportedHashes — cross-migrated-version sync", () => {
         count: Schema.number(),
       }).migrated(Migration.rename("name", "title")),
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     // Client runs the older schema — the pre-rename shape. Its primary
@@ -48,7 +48,7 @@ describe("supportedHashes — cross-migrated-version sync", () => {
         count: Schema.number(),
       }),
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     // Producer-side property: server's supportedHashes is a multi-element
@@ -111,13 +111,13 @@ describe("supportedHashes — cross-migrated-version sync", () => {
     const schemaA = bind({
       schema: Schema.struct({ a: Schema.string() }),
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     const schemaB = bind({
       schema: Schema.struct({ b: Schema.number() }),
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     expect(schemaA.schemaHash).not.toBe(schemaB.schemaHash)

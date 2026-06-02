@@ -120,7 +120,7 @@ const TodoDoc = yjs.bind(Schema.struct({
 const doc = exchange.get("my-todos", TodoDoc)
 ```
 
-`yjs.bind()` produces a `BoundSchema` with the collaborative `SyncProtocol`, which the exchange uses for bidirectional CRDT sync.
+`yjs.bind()` produces a `BoundSchema` with the collaborative `SyncMode`, which the exchange uses for bidirectional CRDT sync.
 
 ## Escape Hatch
 

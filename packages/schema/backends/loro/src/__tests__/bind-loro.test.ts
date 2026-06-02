@@ -27,7 +27,7 @@ describe("loro.bind()", () => {
     const bound = loro.bind(testSchema)
     expect(isBoundSchema(bound)).toBe(true)
     expect(bound.schema).toBe(testSchema)
-    expect(bound.syncProtocol).toEqual({
+    expect(bound.syncMode).toEqual({
       writerModel: "concurrent",
       delivery: "delta-capable",
       durability: "persistent",

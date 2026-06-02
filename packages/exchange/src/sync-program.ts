@@ -12,7 +12,7 @@ import type { Program } from "@kyneta/machine"
 import type {
   ReplicaType,
   SubstratePayload,
-  SyncProtocol,
+  SyncMode,
 } from "@kyneta/schema"
 import {
   replicaTypesCompatible,
@@ -57,7 +57,7 @@ export type DocEntry = {
   replicaType: ReplicaType
 
   /** The sync protocol for this document's substrate */
-  syncProtocol: SyncProtocol
+  syncMode: SyncMode
 
   /** A deterministic hash representing the document's schema */
   schemaHash: string
@@ -146,7 +146,7 @@ export type SyncInput =
       mode: "interpret" | "replicate"
       version: string
       replicaType: ReplicaType
-      syncProtocol: SyncProtocol
+      syncMode: SyncMode
       schemaHash: string
       supportedHashes?: readonly string[]
       /**
@@ -161,7 +161,7 @@ export type SyncInput =
       type: "sync/doc-defer"
       docId: DocId
       replicaType: ReplicaType
-      syncProtocol: SyncProtocol
+      syncMode: SyncMode
       schemaHash: string
       supportedHashes?: readonly string[]
       event?: DocChange
@@ -223,7 +223,7 @@ export type SyncEffect =
       docId: DocId
       peer: PeerIdentityDetails
       replicaType: ReplicaType
-      syncProtocol: SyncProtocol
+      syncMode: SyncMode
       schemaHash: string
       supportedHashes?: readonly string[]
     }
@@ -455,7 +455,7 @@ function buildPush(
     to: peerIds,
     docId,
     sinceVersion:
-      docEntry.syncProtocol.delivery === "delta-capable"
+      docEntry.syncMode.delivery === "delta-capable"
         ? docEntry.version
         : undefined,
   }
@@ -468,7 +468,7 @@ function buildPush(
 function announceDoc(
   docId: DocId,
   replicaType: ReplicaType,
-  syncProtocol: SyncProtocol,
+  syncMode: SyncMode,
   schemaHash: string,
   model: SyncModel,
   canShare: SyncPredicate,
@@ -481,7 +481,7 @@ function announceDoc(
     {
       docId,
       replicaType,
-      syncProtocol,
+      syncMode,
       schemaHash,
       // Only include supportedHashes if it carries more info than the primary hash alone
       ...(supportedHashes && supportedHashes.length > 1
@@ -515,7 +515,7 @@ function buildPresent(
       return {
         docId,
         replicaType: entry.replicaType,
-        syncProtocol: entry.syncProtocol,
+        syncMode: entry.syncMode,
         schemaHash: entry.schemaHash,
         // Only include supportedHashes if it carries more info than the primary hash alone
         ...(entry.supportedHashes && entry.supportedHashes.length > 1
@@ -543,7 +543,7 @@ function buildInterestResponse(
 ): SyncEffect[] {
   const effects: SyncEffect[] = []
 
-  if (docEntry.syncProtocol.delivery === "delta-capable") {
+  if (docEntry.syncMode.delivery === "delta-capable") {
     effects.push({
       type: "send-offer",
       to: fromPeerId,
@@ -554,7 +554,7 @@ function buildInterestResponse(
 
     // CRDTs need bidirectional exchange — send interest back so the peer can receive our state too
     if (
-      requiresBidirectionalSync(docEntry.syncProtocol) &&
+      requiresBidirectionalSync(docEntry.syncMode) &&
       message.reciprocate
     ) {
       effects.push({
@@ -825,7 +825,7 @@ function handleDocEnsure(
     mode: msg.mode,
     version: msg.version,
     replicaType: msg.replicaType,
-    syncProtocol: msg.syncProtocol,
+    syncMode: msg.syncMode,
     schemaHash: msg.schemaHash,
   }
   if (msg.supportedHashes) entry.supportedHashes = msg.supportedHashes
@@ -847,7 +847,7 @@ function handleDocEnsure(
   const { peerIds, present } = announceDoc(
     msg.docId,
     msg.replicaType,
-    msg.syncProtocol,
+    msg.syncMode,
     msg.schemaHash,
     updatedModel,
     canShare,
@@ -857,7 +857,7 @@ function handleDocEnsure(
     return [updatedModel]
   }
 
-  const isCausal = requiresBidirectionalSync(msg.syncProtocol)
+  const isCausal = requiresBidirectionalSync(msg.syncMode)
   const interest: SyncEffect = {
     type: "send-to-peers",
     to: peerIds,
@@ -885,7 +885,7 @@ function handleDocDefer(
     mode: "deferred",
     version: "",
     replicaType: msg.replicaType,
-    syncProtocol: msg.syncProtocol,
+    syncMode: msg.syncMode,
     schemaHash: msg.schemaHash,
   }
   if (msg.supportedHashes) entry.supportedHashes = msg.supportedHashes
@@ -903,7 +903,7 @@ function handleDocDefer(
   const { present } = announceDoc(
     msg.docId,
     msg.replicaType,
-    msg.syncProtocol,
+    msg.syncMode,
     msg.schemaHash,
     updatedModel,
     canShare,
@@ -1133,7 +1133,7 @@ function handlePresent(
   for (const {
     docId,
     replicaType,
-    syncProtocol,
+    syncMode,
     schemaHash,
     supportedHashes: remoteSupportedHashes,
   } of message.docs) {
@@ -1172,17 +1172,17 @@ function handlePresent(
         })
         continue
       }
-      // Check syncProtocol compatibility
+      // Check syncMode compatibility
       if (
-        docEntry.syncProtocol.writerModel !== syncProtocol.writerModel ||
-        docEntry.syncProtocol.delivery !== syncProtocol.delivery ||
-        docEntry.syncProtocol.durability !== syncProtocol.durability
+        docEntry.syncMode.writerModel !== syncMode.writerModel ||
+        docEntry.syncMode.delivery !== syncMode.delivery ||
+        docEntry.syncMode.durability !== syncMode.durability
       ) {
         effects.push({
           type: "warning",
           message:
-            `[exchange] syncProtocol mismatch for doc '${docId}': ` +
-            `local ${JSON.stringify(docEntry.syncProtocol)} vs remote ${JSON.stringify(syncProtocol)} — skipping sync`,
+            `[exchange] syncMode mismatch for doc '${docId}': ` +
+            `local ${JSON.stringify(docEntry.syncMode)} vs remote ${JSON.stringify(syncMode)} — skipping sync`,
         })
         continue
       }
@@ -1190,7 +1190,7 @@ function handlePresent(
       if (docEntry.mode === "deferred") continue
 
       // Compatible — send interest with our version
-      const isCausal = requiresBidirectionalSync(docEntry.syncProtocol)
+      const isCausal = requiresBidirectionalSync(docEntry.syncMode)
       effects.push({
         type: "send-to-peer",
         to: from,
@@ -1210,7 +1210,7 @@ function handlePresent(
         docId,
         peer: peerState.identity,
         replicaType,
-        syncProtocol,
+        syncMode,
         schemaHash,
         supportedHashes: remoteSupportedHashes,
       })
@@ -1221,7 +1221,7 @@ function handlePresent(
 }
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-// HANDLER: Interest — sync-protocol dispatch
+// HANDLER: Interest — sync-mode dispatch
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 function handleInterest(

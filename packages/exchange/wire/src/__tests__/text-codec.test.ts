@@ -111,19 +111,19 @@ describe("Text codec — present", () => {
         docId: "doc-1",
         schemaHash: "00test",
         replicaType: ["plain", 1, 0] as const,
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       },
       {
         docId: "doc-2",
         schemaHash: "00test",
         replicaType: ["yjs", 1, 0] as const,
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       },
       {
         docId: "doc-3",
         schemaHash: "00test",
         replicaType: ["loro", 1, 0] as const,
-        syncProtocol: SYNC_EPHEMERAL,
+        syncMode: SYNC_EPHEMERAL,
       },
     ])
     const decoded = roundTrip(wire)
@@ -304,13 +304,13 @@ describe("Text codec — batch", () => {
           docId: "d1",
           schemaHash: "00test",
           replicaType: ["plain", 1, 0] as const,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
         {
           docId: "d2",
           schemaHash: "00test",
           replicaType: ["yjs", 1, 0] as const,
-          syncProtocol: SYNC_COLLABORATIVE,
+          syncMode: SYNC_COLLABORATIVE,
         },
       ]),
       interestWire({ docId: "d1", version: "0", reciprocate: true }),
@@ -404,7 +404,7 @@ describe("Text codec — JSON-safe output", () => {
           docId: "a",
           schemaHash: "00test",
           replicaType: ["plain", 1, 0] as const,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
       ]),
       offerWire({

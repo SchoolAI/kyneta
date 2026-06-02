@@ -43,7 +43,7 @@ const presentDoc1: PresentMsg = {
       docId: "doc-1",
       schemaHash: "h-1",
       replicaType: ["plain", 1, 0] as const,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     },
   ],
 }
@@ -150,7 +150,7 @@ describe("alias-table — present always announces aliases", () => {
           docId: "doc-2",
           schemaHash: "h-2",
           replicaType: ["plain", 1, 0] as const,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
       ],
     }
@@ -476,7 +476,7 @@ describe("alias-table — schema-hash compaction", () => {
         docId: `doc-${i}`,
         schemaHash: "shared-h",
         replicaType: ["plain", 1, 0] as const,
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       })),
     }
     const outResult = applyOutboundAliasing(state, present)
@@ -510,7 +510,7 @@ describe("alias-table — schema-hash compaction", () => {
         docId: `doc-${i}`,
         schemaHash: longHash,
         replicaType: ["plain", 1, 0] as const,
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       })),
     }
     const { result } = applyOutboundAliasing(state, present)
@@ -560,13 +560,13 @@ describe("alias-table — schema-hash compaction", () => {
           docId: "d1",
           schemaHash: "shared",
           replicaType: ["plain", 1, 0] as const,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
         {
           docId: "d2",
           schemaHash: "shared",
           replicaType: ["plain", 1, 0] as const,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
       ],
     }

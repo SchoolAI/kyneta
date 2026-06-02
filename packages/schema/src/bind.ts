@@ -14,9 +14,9 @@
 // For LWW/ephemeral, the builder returns lwwSubstrateFactory (which wraps
 // plain with TimestampVersion for cross-peer stale rejection).
 //
-// SyncProtocol is a structured record decomposing sync semantics into
+// SyncMode is a structured record decomposing sync semantics into
 // three orthogonal axes (writerModel, delivery, durability). Each
-// BindingTarget has a fixed SyncProtocol. The exchange dispatches on
+// BindingTarget has a fixed SyncMode. The exchange dispatches on
 // individual fields, not a monolithic enum.
 //
 // Named binding targets follow the rename-over-configure ergonomic rule:
@@ -44,7 +44,7 @@ import { KIND } from "./schema.js"
 import type {
   ReplicaFactory,
   SubstrateFactory,
-  SyncProtocol,
+  SyncMode,
   Version,
 } from "./substrate.js"
 import {
@@ -89,7 +89,7 @@ export type FactoryBuilder<V extends Version = Version> = (context: {
  *
  * 1. **schema** — what shape is the data?
  * 2. **factory** — how is the data stored and versioned?
- * 3. **syncProtocol** — how does the exchange sync it?
+ * 3. **syncMode** — how does the exchange sync it?
  *
  * BoundSchemas are static declarations created at module scope via
  * the binding targets: `json.bind()`, `loro.bind()`, or `yjs.bind()`.
@@ -108,7 +108,7 @@ export interface BoundSchema<
   readonly _nativeMap?: N
   readonly schema: S
   readonly factory: FactoryBuilder<any>
-  readonly syncProtocol: SyncProtocol
+  readonly syncMode: SyncMode
   readonly schemaHash: string
 
   /**
@@ -150,7 +150,7 @@ export interface BoundSchema<
 // ---------------------------------------------------------------------------
 
 /**
- * The replication binding: the pair of `ReplicaFactory` and `SyncProtocol`
+ * The replication binding: the pair of `ReplicaFactory` and `SyncMode`
  * that fully determines headless replication behavior.
  *
  * A `BoundReplica` captures everything the exchange needs to create and
@@ -158,20 +158,20 @@ export interface BoundSchema<
  */
 export interface BoundReplica {
   readonly factory: ReplicaFactory
-  readonly syncProtocol: SyncProtocol
+  readonly syncMode: SyncMode
 }
 
 /**
- * Construct a `BoundReplica` from a `ReplicaFactory` and `SyncProtocol`.
+ * Construct a `BoundReplica` from a `ReplicaFactory` and `SyncMode`.
  *
  * TypeScript dual-namespace pattern: `BoundReplica` is both a type and a
  * same-named constructor function.
  */
 export function BoundReplica(
   factory: ReplicaFactory,
-  syncProtocol: SyncProtocol,
+  syncMode: SyncMode,
 ): BoundReplica {
-  return { factory, syncProtocol }
+  return { factory, syncMode }
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ export type Interpret = {
  * servers, audit logs.
  *
  * The caller declares intent to replicate; the Exchange resolves the
- * concrete `ReplicaFactory` and `SyncProtocol` from its capabilities
+ * concrete `ReplicaFactory` and `SyncMode` from its capabilities
  * registry.
  */
 export type Replicate = { readonly kind: "replicate" }
@@ -296,14 +296,14 @@ export function Defer(): Defer {
  * const MyDoc = bind({
  *   schema: Schema.struct({ title: Schema.string() }),
  *   factory: (ctx) => createMyFactory(ctx.peerId),
- *   syncProtocol: SYNC_COLLABORATIVE,
+ *   syncMode: SYNC_COLLABORATIVE,
  * })
  * ```
  */
 export function bind<S extends SchemaNode>(config: {
   schema: S
   factory: FactoryBuilder<any>
-  syncProtocol: SyncProtocol
+  syncMode: SyncMode
 }): BoundSchema<S> {
   const schemaHash = computeSchemaHash(config.schema)
 
@@ -359,7 +359,7 @@ export function bind<S extends SchemaNode>(config: {
     _brand: "BoundSchema",
     schema: config.schema,
     factory: config.factory,
-    syncProtocol: config.syncProtocol,
+    syncMode: config.syncMode,
     schemaHash,
     identityBinding,
     migrationChain: chain,
@@ -406,7 +406,7 @@ export type RestrictLaws<S, AllowedLaws extends string> = [
 // ---------------------------------------------------------------------------
 
 /**
- * A named binding target: a fixed (substrate, sync-protocol, supported-laws) bundle.
+ * A named binding target: a fixed (substrate, sync-mode, supported-laws) bundle.
  *
  * Follows the rename-over-configure ergonomic rule: like `HashMap` vs `TreeMap`,
  * not `Map({ ordering: "hash" })`.
@@ -419,7 +419,7 @@ export interface BindingTarget<
     schema: RestrictLaws<P, AllowedLaws>,
   ): BoundSchema<P, N>
   replica(): BoundReplica
-  readonly syncProtocol: SyncProtocol
+  readonly syncMode: SyncMode
 }
 
 // ---------------------------------------------------------------------------
@@ -436,20 +436,20 @@ export function createBindingTarget<
 >(config: {
   factory: FactoryBuilder<any>
   replicaFactory: ReplicaFactory
-  syncProtocol: SyncProtocol
+  syncMode: SyncMode
 }): BindingTarget<AllowedLaws, N> {
   return {
     bind<P extends ProductSchema>(schema: P): BoundSchema<P, N> {
       return bind({
         schema,
         factory: config.factory,
-        syncProtocol: config.syncProtocol,
+        syncMode: config.syncMode,
       }) as BoundSchema<P, N>
     },
     replica(): BoundReplica {
-      return BoundReplica(config.replicaFactory, config.syncProtocol)
+      return BoundReplica(config.replicaFactory, config.syncMode)
     },
-    syncProtocol: config.syncProtocol,
+    syncMode: config.syncMode,
   }
 }
 
@@ -472,7 +472,7 @@ export const json: BindingTarget<string, PlainNativeMap> = createBindingTarget<
 >({
   factory: () => plainSubstrateFactory,
   replicaFactory: plainReplicaFactory,
-  syncProtocol: SYNC_AUTHORITATIVE,
+  syncMode: SYNC_AUTHORITATIVE,
 })
 
 // ---------------------------------------------------------------------------
@@ -495,5 +495,5 @@ export const ephemeral: BindingTarget<EphemeralLaws, PlainNativeMap> =
   createBindingTarget<EphemeralLaws, PlainNativeMap>({
     factory: () => lwwSubstrateFactory,
     replicaFactory: lwwReplicaFactory,
-    syncProtocol: SYNC_EPHEMERAL,
+    syncMode: SYNC_EPHEMERAL,
   })

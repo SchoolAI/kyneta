@@ -4,8 +4,8 @@
 > **Role**: The schema interpreter algebra — one recursive grammar for document structure, a reactive observation surface (`[CHANGEFEED]` on every ref, with tree-level composed changefeeds for composites), a substrate boundary that separates state management from replication, a migration system that derives stable identity from structure, and a position algebra for cursor-stable text and sequences.
 > **Depends on**: `@kyneta/changefeed`
 > **Depended on by**: `@kyneta/exchange`, `@kyneta/loro-schema`, `@kyneta/yjs-schema`, `@kyneta/index`, `@kyneta/react`, `@kyneta/compiler`, `@kyneta/cast`, `@kyneta/transport`
-> **Canonical symbols**: `Schema`, `Schema.*` constructors, `KIND`, `LAWS`, `bind`, `BoundSchema`, `BoundReplica`, `BindingTarget`, `createBindingTarget`, `json`, `ephemeral`, `Interpret`, `Replicate`, `Defer`, `Reject`, `interpret`, `Interpreter`, `InterpreterLayer`, `createDoc`, `createRef`, `change`, `applyChanges`, `subscribe`, `subscribeNode`, `Substrate`, `SubstrateFactory`, `SubstrateCapabilities`, `Replica`, `ReplicaFactory`, `SubstratePayload`, `Version`, `SyncProtocol`, `SYNC_AUTHORITATIVE`, `SYNC_COLLABORATIVE`, `SYNC_EPHEMERAL`, `requiresBidirectionalSync`, `computeSchemaHash`, `BACKING_DOC`, `Op`, `RecursiveChangefeedProtocol`, `Change`, `ChangeBase`, `TextChange`, `SequenceChange`, `MapChange`, `TreeChange`, `ReplaceChange`, `IncrementChange`, `RichTextChange`, `transformIndex`, `textInstructionsToPatches`, `Migration`, `MIGRATION_CHAIN`, `deriveIdentity`, `deriveManifest`, `deriveSchemaBinding`, `deriveTier`, `validateChain`, `Position`, `POSITION`, `PlainPosition`, `hasPosition`, `decodePlainPosition`, `Side`, `NATIVE`, `SUBSTRATE`, `NativeMap`, `unwrap`, `versionVectorMeet`, `versionVectorCompare`, `Zero`, `validate`, `tryValidate`, `SchemaValidationError`, `foldPath`, `pathSchema`, `PathStepper`, `PathFoldResult`, `extendSchemaPathKey`
-> **Key invariant(s)**: The schema grammar is one recursive type with eleven node kinds; substrates declare *closed* composition-law sets via phantom `[LAWS]` brands; `bind()` enforces law compatibility at compile time. Four named binding targets (`json`, `ephemeral`, `loro`, `yjs`) each bundle a substrate factory, a `SyncProtocol`, and a set of allowed laws. No runtime law dispatch; no open-world subtyping; no hidden backend coupling.
+> **Canonical symbols**: `Schema`, `Schema.*` constructors, `KIND`, `LAWS`, `bind`, `BoundSchema`, `BoundReplica`, `BindingTarget`, `createBindingTarget`, `json`, `ephemeral`, `Interpret`, `Replicate`, `Defer`, `Reject`, `interpret`, `Interpreter`, `InterpreterLayer`, `createDoc`, `createRef`, `change`, `applyChanges`, `subscribe`, `subscribeNode`, `Substrate`, `SubstrateFactory`, `SubstrateCapabilities`, `Replica`, `ReplicaFactory`, `SubstratePayload`, `Version`, `SyncMode`, `SYNC_AUTHORITATIVE`, `SYNC_COLLABORATIVE`, `SYNC_EPHEMERAL`, `requiresBidirectionalSync`, `computeSchemaHash`, `BACKING_DOC`, `Op`, `RecursiveChangefeedProtocol`, `Change`, `ChangeBase`, `TextChange`, `SequenceChange`, `MapChange`, `TreeChange`, `ReplaceChange`, `IncrementChange`, `RichTextChange`, `transformIndex`, `textInstructionsToPatches`, `Migration`, `MIGRATION_CHAIN`, `deriveIdentity`, `deriveManifest`, `deriveSchemaBinding`, `deriveTier`, `validateChain`, `Position`, `POSITION`, `PlainPosition`, `hasPosition`, `decodePlainPosition`, `Side`, `NATIVE`, `SUBSTRATE`, `NativeMap`, `unwrap`, `versionVectorMeet`, `versionVectorCompare`, `Zero`, `validate`, `tryValidate`, `SchemaValidationError`, `foldPath`, `pathSchema`, `PathStepper`, `PathFoldResult`, `extendSchemaPathKey`
+> **Key invariant(s)**: The schema grammar is one recursive type with eleven node kinds; substrates declare *closed* composition-law sets via phantom `[LAWS]` brands; `bind()` enforces law compatibility at compile time. Four named binding targets (`json`, `ephemeral`, `loro`, `yjs`) each bundle a substrate factory, a `SyncMode`, and a set of allowed laws. No runtime law dispatch; no open-world subtyping; no hidden backend coupling.
 
 The algebraic core of every document in Kyneta. You write a schema once — a tree of structural composites and CRDT leaves — and hand it to a substrate (plain JS, Loro, Yjs). The substrate stores state; the interpreter stack gives you a typed, navigable, writable reference (`Ref<S>`) over that state, with reactive observation baked in — every ref carries a `[CHANGEFEED]` that emits one `Changeset<Op>` per transaction covering own-path + descendants via `subscribeDescendants`. Migration primitives derive a content-addressed identity from the schema tree so that documents can evolve across schema versions without losing peer-to-peer identity.
 
@@ -38,8 +38,8 @@ Imported by every other Kyneta package that touches documents: the CRDT backends
 | `Substrate<V>` | State-management + transfer interface: `version()`, `exportEntirety()`, `exportSince(since?)`, `merge(payload, options?)`, `context()`, plus `reader()`, `writable()`, `prepare()`. `V` is the substrate's version type (Lamport vector, Loro version, wall clock, …). | A database, a backend — this is an *interface* the backends implement |
 | `Replica<V>` | The replication surface *alone* — `version`, `exportEntirety`, `exportSince`, `merge`. No schema knowledge. | `Substrate<V>`, which adds `reader`, `writable`, `prepare`, and schema awareness |
 | `ReplicaFactory<V>` / `SubstrateFactory<V>` | Constructors for replicas / substrates. Every `SubstrateFactory` exposes a `replica` accessor yielding a `ReplicaFactory`. | A runtime singleton — factories are reusable and stateless |
-| `BindingTarget<AllowedLaws, N>` | A fixed `(substrate factory, sync protocol, allowed laws)` bundle. Named targets: `json` (authoritative, all laws), `ephemeral` (LWW-family only), `loro` (CRDT laws), `yjs` (Yjs-supported laws). Each exposes `.bind(schema)` → `BoundSchema` and `.replica()` → `BoundReplica`. | `SubstrateFactory` — the target *wraps* a factory; it is not one |
-| `BoundSchema<S>` | The triple `(schema, factory, syncProtocol)` captured at module scope via `target.bind(schema)`. The static declaration of a document type. | A runtime instance — `BoundSchema` is a value describing *how* to make one |
+| `BindingTarget<AllowedLaws, N>` | A fixed `(substrate factory, sync mode, allowed laws)` bundle. Named targets: `json` (authoritative, all laws), `ephemeral` (LWW-family only), `loro` (CRDT laws), `yjs` (Yjs-supported laws). Each exposes `.bind(schema)` → `BoundSchema` and `.replica()` → `BoundReplica`. | `SubstrateFactory` — the target *wraps* a factory; it is not one |
+| `BoundSchema<S>` | The triple `(schema, factory, syncMode)` captured at module scope via `target.bind(schema)`. The static declaration of a document type. | A runtime instance — `BoundSchema` is a value describing *how* to make one |
 | `BoundReplica<V>` | `BoundSchema` minus the schema — used by replication conduits that persist state without reading it. | `BoundSchema` |
 | `Interpret` / `Replicate` / `Defer` / `Reject` | The four variants of an exchange `resolve` callback outcome. Return values from application-level logic that decides how to handle an unknown doc. | Handlers, error types — these are discriminated-union constructors |
 | `Interpreter<Ctx, A>` | The F-algebra: one method per `[KIND]` value, collapsing a schema tree into a value of type `A`. | A parser, a visitor, a validator alone |
@@ -48,7 +48,7 @@ Imported by every other Kyneta package that touches documents: the CRDT backends
 | `Change` | The universal currency of change — discriminated union with `type` (`"text" \| "sequence" \| "map" \| "tree" \| "replace" \| "increment"` and extensible). Flows both inbound (intent) and outbound (notification). | A diff, a patch — `Change` is applied atomically by the substrate |
 | `SubstratePayload` | `{ kind: "entirety" \| "since", encoding: "json" \| "binary", data: string \| Uint8Array }` — opaque state carrier. Produced by the substrate, carried by the exchange. | A `ChannelMsg` — payloads ride *inside* `offer` messages |
 
-| `SyncProtocol` | Structured record decomposing sync semantics into three orthogonal axes: `WriterModel` (`"serialized"` / `"concurrent"`), `Delivery` (`"delta-capable"` / `"snapshot-only"`), `Durability` (`"persistent"` / `"transient"`). Three constants: `SYNC_AUTHORITATIVE`, `SYNC_COLLABORATIVE`, `SYNC_EPHEMERAL`. `requiresBidirectionalSync(protocol)` is the helper predicate. | A string enum, a CRDT algorithm |
+| `SyncMode` | Structured record decomposing sync semantics into three orthogonal axes: `WriterModel` (`"serialized"` / `"concurrent"`), `Delivery` (`"delta-capable"` / `"snapshot-only"`), `Durability` (`"persistent"` / `"transient"`). Three constants: `SYNC_AUTHORITATIVE`, `SYNC_COLLABORATIVE`, `SYNC_EPHEMERAL`. `requiresBidirectionalSync(mode)` is the helper predicate. | A string enum, a CRDT algorithm |
 | `NativeMap<S>` | Type-level functor mapping each schema kind to its substrate-native type (e.g. Loro's `LoroText`, Yjs's `Y.Text`, plain JS `string`). | A runtime `Map<K,V>` |
 | `NATIVE` / `SUBSTRATE` / `BACKING_DOC` | Symbol-keyed accessors for the underlying native container, the substrate instance, and the backing document object. | User-facing APIs — these are escape hatches |
 | `Position` | Substrate-mediated stable reference to a location within text or a sequence. Survives concurrent edits. | A numeric index, a character position |
@@ -92,7 +92,7 @@ Plus three cross-cutting facilities:
 - **Not a database.** It is an interface. Plain JS objects, Loro CRDTs, and Yjs docs all satisfy it.
 - **Not a backend in the framework sense.** No framework choices leak through the substrate boundary — there is no "Loro mode" that propagates upward. The interpreter stack treats every substrate identically.
 - **Not responsible for sync.** The substrate produces and consumes `SubstratePayload`. The exchange owns *when* and *to whom* to send it.
-- **Not symmetric across sync protocols.** A collaborative substrate (Loro, Yjs) has concurrent versions (`SYNC_COLLABORATIVE`); an authoritative substrate (json) has a total order (`SYNC_AUTHORITATIVE`); an ephemeral substrate has wall-clock-timestamped overwrite (`SYNC_EPHEMERAL`). The `SyncProtocol` — decomposed into `WriterModel`, `Delivery`, and `Durability` axes — tells the exchange which protocol shape to run. `requiresBidirectionalSync(protocol)` is the predicate the exchange uses to decide whether to establish a bidirectional causal exchange or a unidirectional push.
+- **Not symmetric across sync modes.** A collaborative substrate (Loro, Yjs) has concurrent versions (`SYNC_COLLABORATIVE`); an authoritative substrate (json) has a total order (`SYNC_AUTHORITATIVE`); an ephemeral substrate has wall-clock-timestamped overwrite (`SYNC_EPHEMERAL`). The `SyncMode` — decomposed into `WriterModel`, `Delivery`, and `Durability` axes — tells the exchange which mode shape to run. `requiresBidirectionalSync(mode)` is the predicate the exchange uses to decide whether to establish a bidirectional causal exchange or a unidirectional push.
 - **Not a monolithic capability provider.** Producer-side capability attachment uses a typed bag (`SubstrateCapabilities`); consumer-side capability discovery uses optional fields on `RefContext` plus the `HasTreeNodeAllocation` marker interface. The asymmetry is deliberate — substrates declare what they have; consumers ask only when they need it.
 
 ---
@@ -184,9 +184,9 @@ Source: `packages/schema/src/bind.ts`.
 
 ### The four binding targets
 
-Rather than parameterizing a generic namespace with a merge strategy, each substrate is a named `BindingTarget` — a fixed bundle of `(factory, syncProtocol, allowedLaws)`:
+Rather than parameterizing a generic namespace with a merge strategy, each substrate is a named `BindingTarget` — a fixed bundle of `(factory, syncMode, allowedLaws)`:
 
-| Target | Import | `SyncProtocol` | Allowed laws | Substrate |
+| Target | Import | `SyncMode` | Allowed laws | Substrate |
 |--------|--------|----------------|--------------|-----------|
 | `json` | `@kyneta/schema` | `SYNC_AUTHORITATIVE` | all (`string`) | Plain JS objects, Lamport version |
 | `ephemeral` | `@kyneta/schema` | `SYNC_EPHEMERAL` | `EphemeralLaws` (`"lww"`, `"lww-per-key"`, `"lww-tag-replaced"`) | LWW substrate, wall-clock version |
@@ -206,15 +206,15 @@ const Todo = loro.bind(Schema.struct({ title: Schema.text(), done: Schema.boolea
 const Note = yjs.bind(Schema.struct({ body: Schema.text() }))
 ```
 
-No strategy parameter — the sync protocol is fixed per target.
+No strategy parameter — the sync mode is fixed per target.
 
 ### Low-level `bind()`
 
-`bind({ schema, factory, syncProtocol })` returns a `BoundSchema<S>`. It captures three decisions at module scope:
+`bind({ schema, factory, syncMode })` returns a `BoundSchema<S>`. It captures three decisions at module scope:
 
 1. **Which schema** — the recursive `Schema` value.
 2. **Which factory builder** — `(context: { peerId, binding }) => SubstrateFactory<V>`. The builder receives the peer's identity and the schema binding; this is how a fresh factory instance is produced per exchange.
-3. **Which sync protocol** — a `SyncProtocol` value (one of `SYNC_AUTHORITATIVE`, `SYNC_COLLABORATIVE`, `SYNC_EPHEMERAL`, or a custom record).
+3. **Which sync mode** — a `SyncMode` value (one of `SYNC_AUTHORITATIVE`, `SYNC_COLLABORATIVE`, `SYNC_EPHEMERAL`, or a custom record).
 
 The result is a static value: `const Todo = loro.bind(schema)`. The exchange consumes it as `exchange.get(docId, Todo)`.
 
@@ -222,7 +222,7 @@ The result is a static value: `const Todo = loro.bind(schema)`. The exchange con
 type BoundSchema<S extends Schema> = {
   schema: S
   factory: FactoryBuilder<V>
-  syncProtocol: SyncProtocol
+  syncMode: SyncMode
   manifest: IdentityManifest
   schemaHash: string
 }
@@ -236,7 +236,7 @@ The `manifest` is derived eagerly by `deriveManifest(schema)` — a pure functio
 export function createBindingTarget<AllowedLaws, N>(config: {
   factory: FactoryBuilder<any>
   replicaFactory: ReplicaFactory
-  syncProtocol: SyncProtocol
+  syncMode: SyncMode
 }): BindingTarget<AllowedLaws, N>
 ```
 
@@ -245,12 +245,12 @@ Custom substrate authors use `createBindingTarget` to build their own targets. T
 ### What `bind` is NOT
 
 - **Not lazy.** Both `manifest` and `schemaHash` are computed on construction. Binding at module scope does the work once at import time.
-- **Not runtime-variable.** The schema, factory, and sync protocol are all captured as values; `BoundSchema` has no runtime parameters.
+- **Not runtime-variable.** The schema, factory, and sync mode are all captured as values; `BoundSchema` has no runtime parameters.
 - **Not magic.** `bind` validates the migration chain (if any) via `validateChain`, derives the binding, and stores the fields. No side effects on the schema or the factory.
 
 ### `BoundReplica<V>`: replication-only binding
 
-A pure replication conduit (a routing server, a CDN edge, a store-only peer) does not need to interpret document state. It only needs to receive, persist, and re-emit payloads. `BoundReplica<V>` is `BoundSchema<S>` minus the schema — it carries the replica factory, sync protocol, and schema hash, but not the grammar itself.
+A pure replication conduit (a routing server, a CDN edge, a store-only peer) does not need to interpret document state. It only needs to receive, persist, and re-emit payloads. `BoundReplica<V>` is `BoundSchema<S>` minus the schema — it carries the replica factory, sync mode, and schema hash, but not the grammar itself.
 
 This is the three-tier participation model:
 
@@ -1183,8 +1183,8 @@ Selection of the most-used types. Full list in [Canonical symbols](#canonical-sy
 | `Ref<S>`, `RRef<S>`, `RWRef<S>`, `DocRef<S>` | `src/ref.ts` | Refs at each capability tier. |
 | `Substrate<V>`, `Replica<V>`, `SubstrateFactory<V>`, `ReplicaFactory<V>` | `src/substrate.ts` | Interfaces. |
 | `SubstratePayload` | `src/substrate.ts` | Opaque transfer shape. |
-| `SyncProtocol`, `WriterModel`, `Delivery`, `Durability` | `src/substrate.ts` | Structured sync protocol and its three axes. |
-| `SYNC_AUTHORITATIVE`, `SYNC_COLLABORATIVE`, `SYNC_EPHEMERAL` | `src/substrate.ts` | The three built-in sync protocol constants. |
+| `SyncMode`, `WriterModel`, `Delivery`, `Durability` | `src/substrate.ts` | Structured sync mode and its three axes. |
+| `SYNC_AUTHORITATIVE`, `SYNC_COLLABORATIVE`, `SYNC_EPHEMERAL` | `src/substrate.ts` | The three built-in sync mode constants. |
 | `Version` | `src/substrate.ts` | Abstract version base. |
 | `Change`, `ChangeBase`, `TextChange`, `SequenceChange`, `MapChange`, `TreeChange`, `ReplaceChange`, `IncrementChange`, `RichTextChange` | `src/change.ts` | Change vocabulary. |
 | `RichTextSchema`, `MarkConfig` | `src/schema.ts` | Rich text schema kind + mark configuration. |

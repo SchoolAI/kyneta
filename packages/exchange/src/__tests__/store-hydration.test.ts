@@ -287,7 +287,7 @@ describe("Exchange storage persistence", () => {
     // After flush, a meta record should have been appended
     expect(await backend.currentMeta("doc-1")).toEqual({
       replicaType: ["plain", 1, 0],
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
       schemaHash: TestDoc.schemaHash,
     })
 

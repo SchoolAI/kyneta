@@ -25,7 +25,7 @@ import type { DocId, PeerIdentityDetails } from "./types.js"
  * Optional wire-format features advertised by a peer in `establish`.
  *
  * Distinct from `Capabilities` in `@kyneta/exchange` (which describes
- * substrate/schema bindings — `ReplicaType × SyncProtocol` pairs the peer
+ * substrate/schema bindings — `ReplicaType × SyncMode` pairs the peer
  * speaks). `WireFeatures` describes what *wire-format* extensions a peer
  * understands — independent of any substrate.
  *
@@ -78,7 +78,7 @@ export type DepartMsg = {
  * announce documents it holds. The receiver checks its own state and
  * decides whether to send `interest`. No response expected.
  *
- * Each entry carries per-document metadata (replicaType, syncProtocol)
+ * Each entry carries per-document metadata (replicaType, syncMode)
  * so the receiver can validate compatibility before any binary exchange.
  */
 export type PresentMsg = {

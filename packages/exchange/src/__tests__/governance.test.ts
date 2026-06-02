@@ -361,7 +361,7 @@ describe("Governance", () => {
           _docId: unknown,
           _peer: unknown,
           _replicaType: unknown,
-          _syncProtocol: unknown,
+          _syncMode: unknown,
           _schemaHash: unknown,
         ) => Interpret(bound),
       )

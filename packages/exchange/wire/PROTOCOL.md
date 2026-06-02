@@ -143,7 +143,7 @@ v1 has no transport-prefix layer. The frame type byte (offset 1 of the 6-byte he
 | `a` | docId alias | non-negative integer (alias assignment) | present (doc entry, optional) |
 | `d` | docId / data | `string` (present doc entry) or `string \| Uint8Array` (offer) | present, offer |
 | `rt` | replicaType | `[string, number, number]` | present (doc entry) |
-| `ms` | syncProtocol | `SyncProtocolWireValue` (`0x00` collaborative, `0x01` authoritative, `0x02` ephemeral) | present (doc entry) |
+| `ms` | syncMode | `SyncModeWireValue` (`0x00` collaborative, `0x01` authoritative, `0x02` ephemeral) | present (doc entry) |
 | `v` | version | `string` | interest (optional), offer |
 | `r` | reciprocate | `boolean` (optional) | interest, offer |
 | `pk` | payload kind | `0x00` (entirety) or `0x01` (since) | offer |

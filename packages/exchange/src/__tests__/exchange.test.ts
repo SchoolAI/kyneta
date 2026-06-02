@@ -151,7 +151,7 @@ describe("Exchange", () => {
       const Doc = bind({
         schema: testSchema,
         factory: builder,
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       })
 
       const exchange = new Exchange({ id: "alice-123" })
@@ -167,7 +167,7 @@ describe("Exchange", () => {
       const DocA = bind({
         schema: testSchema,
         factory: builder,
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       })
 
       const exchange = new Exchange({ id: "test" })
@@ -191,7 +191,7 @@ describe("Exchange", () => {
       const Doc = bind({
         schema: testSchema,
         factory: builder,
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       })
 
       const exchangeA = new Exchange({ id: "alice" })

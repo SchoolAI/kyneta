@@ -10,7 +10,7 @@ import {
   type MessageTypeValue,
   PayloadEncoding,
   PayloadKind,
-  SyncProtocolWire,
+  SyncModeWire,
   type WireMessage,
 } from "./wire-types.js"
 
@@ -79,10 +79,10 @@ const VALID_MESSAGE_TYPES = new Set<number>([
 
 const VALID_PEER_TYPES = new Set<string>(["user", "bot", "service"])
 
-const VALID_SYNC_PROTOCOLS = new Set<number>([
-  SyncProtocolWire.Collaborative,
-  SyncProtocolWire.Authoritative,
-  SyncProtocolWire.Ephemeral,
+const VALID_SYNC_MODES = new Set<number>([
+  SyncModeWire.Collaborative,
+  SyncModeWire.Authoritative,
+  SyncModeWire.Ephemeral,
 ])
 
 const VALID_PAYLOAD_KINDS = new Set<number>([
@@ -146,8 +146,8 @@ function validatePresent(
         i,
         "rt",
       ])
-    if (!isNumber(entry.ms) || !VALID_SYNC_PROTOCOLS.has(entry.ms))
-      return fail("ms must be a valid SyncProtocolWireValue", ["docs", i, "ms"])
+    if (!isNumber(entry.ms) || !VALID_SYNC_MODES.has(entry.ms))
+      return fail("ms must be a valid SyncModeWireValue", ["docs", i, "ms"])
     if (entry.sh !== undefined && !isString(entry.sh))
       return fail("sh must be a string", ["docs", i, "sh"])
     if (entry.shx !== undefined && !isNumber(entry.shx))

@@ -181,7 +181,7 @@ const PresenceDoc = ephemeral.bind(Schema.struct({
   name: Schema.string(),
 }))
 
-// Same exchange, same transport connections, different sync protocol
+// Same exchange, same transport connections, different sync mode
 const doc = exchange.get("shared-doc", TodoDoc)          // Loro CRDT, concurrent merge
 const presence = exchange.get("my-presence", PresenceDoc) // ephemeral broadcast
 ```
@@ -231,7 +231,7 @@ A `BoundSchema` captures the three choices that define a document type:
 
 1. **Schema** — what shape is the data?
 2. **Factory** — how is the data stored and versioned?
-3. **SyncProtocol** — how does the exchange sync it?
+3. **SyncMode** — how does the exchange sync it?
 
 ```ts
 import { Schema, json, ephemeral } from "@kyneta/schema"
@@ -266,18 +266,18 @@ For custom substrates, use `bind()` directly as the general primitive, and `crea
 ```ts
 import { bind, createBindingTarget, SYNC_COLLABORATIVE } from "@kyneta/schema"
 
-// bind() is the general primitive — explicit schema, factory builder, syncProtocol
+// bind() is the general primitive — explicit schema, factory builder, syncMode
 const CustomDoc = bind({
   schema: Schema.struct({ data: Schema.string() }),
   factory: (ctx) => createMyFactory(ctx.peerId),
-  syncProtocol: SYNC_COLLABORATIVE,
+  syncMode: SYNC_COLLABORATIVE,
 })
 
 // createBindingTarget builds a binding target like json/ephemeral/loro/yjs
 const mySubstrate = createBindingTarget({
   factory: (ctx) => createMyFactory(ctx.peerId),
   replicaFactory: myReplicaFactory,
-  syncProtocol: {
+  syncMode: {
     writerModel: "concurrent",
     delivery: "delta-capable",
     durability: "persistent",
@@ -288,11 +288,11 @@ const AnotherDoc = mySubstrate.bind(Schema.struct({ data: Schema.string() }))
 const replica = mySubstrate.replica()
 ```
 
-### Three sync protocols, one wire format
+### Three sync modes, one wire format
 
-Each BoundSchema carries a `SyncProtocol` — a structured record with three orthogonal axes (`writerModel`, `delivery`, `durability`) — that determines how the exchange syncs documents of that type. These are genuinely different sync algorithms, not transport optimizations:
+Each BoundSchema carries a `SyncMode` — a structured record with three orthogonal axes (`writerModel`, `delivery`, `durability`) — that determines how the exchange syncs documents of that type. These are genuinely different sync algorithms, not transport optimizations:
 
-| SyncProtocol constant | Axes | Protocol | Version Order | Use Case |
+| SyncMode constant | Axes | Protocol | Version Order | Use Case |
 |-----------------------|------|----------|---------------|----------|
 | `SYNC_COLLABORATIVE` | concurrent + delta-capable + persistent | Bidirectional exchange | Partial (concurrent possible) | Loro / Yjs CRDTs |
 | `SYNC_AUTHORITATIVE` | serialized + delta-capable + persistent | Request/response | Total (no concurrency) | Plain substrates |
@@ -300,16 +300,16 @@ Each BoundSchema carries a `SyncProtocol` — a structured record with three ort
 
 All three run over the same five-message sync protocol:
 
-- **`present`** — "I have these documents." Carries `docId`, `replicaType`, `syncProtocol`, and `schemaHash` so the receiver can validate compatibility before any data exchange.
+- **`present`** — "I have these documents." Carries `docId`, `replicaType`, `syncMode`, and `schemaHash` so the receiver can validate compatibility before any data exchange.
 - **`interest`** — "I want document X. Here's my version." Carries `reciprocate` for collaborative bidirectional exchange.
 - **`offer`** — "Here is state for document X." Carries an opaque `SubstratePayload` — the exchange never inspects the bytes.
 - **`dismiss`** — "I'm leaving document X."
 
-Two additional messages (`establish-request`, `establish-response`) handle channel handshake. The sync protocol's field values determine *when* and *how* these messages are sent, not their shape.
+Two additional messages (`establish-request`, `establish-response`) handle channel handshake. The sync mode's field values determine *when* and *how* these messages are sent, not their shape.
 
 ### The exchange never inspects your data
 
-This is the architectural decision that makes substrate agnosticism real. The exchange dispatches on `SyncProtocol` fields (`delivery`, `writerModel`) to decide protocol behavior, but actual document payloads are opaque `SubstratePayload` values. The exchange moves bytes; the substrate interprets them. This means:
+This is the architectural decision that makes substrate agnosticism real. The exchange dispatches on `SyncMode` fields (`delivery`, `writerModel`) to decide protocol behavior, but actual document payloads are opaque `SubstratePayload` values. The exchange moves bytes; the substrate interprets them. This means:
 
 - A Loro document, a Yjs document, a plain JS object, and an ephemeral value all flow through the same protocol.
 - A relay can forward documents without knowing what CRDT library produced them.
@@ -364,7 +364,7 @@ const config = exchange.get("settings", ConfigDoc)     // Plain JSON, sequential
 const presence = exchange.get("presence", PresenceDoc) // ephemeral broadcast
 ```
 
-Each document's substrate and sync protocol are determined by its BoundSchema. No configuration needed at the exchange level.
+Each document's substrate and sync mode are determined by its BoundSchema. No configuration needed at the exchange level.
 
 ### Governance Predicates
 
@@ -388,7 +388,7 @@ import { Interpret, Replicate, Defer, Reject } from "@kyneta/schema"
 const gameExchange = new Exchange({
   id: "game-server",
   transports: [serverTransport],
-  resolve: (docId, peer, replicaType, syncProtocol, schemaHash) => {
+  resolve: (docId, peer, replicaType, syncMode, schemaHash) => {
     if (docId.startsWith("input:")) return Interpret(PlayerInputDoc)
     if (docId.startsWith("ephemeral:")) return Defer()
     return Reject()
@@ -547,7 +547,7 @@ You only engage the next level when you need it. Each level is additive — it d
 |----------------|-------------|
 | `get(docId, boundSchema)` | Get or create a document in interpret mode. Returns `Ref<S>`. Auto-registers the schema in the capabilities registry. |
 | `replicate(docId)` | Promote a deferred document — factory resolved from the capabilities registry. |
-| `replicate(docId, replicaFactory, syncProtocol, schemaHash)` | Register a document for headless replication with explicit arguments. |
+| `replicate(docId, replicaFactory, syncMode, schemaHash)` | Register a document for headless replication with explicit arguments. |
 | `has(docId)` | Check if a document exists (interpret or replicate mode). |
 | `deferred` | `ReadonlySet<DocId>` — deferred document IDs. Participate in routing but have no local representation. |
 | `dismiss(docId)` | Leave the sync graph — removes locally, broadcasts `dismiss`, deletes from stores. |
@@ -575,7 +575,7 @@ You only engage the next level when you need it. Each level is additive — it d
 | `canAccept` | `(docId, peer) → boolean \| undefined` — inbound flow control. Default: allow. |
 | `canReset` | `(docId, peer) → boolean \| undefined` — epoch boundary policy. Default: allow. |
 | `canConnect` | `(peer) → boolean \| undefined` — connection-level gate. Default: allow. |
-| `resolve` | `(docId, peer, replicaType, syncProtocol, schemaHash) → Disposition` — policy gate for unknown docs. |
+| `resolve` | `(docId, peer, replicaType, syncMode, schemaHash) → Disposition` — policy gate for unknown docs. |
 | `departureTimeout` | `number` — ms before a disconnected peer is declared departed. Default: `30_000`. |
 
 ### sync()
@@ -596,7 +596,7 @@ You only engage the next level when you need it. Each level is additive — it d
 
 | Function | Package | Description |
 |----------|---------|-------------|
-| `bind({ schema, factory, syncProtocol })` | `@kyneta/schema` | General primitive — explicit schema, factory builder, sync protocol. |
+| `bind({ schema, factory, syncMode })` | `@kyneta/schema` | General primitive — explicit schema, factory builder, sync mode. |
 | `json.bind(schema)` | `@kyneta/schema` | Plain substrate + authoritative protocol (`SYNC_AUTHORITATIVE`). |
 | `ephemeral.bind(schema)` | `@kyneta/schema` | Plain substrate + ephemeral broadcast protocol (`SYNC_EPHEMERAL`). Ideal for presence. |
 | `loro.bind(schema)` | `@kyneta/loro-schema` | Loro substrate + collaborative protocol (`SYNC_COLLABORATIVE`). |
@@ -604,9 +604,9 @@ You only engage the next level when you need it. Each level is additive — it d
 
 ### Binding Targets
 
-Each binding target is a fixed `(substrate, sync-protocol, supported-laws)` bundle. No strategy parameter — each target has exactly one sync protocol.
+Each binding target is a fixed `(substrate, sync-mode, supported-laws)` bundle. No strategy parameter — each target has exactly one sync mode.
 
-| Target | Package | `syncProtocol` | Description |
+| Target | Package | `syncMode` | Description |
 |--------|---------|----------------|-------------|
 | `json.bind(schema)` | `@kyneta/schema` | `SYNC_AUTHORITATIVE` | Plain substrate, sequential sync. |
 | `json.replica()` | `@kyneta/schema` | `SYNC_AUTHORITATIVE` | Plain replica for headless replication. |

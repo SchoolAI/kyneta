@@ -90,10 +90,10 @@ describe("Capabilities", () => {
     const resolved = caps.resolveReplica(["plain", 1, 0], SYNC_AUTHORITATIVE)
     expect(resolved).toBeDefined()
     expect(resolved?.factory).toBe(plainReplicaFactory)
-    expect(resolved?.syncProtocol).toBe(SYNC_AUTHORITATIVE)
+    expect(resolved?.syncMode).toBe(SYNC_AUTHORITATIVE)
   })
 
-  it("resolveReplica returns undefined for wrong syncProtocol", () => {
+  it("resolveReplica returns undefined for wrong syncMode", () => {
     const caps = createCapabilities({
       schemas: [],
       replicas: [...DEFAULT_REPLICAS],
@@ -138,7 +138,7 @@ describe("Capabilities", () => {
     expect(resolved).toBe(bound)
   })
 
-  it("resolveSchema returns undefined for wrong syncProtocol", () => {
+  it("resolveSchema returns undefined for wrong syncMode", () => {
     const schema = Schema.struct({ title: Schema.string() })
     const bound = json.bind(schema)
 
@@ -195,7 +195,7 @@ describe("Capabilities", () => {
     const resolved = caps.resolveReplica(["loro", 1, 0], SYNC_COLLABORATIVE)
     expect(resolved).toBeDefined()
     expect(resolved?.factory.replicaType).toEqual(["loro", 1, 0])
-    expect(resolved?.syncProtocol).toBe(SYNC_COLLABORATIVE)
+    expect(resolved?.syncMode).toBe(SYNC_COLLABORATIVE)
   })
 
   // -------------------------------------------------------------------------

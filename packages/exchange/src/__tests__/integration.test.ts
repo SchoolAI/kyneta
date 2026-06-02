@@ -1711,7 +1711,7 @@ describe("deferred document lifecycle", () => {
 
     // Promote d1 via get() — this calls registerSchema(SequentialDoc)
     // internally, which auto-promotes ALL deferred docs matching the
-    // same (schemaHash, replicaType, syncProtocol) triple.
+    // same (schemaHash, replicaType, syncMode) triple.
     // Since d2 also uses SequentialDoc, both are promoted.
     exchangeB.get("d1", SequentialDoc)
     await drain(20)

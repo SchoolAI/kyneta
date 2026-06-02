@@ -74,7 +74,7 @@ describe("Binary frame — complete", () => {
         docId: "doc-1",
         schemaHash: "00test",
         replicaType: ["plain", 1, 0],
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       },
     ])
     const frame = encodeToFrame(wire)
@@ -94,19 +94,19 @@ describe("Binary frame — complete", () => {
         docId: "a",
         schemaHash: "00test",
         replicaType: ["plain", 1, 0],
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       },
       {
         docId: "b",
         schemaHash: "00test",
         replicaType: ["yjs", 1, 0],
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       },
       {
         docId: "c",
         schemaHash: "00test",
         replicaType: ["loro", 1, 0],
-        syncProtocol: SYNC_EPHEMERAL,
+        syncMode: SYNC_EPHEMERAL,
       },
     ])
     const encoded = encodeToFrame(wire)
@@ -205,7 +205,7 @@ describe("Binary frame — batch (via complete frame)", () => {
           docId: "d1",
           schemaHash: "00test",
           replicaType: ["plain", 1, 0],
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
       ]),
       interestWire({ docId: "d1", version: "0" }),
@@ -229,13 +229,13 @@ describe("Binary frame — batch (via complete frame)", () => {
           docId: "d1",
           schemaHash: "00test",
           replicaType: ["plain", 1, 0],
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
         {
           docId: "d2",
           schemaHash: "00test",
           replicaType: ["yjs", 1, 0],
-          syncProtocol: SYNC_COLLABORATIVE,
+          syncMode: SYNC_COLLABORATIVE,
         },
       ]),
       interestWire({ docId: "d1", version: "5", reciprocate: true }),
@@ -366,7 +366,7 @@ describe("Binary frame — encodeBinaryFrame generic", () => {
         docId: "x",
         schemaHash: "00test",
         replicaType: ["plain", 1, 0],
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       },
     ])
     const payload = encodeWireMessage(wire)
@@ -479,7 +479,7 @@ describe("Binary frame — edge cases", () => {
         docId: "test",
         schemaHash: "00test",
         replicaType: ["plain", 1, 0],
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       },
     ])
     const encoded = encodeToFrame(wire)

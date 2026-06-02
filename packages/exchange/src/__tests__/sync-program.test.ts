@@ -4,7 +4,7 @@ import {
   SYNC_AUTHORITATIVE,
   SYNC_COLLABORATIVE,
   SYNC_EPHEMERAL,
-  type SyncProtocol,
+  type SyncMode,
 } from "@kyneta/schema"
 import { describe, expect, it } from "vitest"
 import {
@@ -73,7 +73,7 @@ function ensureDoc(
   docId: string,
   opts?: {
     mode?: "interpret" | "replicate"
-    syncProtocol?: SyncProtocol
+    syncMode?: SyncMode
     version?: string
     schemaHash?: string
     supportedHashes?: readonly string[]
@@ -87,7 +87,7 @@ function ensureDoc(
       mode: opts?.mode ?? "interpret",
       version: opts?.version ?? "v1",
       replicaType: ["test", 0, 0],
-      syncProtocol: opts?.syncProtocol ?? SYNC_COLLABORATIVE,
+      syncMode: opts?.syncMode ?? SYNC_COLLABORATIVE,
       schemaHash: opts?.schemaHash ?? "abc123",
       supportedHashes: opts?.supportedHashes,
     },
@@ -101,7 +101,7 @@ function deferDoc(
   model: SyncModel,
   docId: string,
   opts?: {
-    syncProtocol?: SyncProtocol
+    syncMode?: SyncMode
   },
 ): [SyncModel, SyncEffect[]] {
   return applyUpdate(
@@ -110,7 +110,7 @@ function deferDoc(
       type: "sync/doc-defer",
       docId,
       replicaType: ["test", 0, 0],
-      syncProtocol: opts?.syncProtocol ?? SYNC_COLLABORATIVE,
+      syncMode: opts?.syncMode ?? SYNC_COLLABORATIVE,
       schemaHash: "abc123",
     },
     model,
@@ -379,7 +379,7 @@ describe("sync-program", () => {
       expect(entry.docId).toBe("doc-1")
       expect(entry.mode).toBe("interpret")
       expect(entry.version).toBe("v1")
-      expect(entry.syncProtocol).toBe(SYNC_COLLABORATIVE)
+      expect(entry.syncMode).toBe(SYNC_COLLABORATIVE)
     })
 
     it("announces to all available peers via present", () => {
@@ -404,7 +404,7 @@ describe("sync-program", () => {
       ;[model] = addPeer(update, model, "bob", bob)
 
       const [, effects] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       })
       const interests = effectsOfType(effects, "send-to-peers")
       const interestEffect = interests.find(
@@ -503,7 +503,7 @@ describe("sync-program", () => {
           {
             docId: "doc-1",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "abc123",
           },
         ],
@@ -523,7 +523,7 @@ describe("sync-program", () => {
       let model = initSync(alice)
       ;[model] = addPeer(update, model, "bob", bob)
       ;[model] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       })
 
       const [, effects] = receiveMessage(update, model, "bob", {
@@ -532,7 +532,7 @@ describe("sync-program", () => {
           {
             docId: "doc-1",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "abc123",
           },
         ],
@@ -557,7 +557,7 @@ describe("sync-program", () => {
           {
             docId: "unknown-doc",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "abc123",
           },
         ],
@@ -582,7 +582,7 @@ describe("sync-program", () => {
           {
             docId: "blocked-doc",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "abc123",
           },
         ],
@@ -604,7 +604,7 @@ describe("sync-program", () => {
           {
             docId: "doc-1",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "abc123",
           },
         ],
@@ -629,7 +629,7 @@ describe("sync-program", () => {
           {
             docId: "doc-1",
             replicaType: ["other", 0, 0], // different name → incompatible
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "abc123",
           },
         ],
@@ -656,7 +656,7 @@ describe("sync-program", () => {
           {
             docId: "doc-1",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "different-hash",
           },
         ],
@@ -687,7 +687,7 @@ describe("sync-program", () => {
           {
             docId: "doc-1",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "v1",
             supportedHashes: ["v1"],
           },
@@ -717,7 +717,7 @@ describe("sync-program", () => {
           {
             docId: "doc-1",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "abc123",
             // NO supportedHashes — legacy peer
           },
@@ -749,7 +749,7 @@ describe("sync-program", () => {
           {
             docId: "doc-1",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "v1",
             supportedHashes: ["v1"],
           },
@@ -764,12 +764,12 @@ describe("sync-program", () => {
       expect(sends.length).toBe(0)
     })
 
-    it("syncProtocol mismatch: emits warning", () => {
+    it("syncMode mismatch: emits warning", () => {
       const update = makeUpdate()
       let model = initSync(alice)
       ;[model] = addPeer(update, model, "bob", bob)
       ;[model] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       })
 
       const [, effects] = receiveMessage(update, model, "bob", {
@@ -778,7 +778,7 @@ describe("sync-program", () => {
           {
             docId: "doc-1",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_EPHEMERAL,
+            syncMode: SYNC_EPHEMERAL,
             schemaHash: "abc123",
           },
         ],
@@ -786,7 +786,7 @@ describe("sync-program", () => {
 
       const warnings = effectsOfType(effects, "warning")
       expect(warnings.length).toBe(1)
-      expect(defined(warnings[0]).message).toContain("syncProtocol mismatch")
+      expect(defined(warnings[0]).message).toContain("syncMode mismatch")
 
       const sends = effectsOfType(effects, "send-to-peer")
       expect(sends.length).toBe(0)
@@ -802,7 +802,7 @@ describe("sync-program", () => {
       let model = initSync(alice)
       ;[model] = addPeer(update, model, "bob", bob)
       ;[model] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       })
 
       const [, effects] = receiveMessage(update, model, "bob", {
@@ -823,7 +823,7 @@ describe("sync-program", () => {
       let model = initSync(alice)
       ;[model] = addPeer(update, model, "bob", bob)
       ;[model] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       })
 
       const [, effects] = receiveMessage(update, model, "bob", {
@@ -851,7 +851,7 @@ describe("sync-program", () => {
       let model = initSync(alice)
       ;[model] = addPeer(update, model, "bob", bob)
       ;[model] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       })
 
       const [, effects] = receiveMessage(update, model, "bob", {
@@ -871,7 +871,7 @@ describe("sync-program", () => {
       let model = initSync(alice)
       ;[model] = addPeer(update, model, "bob", bob)
       ;[model] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_EPHEMERAL,
+        syncMode: SYNC_EPHEMERAL,
       })
 
       const [, effects] = receiveMessage(update, model, "bob", {
@@ -1150,7 +1150,7 @@ describe("sync-program", () => {
       let model = initSync(alice)
       ;[model] = addPeer(update, model, "bob", bob)
       ;[model] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       })
 
       // Create a synced peer state for bob via doc-imported
@@ -1183,7 +1183,7 @@ describe("sync-program", () => {
       ;[model] = addPeer(update, model, "bob", bob)
       ;[model] = addPeer(update, model, "carol", carol)
       ;[model] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_EPHEMERAL,
+        syncMode: SYNC_EPHEMERAL,
       })
 
       // Only bob has synced — carol has not expressed interest
@@ -1304,7 +1304,7 @@ describe("sync-program", () => {
       ;[model] = addPeer(update, model, "bob", bob)
       ;[model] = addPeer(update, model, "carol", carol)
       ;[model] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       })
 
       // Both peers need to have synced state for relay to work
@@ -1404,7 +1404,7 @@ describe("sync-program", () => {
       ;[model] = addPeer(update, model, "bob", bob)
       ;[model] = addPeer(update, model, "carol", carol)
       ;[model] = ensureDoc(update, model, "doc-1", {
-        syncProtocol: SYNC_EPHEMERAL,
+        syncMode: SYNC_EPHEMERAL,
       })
 
       const [, effects] = applyUpdate(
@@ -1433,13 +1433,13 @@ describe("sync-program", () => {
           {
             docId: "private-doc",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "abc123",
           },
           {
             docId: "public-doc",
             replicaType: ["test", 0, 0],
-            syncProtocol: SYNC_COLLABORATIVE,
+            syncMode: SYNC_COLLABORATIVE,
             schemaHash: "abc123",
           },
         ],

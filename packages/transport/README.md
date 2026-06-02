@@ -95,7 +95,7 @@ class MyTransport extends Transport<void> {
 }
 ```
 
-`@kyneta/schema` and `@kyneta/machine` are peer dependencies (needed for `SyncProtocol`, `ReplicaType`, `SubstratePayload`, and the state-machine types used in message definitions).
+`@kyneta/schema` and `@kyneta/machine` are peer dependencies (needed for `SyncMode`, `ReplicaType`, `SubstratePayload`, and the state-machine types used in message definitions).
 
 ## License
 

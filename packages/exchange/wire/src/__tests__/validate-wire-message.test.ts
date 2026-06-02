@@ -9,7 +9,7 @@ import {
   MessageType,
   PayloadEncoding,
   PayloadKind,
-  SyncProtocolWire,
+  SyncModeWire,
 } from "../wire-types.js"
 
 // ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ describe("present (t: 0x10)", () => {
   const validDoc = {
     d: "doc1",
     rt: ["type", 1, 2],
-    ms: SyncProtocolWire.Collaborative,
+    ms: SyncModeWire.Collaborative,
     sh: "hash123",
   }
 

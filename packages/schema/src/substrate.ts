@@ -576,7 +576,7 @@ export function replicaTypesCompatible(
 }
 
 // ---------------------------------------------------------------------------
-// SyncProtocol — structured sync protocol
+// SyncMode — structured sync mode
 // ---------------------------------------------------------------------------
 
 /** Who can write to this document? */
@@ -589,48 +589,48 @@ export type Delivery = "delta-capable" | "snapshot-only"
 export type Durability = "persistent" | "transient"
 
 /**
- * The sync protocol for a document — decomposed into three independent axes
+ * The sync mode for a document — decomposed into three independent axes
  * so each dispatch site in the exchange can match on exactly the field it
  * cares about.
  */
-export interface SyncProtocol {
+export interface SyncMode {
   readonly writerModel: WriterModel
   readonly delivery: Delivery
   readonly durability: Durability
 }
 
 /** Authoritative: serialized writes, delta-capable, persistent. Used by `json`. */
-export const SYNC_AUTHORITATIVE: SyncProtocol = {
+export const SYNC_AUTHORITATIVE: SyncMode = {
   writerModel: "serialized",
   delivery: "delta-capable",
   durability: "persistent",
 } as const
 
 /** Collaborative: concurrent CRDT writes, delta-capable, persistent. Used by `loro`, `yjs`. */
-export const SYNC_COLLABORATIVE: SyncProtocol = {
+export const SYNC_COLLABORATIVE: SyncMode = {
   writerModel: "concurrent",
   delivery: "delta-capable",
   durability: "persistent",
 } as const
 
 /** Ephemeral: concurrent LWW writes, snapshot-only, transient. Used by `ephemeral`. */
-export const SYNC_EPHEMERAL: SyncProtocol = {
+export const SYNC_EPHEMERAL: SyncMode = {
   writerModel: "concurrent",
   delivery: "snapshot-only",
   durability: "transient",
 } as const
 
 /**
- * Does this protocol require bidirectional state exchange (causal merge)?
+ * Does this mode require bidirectional state exchange (causal merge)?
  *
  * True for collaborative CRDTs (concurrent + delta-capable).
  * False for ephemeral LWW (concurrent + snapshot-only) — unidirectional push suffices.
  * False for authoritative (serialized + delta-capable) — request/response, not exchange.
  */
-export function requiresBidirectionalSync(protocol: SyncProtocol): boolean {
+export function requiresBidirectionalSync(mode: SyncMode): boolean {
   return (
-    protocol.writerModel === "concurrent" &&
-    protocol.delivery === "delta-capable"
+    mode.writerModel === "concurrent" &&
+    mode.delivery === "delta-capable"
   )
 }
 
@@ -639,7 +639,7 @@ export function requiresBidirectionalSync(protocol: SyncProtocol): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Per-document metadata — the replicaType + syncProtocol pair.
+ * Per-document metadata — the replicaType + syncMode pair.
  *
  * Used in StorageBackend, PresentMsg, DocEntry, cmd/ensure-doc,
  * and onDocDiscovered. Named as a first-class type because it appears
@@ -647,7 +647,7 @@ export function requiresBidirectionalSync(protocol: SyncProtocol): boolean {
  */
 export type DocMetadata = {
   readonly replicaType: ReplicaType
-  readonly syncProtocol: SyncProtocol
+  readonly syncMode: SyncMode
   readonly schemaHash: string
   readonly supportedHashes?: readonly string[]
 }

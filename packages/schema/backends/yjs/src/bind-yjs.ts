@@ -168,5 +168,5 @@ export const yjs: BindingTarget<YjsLaws, YjsNativeMap> = createBindingTarget<
 >({
   factory: ctx => createYjsFactory(ctx.peerId, ctx.binding),
   replicaFactory: yjsReplicaFactory,
-  syncProtocol: SYNC_COLLABORATIVE,
+  syncMode: SYNC_COLLABORATIVE,
 })

@@ -12,7 +12,7 @@
 // classified by exact-value set-membership — numbering carries no
 // semantics (no range/mask dispatch anywhere). 0x14 = vacant.
 
-import type { SyncProtocol } from "@kyneta/schema"
+import type { SyncMode } from "@kyneta/schema"
 import {
   SYNC_AUTHORITATIVE,
   SYNC_COLLABORATIVE,
@@ -134,42 +134,42 @@ export const StringToPayloadEncoding: Record<string, PayloadEncodingValue> = {
 }
 
 // ---------------------------------------------------------------------------
-// SyncProtocol discriminators
+// SyncMode discriminators
 // ---------------------------------------------------------------------------
 
 /**
- * Integer discriminators for SyncProtocol on the wire.
+ * Integer discriminators for SyncMode on the wire.
  */
-export const SyncProtocolWire = {
+export const SyncModeWire = {
   Collaborative: 0x00,
   Authoritative: 0x01,
   Ephemeral: 0x02,
 } as const
 
-export type SyncProtocolWireValue =
-  (typeof SyncProtocolWire)[keyof typeof SyncProtocolWire]
+export type SyncModeWireValue =
+  (typeof SyncModeWire)[keyof typeof SyncModeWire]
 
 /**
- * Reverse lookup: wire integer → SyncProtocol object.
+ * Reverse lookup: wire integer → SyncMode object.
  */
-export const SyncProtocolWireToProtocol: Record<
-  SyncProtocolWireValue,
-  SyncProtocol
+export const SyncModeWireToMode: Record<
+  SyncModeWireValue,
+  SyncMode
 > = {
-  [SyncProtocolWire.Collaborative]: SYNC_COLLABORATIVE,
-  [SyncProtocolWire.Authoritative]: SYNC_AUTHORITATIVE,
-  [SyncProtocolWire.Ephemeral]: SYNC_EPHEMERAL,
+  [SyncModeWire.Collaborative]: SYNC_COLLABORATIVE,
+  [SyncModeWire.Authoritative]: SYNC_AUTHORITATIVE,
+  [SyncModeWire.Ephemeral]: SYNC_EPHEMERAL,
 }
 
-/** Forward lookup: SyncProtocol → wire integer discriminant. */
-export function syncProtocolToWire(
-  protocol: SyncProtocol,
-): SyncProtocolWireValue {
-  if (protocol.writerModel === "serialized")
-    return SyncProtocolWire.Authoritative
-  if (protocol.delivery === "delta-capable")
-    return SyncProtocolWire.Collaborative
-  return SyncProtocolWire.Ephemeral
+/** Forward lookup: SyncMode → wire integer discriminant. */
+export function syncModeToWire(
+  mode: SyncMode,
+): SyncModeWireValue {
+  if (mode.writerModel === "serialized")
+    return SyncModeWire.Authoritative
+  if (mode.delivery === "delta-capable")
+    return SyncModeWire.Collaborative
+  return SyncModeWire.Ephemeral
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@ export function syncProtocolToWire(
  *   doc — docId (string)
  *   d   — docId within present entry / payload data
  *   rt  — replicaType tuple [string, number, number]
- *   ms  — syncProtocol (SyncProtocolWireValue)
+ *   ms  — syncMode (SyncModeWireValue)
  *   v   — version (string, serialized)
  *   r   — reciprocate (boolean, optional)
  *   sh  — schemaHash (string, 34-char hex, required in present doc entries)
@@ -245,7 +245,7 @@ export type WirePresentMsg = {
     /** Optional alias assignment for `d` (CBOR major type 0). */
     a?: number
     rt: [string, number, number]
-    ms: SyncProtocolWireValue
+    ms: SyncModeWireValue
     /** Full schema hash (on first reference, or always for legacy peers). */
     sh?: string
     /** Optional alias assignment for `sh` (CBOR major type 0). */

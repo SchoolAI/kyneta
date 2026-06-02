@@ -147,7 +147,7 @@ describe("TransportManager", () => {
           docId: "doc-1",
           schemaHash: "00test",
           replicaType: ["plain", 1, 0] as const,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
       ],
     }

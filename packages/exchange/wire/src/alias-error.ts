@@ -28,7 +28,7 @@ export type AliasResolutionError =
   | { readonly code: "missing-schema-hash"; readonly reason: string }
   | { readonly code: "doc-id-too-long"; readonly message: string }
   | { readonly code: "schema-hash-too-long"; readonly message: string }
-  | { readonly code: "unknown-sync-protocol"; readonly value: unknown }
+  | { readonly code: "unknown-sync-mode"; readonly value: unknown }
   | { readonly code: "unknown-payload-kind"; readonly value: unknown }
   | { readonly code: "unknown-payload-encoding"; readonly value: unknown }
   | { readonly code: "unknown-message-type"; readonly value: unknown }

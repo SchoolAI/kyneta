@@ -32,8 +32,8 @@ import {
   PayloadKindToString,
   StringToPayloadEncoding,
   StringToPayloadKind,
-  SyncProtocolWireToProtocol,
-  syncProtocolToWire,
+  SyncModeWireToMode,
+  syncModeToWire,
   validateDocId,
   validateSchemaHash,
   type WireDismissMsg,
@@ -233,7 +233,7 @@ export function applyOutboundAliasing(
         const docAssign = getOrAssignOutboundDocAlias(s, d.docId)
         s = docAssign.state
 
-        const ms = syncProtocolToWire(d.syncProtocol)
+        const ms = syncModeToWire(d.syncMode)
         const entry: WirePresentMsg["docs"][number] = {
           d: d.docId,
           a: docAssign.alias,
@@ -383,11 +383,11 @@ export function applyInboundAliasing(
       let s = state
       const docs: PresentMsg["docs"] = []
       for (const d of wire.docs) {
-        const syncProtocol = SyncProtocolWireToProtocol[d.ms]
-        if (!syncProtocol) {
+        const syncMode = SyncModeWireToMode[d.ms]
+        if (!syncMode) {
           return {
             state: s,
-            result: err({ code: "unknown-sync-protocol", value: d.ms }),
+            result: err({ code: "unknown-sync-mode", value: d.ms }),
           }
         }
 
@@ -429,7 +429,7 @@ export function applyInboundAliasing(
         docs.push({
           docId: d.d,
           replicaType: d.rt as readonly [string, number, number],
-          syncProtocol,
+          syncMode,
           schemaHash,
           ...(d.shs ? { supportedHashes: d.shs } : undefined),
         })

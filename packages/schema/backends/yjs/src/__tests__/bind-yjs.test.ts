@@ -59,7 +59,7 @@ describe("yjs.bind", () => {
       const bound = yjs.bind(TodoSchema)
       expect(bound._brand).toBe("BoundSchema")
       expect(bound.schema).toBe(TodoSchema)
-      expect(bound.syncProtocol).toEqual(SYNC_COLLABORATIVE)
+      expect(bound.syncMode).toEqual(SYNC_COLLABORATIVE)
     })
 
     it("has a factory builder function", () => {

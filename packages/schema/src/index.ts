@@ -469,7 +469,7 @@ export type {
   SubstrateFactory,
   SubstratePayload,
   SubstratePrepare,
-  SyncProtocol,
+  SyncMode,
   Version,
   WriterModel,
 } from "./substrate.js"

@@ -169,5 +169,5 @@ export const loro: BindingTarget<LoroLaws, LoroNativeMap> = createBindingTarget<
 >({
   factory: ctx => createLoroFactory(ctx.peerId, ctx.binding),
   replicaFactory: loroReplicaFactory,
-  syncProtocol: SYNC_COLLABORATIVE,
+  syncMode: SYNC_COLLABORATIVE,
 })

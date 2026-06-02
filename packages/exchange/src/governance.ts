@@ -17,7 +17,7 @@
 // - When every policy returns `undefined`, the gate falls back to
 //   a caller-supplied default.
 
-import type { ReplicaType, SyncProtocol } from "@kyneta/schema"
+import type { ReplicaType, SyncMode } from "@kyneta/schema"
 import type { DocId, PeerIdentityDetails } from "@kyneta/transport"
 import type { Disposition } from "./exchange.js"
 
@@ -75,7 +75,7 @@ export interface Policy {
     docId: DocId,
     peer: PeerIdentityDetails,
     replicaType: ReplicaType,
-    syncProtocol: SyncProtocol,
+    syncMode: SyncMode,
     schemaHash: string,
   ) => Disposition | undefined
   dispose?: () => void
@@ -201,7 +201,7 @@ export class Governance {
   canReset(
     docId: DocId,
     peer: PeerIdentityDetails,
-    _syncProtocol: SyncProtocol,
+    _syncMode: SyncMode,
   ): boolean {
     return composeGate(
       this.#policies.map(p => p.canReset?.(docId, peer)),
@@ -240,7 +240,7 @@ export class Governance {
     docId: DocId,
     peer: PeerIdentityDetails,
     replicaType: ReplicaType,
-    syncProtocol: SyncProtocol,
+    syncMode: SyncMode,
     schemaHash: string,
   ): Disposition | undefined {
     for (const policy of this.#policies) {
@@ -249,7 +249,7 @@ export class Governance {
         docId,
         peer,
         replicaType,
-        syncProtocol,
+        syncMode,
         schemaHash,
       )
       if (result !== undefined) return result

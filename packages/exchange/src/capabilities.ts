@@ -1,7 +1,7 @@
 // capabilities — registry of supported replica types and schema bindings.
 //
 // The Capabilities registry is the exchange's knowledge base: it knows
-// which ReplicaType + SyncProtocol pairs this participant supports,
+// which ReplicaType + SyncMode pairs this participant supports,
 // and which BoundSchemas map to which replicas. Conduit participants
 // (relay servers, stores) register only replicas; application servers
 // and clients additionally register schemas.
@@ -16,7 +16,7 @@ import type {
   ReplicaFactory,
   ReplicaType,
   SubstrateFactory,
-  SyncProtocol,
+  SyncMode,
 } from "@kyneta/schema"
 import { BoundReplica, ephemeral, json } from "@kyneta/schema"
 
@@ -27,7 +27,7 @@ import { BoundReplica, ephemeral, json } from "@kyneta/schema"
 /**
  * Composite key for the capabilities registry.
  *
- * Encodes `${replicaTypeName}:${replicaTypeMajor}:${syncProtocolName}` so
+ * Encodes `${replicaTypeName}:${replicaTypeMajor}:${syncModeName}` so
  * that a single `Map` lookup resolves both the replica factory and all
  * schemas bound to that replication tier.
  */
@@ -43,13 +43,13 @@ type ReplicaEntry = {
 }
 
 // ---------------------------------------------------------------------------
-// syncProtocolName — canonical name derivation
+// syncModeName — canonical name derivation
 // ---------------------------------------------------------------------------
 
 /** Canonical string key for `ReplicaKey` construction. */
-function syncProtocolName(protocol: SyncProtocol): string {
-  if (protocol.writerModel === "serialized") return "authoritative"
-  if (protocol.delivery === "delta-capable") return "collaborative"
+function syncModeName(mode: SyncMode): string {
+  if (mode.writerModel === "serialized") return "authoritative"
+  if (mode.delivery === "delta-capable") return "collaborative"
   return "ephemeral"
 }
 
@@ -59,14 +59,14 @@ function syncProtocolName(protocol: SyncProtocol): string {
 
 /**
  * Compute the composite `ReplicaKey` from a `ReplicaType` and
- * `SyncProtocol`. Two entries share a key iff they are replication-
- * compatible (same name, same major) and use the same sync protocol.
+ * `SyncMode`. Two entries share a key iff they are replication-
+ * compatible (same name, same major) and use the same sync mode.
  */
 function replicaKey(
   replicaType: ReplicaType,
-  syncProtocol: SyncProtocol,
+  syncMode: SyncMode,
 ): ReplicaKey {
-  return `${replicaType[0]}:${replicaType[1]}:${syncProtocolName(syncProtocol)}`
+  return `${replicaType[0]}:${replicaType[1]}:${syncModeName(syncMode)}`
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ function replicaKey(
  * Default replica bindings shipped with the exchange.
  *
  * - **json / authoritative**: monotonic-version plain JS objects with
- *   request/response sync (the default protocol).
+ *   request/response sync (the default mode).
  * - **ephemeral**: timestamp-versioned plain JS objects with
  *   last-writer-wins broadcast (ephemeral/presence state).
  *
@@ -126,7 +126,7 @@ export interface Capabilities {
   resolveSchema(
     schemaHash: string,
     replicaType: ReplicaType,
-    syncProtocol: SyncProtocol,
+    syncMode: SyncMode,
   ): BoundSchema | undefined
 
   /**
@@ -137,7 +137,7 @@ export interface Capabilities {
    */
   resolveReplica(
     replicaType: ReplicaType,
-    syncProtocol: SyncProtocol,
+    syncMode: SyncMode,
   ): BoundReplica | undefined
 
   /**
@@ -208,8 +208,8 @@ export function createCapabilities(params: {
   ): void {
     const substrateFactory = resolve(bound.factory, bound)
     const replicaFactory: ReplicaFactory = substrateFactory.replica
-    const br = BoundReplica(replicaFactory, bound.syncProtocol)
-    const key = replicaKey(replicaFactory.replicaType, bound.syncProtocol)
+    const br = BoundReplica(replicaFactory, bound.syncMode)
+    const key = replicaKey(replicaFactory.replicaType, bound.syncMode)
 
     const existing = registry.get(key)
     if (existing) {
@@ -237,7 +237,7 @@ export function createCapabilities(params: {
   // -- initial registration -------------------------------------------------
 
   for (const br of params.replicas) {
-    const key = replicaKey(br.factory.replicaType, br.syncProtocol)
+    const key = replicaKey(br.factory.replicaType, br.syncMode)
     ensureEntry(key, br)
   }
 
@@ -261,9 +261,9 @@ export function createCapabilities(params: {
     resolveSchema(
       schemaHash: string,
       replicaType: ReplicaType,
-      syncProtocol: SyncProtocol,
+      syncMode: SyncMode,
     ): BoundSchema | undefined {
-      const key = replicaKey(replicaType, syncProtocol)
+      const key = replicaKey(replicaType, syncMode)
       const entry = registry.get(key)
       if (!entry) return undefined
       // Try exact match first
@@ -278,9 +278,9 @@ export function createCapabilities(params: {
 
     resolveReplica(
       replicaType: ReplicaType,
-      syncProtocol: SyncProtocol,
+      syncMode: SyncMode,
     ): BoundReplica | undefined {
-      const key = replicaKey(replicaType, syncProtocol)
+      const key = replicaKey(replicaType, syncMode)
       return registry.get(key)?.replica
     },
 

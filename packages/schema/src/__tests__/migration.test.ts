@@ -478,7 +478,7 @@ describe("supportedHashes — JSON boundary propagation", () => {
     bind({
       schema,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
   it("a nested .json() field yields a set disjoint from the plain counterpart", () => {
@@ -525,7 +525,7 @@ describe("bind() with migrations", () => {
     const bound = bind({
       schema: s,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     expect(bound.identityBinding.forward.size).toBeGreaterThan(0)
@@ -543,7 +543,7 @@ describe("bind() with migrations", () => {
     const bound = bind({
       schema: s,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     expect(bound.identityBinding.forward.size).toBe(1)
@@ -560,7 +560,7 @@ describe("bind() with migrations", () => {
     const bound = bind({
       schema: s,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     expect(bound.identityBinding.forward.get("b")).toBe(deriveIdentity("a", 1))
@@ -584,7 +584,7 @@ describe("bind() with migrations", () => {
         bind({
           schema: invalid,
           factory: () => plainSubstrateFactory,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         }),
       ).toThrow(/Migration chain validation failed/)
     } finally {
@@ -605,7 +605,7 @@ describe("computeSupportedHashes (via bind.supportedHashes)", () => {
     const bound = bind({
       schema: s,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
     return bound.schemaHash
   }
@@ -626,7 +626,7 @@ describe("computeSupportedHashes (via bind.supportedHashes)", () => {
     const bound = bind({
       schema: migrated,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     expect(bound.supportedHashes.size).toBe(3)
@@ -649,7 +649,7 @@ describe("computeSupportedHashes (via bind.supportedHashes)", () => {
     const bound = bind({
       schema: migrated,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     // T2 step is the latest entry — walk halts immediately. Only the
@@ -673,7 +673,7 @@ describe("computeSupportedHashes (via bind.supportedHashes)", () => {
     const bound = bind({
       schema: migrated,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     // Walk back: undo .add(c) → {a}; then encounters .epoch() and halts.
@@ -695,7 +695,7 @@ describe("computeSupportedHashes (via bind.supportedHashes)", () => {
     const bound = bind({
       schema: migrated,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     // Walk: current → undo .add(c) → {a} → entries exhausted, halt.
@@ -718,7 +718,7 @@ describe("computeSupportedHashes (via bind.supportedHashes)", () => {
     const bound = bind({
       schema: rootCurrent,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     // Cartesian product:
@@ -746,7 +746,7 @@ describe("computeSupportedHashes (via bind.supportedHashes)", () => {
     const bound = bind({
       schema: s,
       factory: () => plainSubstrateFactory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
     expect(bound.supportedHashes.size).toBe(1)
     expect(bound.supportedHashes.has(bound.schemaHash)).toBe(true)

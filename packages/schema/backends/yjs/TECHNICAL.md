@@ -396,7 +396,7 @@ Same pattern as `LoroPosition`: wrap a CRDT-native cursor type, delegate `resolv
 
 Source: `packages/schema/backends/yjs/src/bind-yjs.ts`.
 
-`yjs` is a `BindingTarget<YjsLaws, YjsNativeMap>` — a fixed bundle of `(factory, syncProtocol, allowedLaws)` built via `createBindingTarget` from `@kyneta/schema`. The ergonomic API:
+`yjs` is a `BindingTarget<YjsLaws, YjsNativeMap>` — a fixed bundle of `(factory, syncMode, allowedLaws)` built via `createBindingTarget` from `@kyneta/schema`. The ergonomic API:
 
 ```
 import { yjs } from "@kyneta/yjs-schema"
@@ -408,7 +408,7 @@ const Todo = yjs.bind(Schema.struct({
 }))
 ```
 
-`yjs.bind(schema)` returns a `BoundSchema<S, YjsNativeMap>`. Under the hood it delegates to `@kyneta/schema`'s `bind()` with `SYNC_COLLABORATIVE` as the sync protocol. The `YjsLaws` set (`"lww" | "positional-ot" | "lww-per-key" | "lww-tag-replaced"`) is applied as `RestrictLaws<S, YjsLaws>`, so binding a schema whose `ExtractLaws` includes `"additive"` (counter), `"positional-ot-move"` (movable), `"tree-move"` (tree), or `"add-wins-per-key"` (set) fails at compile time.
+`yjs.bind(schema)` returns a `BoundSchema<S, YjsNativeMap>`. Under the hood it delegates to `@kyneta/schema`'s `bind()` with `SYNC_COLLABORATIVE` as the sync mode. The `YjsLaws` set (`"lww" | "positional-ot" | "lww-per-key" | "lww-tag-replaced"`) is applied as `RestrictLaws<S, YjsLaws>`, so binding a schema whose `ExtractLaws` includes `"additive"` (counter), `"positional-ot-move"` (movable), `"tree-move"` (tree), or `"add-wins-per-key"` (set) fails at compile time.
 
 **`Schema.set` is not supported by Yjs.** The `case "set"` and `case "set-op"` branches in `change-mapping.ts` throw at runtime — they are unreachable from any bound Yjs substrate via the law restriction above, but the explicit throws guard against any future code path that bypasses the type-level check. See [§Set: value-addressed leaf](../../TECHNICAL.md#set-value-addressed-leaf) for the kyneta-level set semantics.
 
@@ -430,7 +430,7 @@ This is the same mechanism as the Loro backend, exercised with a narrower law se
 
 - **Not a factory.** It returns a `BoundSchema`, not a substrate. The substrate is constructed by `createDoc(bound)` at runtime.
 - **Not asynchronous.** Fully synchronous; the schema and the Yjs factory builder are captured at call time.
-- **Not overridable.** Sync protocol for `yjs.bind` is always `SYNC_COLLABORATIVE`. For different sync semantics, use `@kyneta/schema`'s lower-level `bind()` directly.
+- **Not overridable.** Sync mode for `yjs.bind` is always `SYNC_COLLABORATIVE`. For different sync semantics, use `@kyneta/schema`'s lower-level `bind()` directly.
 
 ---
 

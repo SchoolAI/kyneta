@@ -25,7 +25,7 @@ import type { Store, StoreMeta, StoreRecord } from "../store/store.js"
 
 export const plainMeta: StoreMeta = {
   replicaType: ["plain", 1, 0] as const,
-  syncProtocol: SYNC_AUTHORITATIVE,
+  syncMode: SYNC_AUTHORITATIVE,
   schemaHash: "00test",
 }
 
@@ -167,7 +167,7 @@ export function describeStore(
     })
 
     // =======================================================================
-    // 4. append of second meta with same replicaType/syncProtocol but
+    // 4. append of second meta with same replicaType/syncMode but
     //    different schemaHash → currentMeta reflects new hash (LWW)
     // =======================================================================
 
@@ -180,11 +180,11 @@ export function describeStore(
       if (meta === null) return
       expect(meta.schemaHash).toBe("00updated")
       expect(meta.replicaType).toEqual(plainMeta.replicaType)
-      expect(meta.syncProtocol).toEqual(plainMeta.syncProtocol)
+      expect(meta.syncMode).toEqual(plainMeta.syncMode)
     })
 
     // =======================================================================
-    // 5. append of meta with mismatched replicaType or syncProtocol → throws
+    // 5. append of meta with mismatched replicaType or syncMode → throws
     // =======================================================================
 
     it("append of meta with mismatched replicaType throws", async () => {
@@ -197,14 +197,14 @@ export function describeStore(
       ).rejects.toThrow(/replicaType/)
     })
 
-    it("append of meta with mismatched syncProtocol throws", async () => {
+    it("append of meta with mismatched syncMode throws", async () => {
       await backend.append("doc-1", makeMetaRecord())
       await expect(
         backend.append(
           "doc-1",
-          makeMetaRecord({ syncProtocol: SYNC_COLLABORATIVE }),
+          makeMetaRecord({ syncMode: SYNC_COLLABORATIVE }),
         ),
-      ).rejects.toThrow(/syncProtocol/)
+      ).rejects.toThrow(/syncMode/)
     })
 
     // =======================================================================

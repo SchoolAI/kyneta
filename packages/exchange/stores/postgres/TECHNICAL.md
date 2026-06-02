@@ -41,7 +41,7 @@ Schema validation runs once at factory time. If a DBA alters the schema while th
 
 ## JSONB rationale
 
-`meta.data` is JSONB, not TEXT. The choice gives operators a small amount of queryability (`data->>'syncProtocol'`, `data->>'replicaType'`) for admin tooling — useful when filtering metas during incident investigations. The cost: byte-level non-identity with SQLite's TEXT-stored meta. Round-trip portability through `loadAll` is preserved by construction (both backends consume `toRow`/`fromRow` from `@kyneta/sql-store-core`); admins doing a `pg_dump`-and-restore through sqlite or vice versa get structural equality, not byte equality.
+`meta.data` is JSONB, not TEXT. The choice gives operators a small amount of queryability (`data->>'syncMode'`, `data->>'replicaType'`) for admin tooling — useful when filtering metas during incident investigations. The cost: byte-level non-identity with SQLite's TEXT-stored meta. Round-trip portability through `loadAll` is preserved by construction (both backends consume `toRow`/`fromRow` from `@kyneta/sql-store-core`); admins doing a `pg_dump`-and-restore through sqlite or vice versa get structural equality, not byte equality.
 
 ## Range scan instead of LIKE
 

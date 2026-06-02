@@ -50,7 +50,7 @@ export type StoreMeta = Omit<DocMetadata, "supportedHashes">
  * error. `meta` records may be appended at any time (e.g. T0 schema
  * migration updates `schemaHash`).
  *
- * `meta` records carry identity (`replicaType`, `syncProtocol`) and
+ * `meta` records carry identity (`replicaType`, `syncMode`) and
  * mutable state (`schemaHash`). `entry` records carry the opaque
  * `SubstratePayload` and the serialized version string.
  */
@@ -90,7 +90,7 @@ export interface Store {
    * for this document, the implementation must throw.
    *
    * If `record.kind === 'meta'`, the implementation validates
-   * immutable fields (`replicaType`, `syncProtocol`) against any
+   * immutable fields (`replicaType`, `syncMode`) against any
    * existing metadata via `resolveMetaFromBatch` and updates the
    * materialized metadata index.
    */
@@ -154,13 +154,13 @@ export interface Store {
 // ---------------------------------------------------------------------------
 
 /**
- * Compare two `SyncProtocol` values for deep equality.
+ * Compare two `SyncMode` values for deep equality.
  *
  * All three axes (`writerModel`, `delivery`, `durability`) must match.
  */
-function syncProtocolsEqual(
-  a: StoreMeta["syncProtocol"],
-  b: StoreMeta["syncProtocol"],
+function syncModesEqual(
+  a: StoreMeta["syncMode"],
+  b: StoreMeta["syncMode"],
 ): boolean {
   return (
     a.writerModel === b.writerModel &&
@@ -181,7 +181,7 @@ function syncProtocolsEqual(
  * - The batch must contain at least one `meta` record.
  * - `replicaType` must be compatible with existing metadata
  *   (via `replicaTypesCompatible` — name + major version).
- * - `syncProtocol` must exactly match existing metadata
+ * - `syncMode` must exactly match existing metadata
  *   (all three axes: writerModel, delivery, durability).
  * - `schemaHash` is last-writer-wins (the last `meta` record in
  *   the batch determines it).
@@ -214,12 +214,12 @@ export function resolveMetaFromBatch(
         )
       }
       if (
-        !syncProtocolsEqual(incoming.syncProtocol, existingMeta.syncProtocol)
+        !syncModesEqual(incoming.syncMode, existingMeta.syncMode)
       ) {
         throw new Error(
-          `Store: syncProtocol mismatch for document — ` +
-            `existing ${JSON.stringify(existingMeta.syncProtocol)} vs ` +
-            `incoming ${JSON.stringify(incoming.syncProtocol)}`,
+          `Store: syncMode mismatch for document — ` +
+            `existing ${JSON.stringify(existingMeta.syncMode)} vs ` +
+            `incoming ${JSON.stringify(incoming.syncMode)}`,
         )
       }
     }
@@ -231,11 +231,11 @@ export function resolveMetaFromBatch(
             `[${resolved.replicaType}] vs [${incoming.replicaType}]`,
         )
       }
-      if (!syncProtocolsEqual(incoming.syncProtocol, resolved.syncProtocol)) {
+      if (!syncModesEqual(incoming.syncMode, resolved.syncMode)) {
         throw new Error(
-          `Store: syncProtocol mismatch within batch — ` +
-            `${JSON.stringify(resolved.syncProtocol)} vs ` +
-            `${JSON.stringify(incoming.syncProtocol)}`,
+          `Store: syncMode mismatch within batch — ` +
+            `${JSON.stringify(resolved.syncMode)} vs ` +
+            `${JSON.stringify(incoming.syncMode)}`,
         )
       }
     }

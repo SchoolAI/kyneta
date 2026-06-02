@@ -64,7 +64,7 @@ describe("Text frame — complete round-trip", () => {
           docId: "doc-1",
           schemaHash: "00test",
           replicaType: ["plain", 1, 0] as const,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
       ],
     })
@@ -87,7 +87,7 @@ describe("Text frame — complete round-trip", () => {
             docId: "a",
             schemaHash: "00test",
             replicaType: ["plain", 1, 0] as const,
-            syncProtocol: SYNC_AUTHORITATIVE,
+            syncMode: SYNC_AUTHORITATIVE,
           },
         ],
       },
@@ -109,7 +109,7 @@ describe("Text frame — complete round-trip", () => {
           docId: "x",
           schemaHash: "00test",
           replicaType: ["plain", 1, 0] as const,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
       ],
     })
@@ -129,7 +129,7 @@ describe("Text frame — complete round-trip", () => {
           docId: "x",
           schemaHash: "00test",
           replicaType: ["plain", 1, 0] as const,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
       ],
     })
@@ -218,13 +218,13 @@ describe("Text frame — convenience functions", () => {
         docId: "doc-1",
         schemaHash: "00test",
         replicaType: ["plain", 1, 0] as const,
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       },
       {
         docId: "doc-2",
         schemaHash: "00test",
         replicaType: ["yjs", 1, 0] as const,
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       },
     ])
     const encoded = encodeToFrame(wireMsg)

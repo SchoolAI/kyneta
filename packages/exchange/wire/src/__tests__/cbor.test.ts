@@ -32,8 +32,8 @@ import type {
 import {
   MessageType,
   PayloadEncoding,
-  SyncProtocolWireToProtocol,
-  syncProtocolToWire,
+  SyncModeWireToMode,
+  syncModeToWire,
 } from "../wire-types.js"
 import {
   departWire,
@@ -108,19 +108,19 @@ describe("CBOR codec — present", () => {
         docId: "doc-1",
         schemaHash: "00test",
         replicaType: ["plain", 1, 0] as const,
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       },
       {
         docId: "doc-2",
         schemaHash: "00test",
         replicaType: ["yjs", 1, 0] as const,
-        syncProtocol: SYNC_COLLABORATIVE,
+        syncMode: SYNC_COLLABORATIVE,
       },
       {
         docId: "doc-3",
         schemaHash: "00test",
         replicaType: ["loro", 1, 0] as const,
-        syncProtocol: SYNC_EPHEMERAL,
+        syncMode: SYNC_EPHEMERAL,
       },
     ])
     const decoded = roundTrip(wire)
@@ -272,13 +272,13 @@ describe("CBOR codec — batch", () => {
           docId: "d1",
           schemaHash: "00test",
           replicaType: ["plain", 1, 0] as const,
-          syncProtocol: SYNC_AUTHORITATIVE,
+          syncMode: SYNC_AUTHORITATIVE,
         },
         {
           docId: "d2",
           schemaHash: "00test",
           replicaType: ["yjs", 1, 0] as const,
-          syncProtocol: SYNC_COLLABORATIVE,
+          syncMode: SYNC_COLLABORATIVE,
         },
       ]),
       interestWire({ docId: "d1", version: "0", reciprocate: true }),
@@ -426,19 +426,19 @@ describe("CBOR codec — multi-byte UTF-8", () => {
 })
 
 // ---------------------------------------------------------------------------
-// SyncProtocol wire round-trip
+// SyncMode wire round-trip
 // ---------------------------------------------------------------------------
 
-describe("SyncProtocol wire round-trip", () => {
-  it("round-trips all three protocol constants through wire encoding", () => {
-    for (const protocol of [
+describe("SyncMode wire round-trip", () => {
+  it("round-trips all three sync-mode constants through wire encoding", () => {
+    for (const mode of [
       SYNC_AUTHORITATIVE,
       SYNC_COLLABORATIVE,
       SYNC_EPHEMERAL,
     ]) {
-      const wireValue = syncProtocolToWire(protocol)
-      const decoded = SyncProtocolWireToProtocol[wireValue]
-      expect(decoded).toEqual(protocol)
+      const wireValue = syncModeToWire(mode)
+      const decoded = SyncModeWireToMode[wireValue]
+      expect(decoded).toEqual(mode)
     }
   })
 })
@@ -504,7 +504,7 @@ describe("CBOR codec — identifier length caps", () => {
         docId: "doc-1",
         schemaHash: okHash,
         replicaType: ["plain", 1, 0] as const,
-        syncProtocol: SYNC_AUTHORITATIVE,
+        syncMode: SYNC_AUTHORITATIVE,
       },
     ])
     const decoded = roundTrip(wire) as WirePresentMsg

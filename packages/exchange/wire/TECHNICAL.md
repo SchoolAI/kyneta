@@ -265,7 +265,7 @@ Discriminated union of all wire-pipeline error variants:
 |------|------|------|
 | `Frame<T>`, `Complete<T>`, `Fragment<T>` | `src/frame-types.ts` | Universal frame algebra + constructors + guards. |
 | `WireMessage`, `Wire*Msg`, `MessageType`, `PayloadEncoding`, `PayloadKind` | `src/wire-types.ts` | Compact wire-message shape + enum discriminants. |
-| `SyncProtocolWire`, `SyncProtocolWireValue`, `SyncProtocolWireToProtocol`, `syncProtocolToWire` | `src/wire-types.ts` | Wire encoding for `SyncProtocol`. |
+| `SyncModeWire`, `SyncModeWireValue`, `SyncModeWireToMode`, `syncModeToWire` | `src/wire-types.ts` | Wire encoding for `SyncMode`. |
 | `SubstrateOps<T>`, `WireCodec<T>`, `FragmentResult<T>` | `src/fragment-generic.ts` | Generic fragmentation interfaces. |
 | `Reassembler<T>`, `ReassemblerConfig`, `ReassembleResult<T>`, `ReassembleError` | `src/reassembler-generic.ts` | Generic reassembler. |
 | `FragmentCollector<T>`, `decideFragment`, `FragmentDecision`, `CollectorConfig` | `src/fragment-collector.ts` | Generic collector (FC/IS). |

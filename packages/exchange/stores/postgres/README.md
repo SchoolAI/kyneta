@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS kyneta_records (
 );
 ```
 
-JSONB on `meta.data` enables operator queryability for admin tooling (`data->>'syncProtocol'`, `data->>'replicaType'`). Round-trip through `loadAll` is structurally portable with `@kyneta/sqlite-store` (both consume `toRow`/`fromRow` from `@kyneta/sql-store-core`); JSONB normalizes whitespace and key order, so a byte-level dump comparison would diverge.
+JSONB on `meta.data` enables operator queryability for admin tooling (`data->>'syncMode'`, `data->>'replicaType'`). Round-trip through `loadAll` is structurally portable with `@kyneta/sqlite-store` (both consume `toRow`/`fromRow` from `@kyneta/sql-store-core`); JSONB normalizes whitespace and key order, so a byte-level dump comparison would diverge.
 
 ## Options
 

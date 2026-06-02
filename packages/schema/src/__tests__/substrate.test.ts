@@ -984,7 +984,7 @@ describe("PlainSubstrate.advance()", () => {
 })
 
 // ---------------------------------------------------------------------------
-// requiresBidirectionalSync — protocol constant invariant
+// requiresBidirectionalSync — sync-mode constant invariant
 // ---------------------------------------------------------------------------
 
 describe("requiresBidirectionalSync", () => {

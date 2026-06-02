@@ -39,7 +39,7 @@ export type {
 // Schema binding — re-exported from @kyneta/schema for convenience
 // ---------------------------------------------------------------------------
 
-export type { BoundSchema, FactoryBuilder, SyncProtocol } from "@kyneta/schema"
+export type { BoundSchema, FactoryBuilder, SyncMode } from "@kyneta/schema"
 export {
   bind,
   isBoundSchema,

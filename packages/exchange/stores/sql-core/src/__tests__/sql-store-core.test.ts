@@ -16,7 +16,7 @@ import {
 
 const baseMeta: StoreMeta = {
   replicaType: ["plain", 1, 0] as const,
-  syncProtocol: SYNC_AUTHORITATIVE,
+  syncMode: SYNC_AUTHORITATIVE,
   schemaHash: "00test",
 }
 
@@ -177,10 +177,10 @@ describe("planAppend", () => {
   it("throws for a meta record incompatible with existing meta", () => {
     const existing: StoreMeta = {
       ...baseMeta,
-      syncProtocol: SYNC_COLLABORATIVE,
+      syncMode: SYNC_COLLABORATIVE,
     }
     expect(() => planAppend("doc-1", metaRecord(), existing, 1)).toThrow(
-      /syncProtocol/,
+      /syncMode/,
     )
   })
 
@@ -240,9 +240,9 @@ describe("planReplace", () => {
   it("throws when batch contains conflicting meta records", () => {
     const records: StoreRecord[] = [
       metaRecord(),
-      { kind: "meta", meta: { ...baseMeta, syncProtocol: SYNC_COLLABORATIVE } },
+      { kind: "meta", meta: { ...baseMeta, syncMode: SYNC_COLLABORATIVE } },
     ]
-    expect(() => planReplace(records, null)).toThrow(/syncProtocol/)
+    expect(() => planReplace(records, null)).toThrow(/syncMode/)
   })
 })
 

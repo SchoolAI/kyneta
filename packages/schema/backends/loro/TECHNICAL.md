@@ -437,7 +437,7 @@ class LoroPosition implements Position {
 
 Source: `packages/schema/backends/loro/src/bind-loro.ts`.
 
-`loro` is a `BindingTarget<LoroLaws, LoroNativeMap>` — a fixed bundle of `(factory, syncProtocol, allowedLaws)` built via `createBindingTarget` from `@kyneta/schema`. The ergonomic API:
+`loro` is a `BindingTarget<LoroLaws, LoroNativeMap>` — a fixed bundle of `(factory, syncMode, allowedLaws)` built via `createBindingTarget` from `@kyneta/schema`. The ergonomic API:
 
 ```
 import { loro } from "@kyneta/loro-schema"
@@ -449,7 +449,7 @@ const Todo = loro.bind(Schema.struct({
 }))
 ```
 
-`loro.bind(schema)` returns a `BoundSchema<S, LoroNativeMap>`. Under the hood it delegates to `@kyneta/schema`'s `bind({ schema, factory: loroFactoryBuilder, syncProtocol: SYNC_COLLABORATIVE })`. The `LoroLaws` set (`"lww" | "additive" | "positional-ot" | "positional-ot-move" | "lww-per-key" | "tree-move" | "lww-tag-replaced"`) is applied as `RestrictLaws<S, LoroLaws>`, so binding a schema that requires a composition law Loro doesn't support (e.g. `"add-wins-per-key"` from `Schema.set()`) fails at compile time.
+`loro.bind(schema)` returns a `BoundSchema<S, LoroNativeMap>`. Under the hood it delegates to `@kyneta/schema`'s `bind({ schema, factory: loroFactoryBuilder, syncMode: SYNC_COLLABORATIVE })`. The `LoroLaws` set (`"lww" | "additive" | "positional-ot" | "positional-ot-move" | "lww-per-key" | "tree-move" | "lww-tag-replaced"`) is applied as `RestrictLaws<S, LoroLaws>`, so binding a schema that requires a composition law Loro doesn't support (e.g. `"add-wins-per-key"` from `Schema.set()`) fails at compile time.
 
 **`Schema.set` is not supported by Loro.** The `case "set"` and `case "set-op"` branches in `change-mapping.ts` are unreachable from any bound Loro substrate (set schemas fail at compile time via the law restriction above). They are kept as explicit throws for defense-in-depth and as a clear extension point should `"add-wins-per-key"` ever be added to `LoroLaws`. See [§Set: value-addressed leaf](../../TECHNICAL.md#set-value-addressed-leaf) for the kyneta-level set semantics.
 
@@ -459,7 +459,7 @@ const Todo = loro.bind(Schema.struct({
 
 - **Not a factory.** It returns a `BoundSchema`, not a substrate. The substrate is constructed by `createDoc(bound)` at runtime.
 - **Not asynchronous.** Fully synchronous; the schema and the Loro factory builder are captured at call time.
-- **Not overridable.** The sync protocol for `loro` is always `SYNC_COLLABORATIVE`. For different sync semantics, use `@kyneta/schema`'s lower-level `bind()` directly.
+- **Not overridable.** The sync mode for `loro` is always `SYNC_COLLABORATIVE`. For different sync semantics, use `@kyneta/schema`'s lower-level `bind()` directly.
 
 ---
 

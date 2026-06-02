@@ -25,18 +25,18 @@ const testSchema = Schema.struct({
 })
 
 describe("bind()", () => {
-  it("creates a BoundSchema with correct schema, factory, syncProtocol", () => {
+  it("creates a BoundSchema with correct schema, factory, syncMode", () => {
     const factory = vi.fn(() => plainSubstrateFactory)
     const bound = bind({
       schema: testSchema,
       factory,
-      syncProtocol: SYNC_COLLABORATIVE,
+      syncMode: SYNC_COLLABORATIVE,
     })
 
     expect(isBoundSchema(bound)).toBe(true)
     expect(bound.schema).toBe(testSchema)
     expect(bound.factory).toBe(factory)
-    expect(bound.syncProtocol).toBe(SYNC_COLLABORATIVE)
+    expect(bound.syncMode).toBe(SYNC_COLLABORATIVE)
   })
 
   it("factory builder is called with { peerId } and returns a SubstrateFactory", () => {
@@ -44,7 +44,7 @@ describe("bind()", () => {
     const bound = bind({
       schema: testSchema,
       factory,
-      syncProtocol: SYNC_AUTHORITATIVE,
+      syncMode: SYNC_AUTHORITATIVE,
     })
 
     const result = bound.factory({
@@ -76,25 +76,25 @@ describe("isBoundSchema()", () => {
 })
 
 describe("json.bind()", () => {
-  it("creates a BoundSchema with authoritative syncProtocol", () => {
+  it("creates a BoundSchema with authoritative syncMode", () => {
     const bound = json.bind(testSchema)
     expect(bound.schema).toBe(testSchema)
-    expect(bound.syncProtocol).toBe(SYNC_AUTHORITATIVE)
+    expect(bound.syncMode).toBe(SYNC_AUTHORITATIVE)
   })
 })
 
 describe("json.replica()", () => {
-  it("produces a BoundReplica with authoritative syncProtocol and plainReplicaFactory", () => {
+  it("produces a BoundReplica with authoritative syncMode and plainReplicaFactory", () => {
     const replica = json.replica()
-    expect(replica.syncProtocol).toBe(SYNC_AUTHORITATIVE)
+    expect(replica.syncMode).toBe(SYNC_AUTHORITATIVE)
     expect(replica.factory).toBe(plainReplicaFactory)
     expect(replica.factory.replicaType).toEqual(["plain", 1, 0])
   })
 })
 
 describe("json binding target", () => {
-  it("exposes SYNC_AUTHORITATIVE as its syncProtocol", () => {
-    expect(json.syncProtocol).toBe(SYNC_AUTHORITATIVE)
+  it("exposes SYNC_AUTHORITATIVE as its syncMode", () => {
+    expect(json.syncMode).toBe(SYNC_AUTHORITATIVE)
   })
 })
 
@@ -126,19 +126,19 @@ describe("compile-time type constraints", () => {
 })
 
 describe("ephemeral binding target", () => {
-  it("exposes SYNC_EPHEMERAL as its syncProtocol", () => {
-    expect(ephemeral.syncProtocol).toBe(SYNC_EPHEMERAL)
+  it("exposes SYNC_EPHEMERAL as its syncMode", () => {
+    expect(ephemeral.syncMode).toBe(SYNC_EPHEMERAL)
   })
 
-  it("creates a BoundSchema with ephemeral syncProtocol", () => {
+  it("creates a BoundSchema with ephemeral syncMode", () => {
     const bound = ephemeral.bind(testSchema)
     expect(bound.schema).toBe(testSchema)
-    expect(bound.syncProtocol).toBe(SYNC_EPHEMERAL)
+    expect(bound.syncMode).toBe(SYNC_EPHEMERAL)
   })
 
-  it("replica() produces a BoundReplica with ephemeral syncProtocol and lwwReplicaFactory", () => {
+  it("replica() produces a BoundReplica with ephemeral syncMode and lwwReplicaFactory", () => {
     const replica = ephemeral.replica()
-    expect(replica.syncProtocol).toBe(SYNC_EPHEMERAL)
+    expect(replica.syncMode).toBe(SYNC_EPHEMERAL)
     expect(replica.factory).toBe(lwwReplicaFactory)
     expect(replica.factory.replicaType).toEqual(["plain", 1, 0])
   })

@@ -191,7 +191,7 @@ describe("SseClientTransport — unhandled rejections", () => {
           {
             docId: "doc-abc",
             replicaType: ["plain", 1, 0],
-            syncProtocol: SYNC_AUTHORITATIVE,
+            syncMode: SYNC_AUTHORITATIVE,
             schemaHash: "sha-001",
           },
         ],
