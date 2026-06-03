@@ -546,6 +546,12 @@ Source: `src/facade/batch.ts`.
 
 Sometimes changes arrive as data (from the network, from undo history, from tests). `applyChanges(ref, changes)` applies a `readonly Change[]` via the same substrate write path — no prepare facade, just direct substrate writes + notification planning.
 
+### `remove(ref)`: ergonomic self-removal
+
+Source: `src/facade/batch.ts`.
+
+A container's child ref carries `[REMOVE]()` (a symbol method — see `Removable<T> = T & HasRemove` in `src/ref.ts`), symbol-keyed for collision safety: a child can be any schema kind, including a struct with a user field literally named `remove`, so a plain `.remove()` method would shadow it. `remove(ref)` is the free-function facade over that symbol — the same collision-safe symbol-protocol + free-function-facade pattern as `unwrap` (`[NATIVE]`), `changefeed` (`[CHANGEFEED]`), and `batch` (`[TRANSACT]`). Prefer `remove(ref)` at call sites; reach for `ref[REMOVE]()` only when you already hold the symbol. Like any single mutation, a lone `remove()` auto-commits (no `batch()` needed). It throws on a dead ref, and its `HasRemove` parameter type rejects non-removable refs (product fields, top-level docs) at compile time.
+
 ### Pure step function
 
 Source: `packages/schema/src/step.ts`.

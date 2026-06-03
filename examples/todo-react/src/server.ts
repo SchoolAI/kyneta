@@ -47,9 +47,9 @@ const exchange = new Exchange({
   // stores: [await createLevelDBStore("./todo.db")],
 })
 
-// Register the todo document. The server holds the authoritative copy.
-// When clients connect, the Exchange automatically syncs via the
-// three-message protocol (discover → interest → offer).
+// Register the todos document. When clients connect, the Exchange
+// automatically syncs via the three-message protocol (discover →
+// interest → offer).
 exchange.get("todos", TodoDoc)
 
 // ─────────────────────────────────────────────────────────────────────────

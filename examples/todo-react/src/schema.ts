@@ -20,13 +20,14 @@
 import { Schema } from "@kyneta/schema"
 import { yjs } from "@kyneta/yjs-schema"
 
+export const TodoItemSchema = Schema.struct({
+  id: Schema.string(),
+  text: Schema.text(),
+  done: Schema.boolean(),
+})
+
 export const TodoSchema = Schema.struct({
-  todos: Schema.list(
-    Schema.struct({
-      text: Schema.text(),
-      done: Schema.boolean(),
-    }),
-  ),
+  todos: Schema.list(TodoItemSchema),
 })
 
 /** Use Yjs for collaborative, realtime, shared state */

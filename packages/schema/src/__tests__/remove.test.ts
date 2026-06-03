@@ -135,6 +135,26 @@ describe("[REMOVE]: sequences", () => {
     expect(isDeleted(b)).toBe(true)
   })
 
+  it("removes via the remove() facade — delegates to [REMOVE]", () => {
+    const { doc } = createTodoDoc([
+      { text: "a", done: false },
+      { text: "b", done: false },
+      { text: "c", done: false },
+    ])
+
+    const b = doc.todos.at(1)
+    expect(hasRemove(b)).toBe(true)
+
+    // The ergonomic facade — reads more naturally than `b[REMOVE]()` and is
+    // the recommended call site (see schema README and facade/batch.ts).
+    remove(b)
+
+    expect(doc.todos.length).toBe(2)
+    expect(doc.todos.at(0).text()).toBe("a")
+    expect(doc.todos.at(1).text()).toBe("c")
+    expect(isDeleted(b)).toBe(true)
+  })
+
   it("removes first item (index 0, no retain)", () => {
     const { doc } = createTodoDoc([
       { text: "a", done: false },

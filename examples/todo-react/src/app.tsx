@@ -4,32 +4,16 @@
 //
 //   Collaborative todo list with real-time text editing.
 //
-//   Each todo item's text is a CRDT text field (Schema.text()) bound to
-//   an <input> via useText. Two users can edit the same todo item
-//   simultaneously — character-level changes merge without conflict.
-//
-//   Imports from @kyneta/react:
-//     useDocument   — get (or create) a document from the Exchange
-//     useValue      — subscribe to a ref's plain snapshot (re-renders)
-//     useText       — bind a CRDT text ref to an <input> or <textarea>
-//     useSyncState  — observe per-peer sync state
-//     change        — transact mutations on the document ref
+//   Each todo's text is a CRDT text field (Schema.text()) bound to an
+//   <input> via useText — two users can edit the same todo at once and
+//   character-level changes merge without conflict.
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useDocument, useSyncState, useText, useValue } from "@kyneta/react"
-import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react"
-import { TodoDoc } from "./schema.js"
-
-// ─────────────────────────────────────────────────────────────────────────
-// Sync indicator — shows connection state
-// ─────────────────────────────────────────────────────────────────────────
+import { remove, type Ref, type Removable } from "@kyneta/schema"
+import { useState } from "react"
+import { TodoDoc, type TodoItemSchema } from "./schema.js"
 
 function SyncIndicator({ doc }: { doc: object }) {
   const peerStates = useSyncState(doc)
@@ -45,71 +29,39 @@ function SyncIndicator({ doc }: { doc: object }) {
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// TodoItem — a single todo with collaborative text editing
-// ─────────────────────────────────────────────────────────────────────────
-
 function TodoItem({
   todoRef,
-  shouldFocus,
-  onFocused,
+  autoFocus,
   onEnter,
-  onToggle,
-  onRemove,
 }: {
-  todoRef: any
-  shouldFocus: boolean
-  onFocused: () => void
+  todoRef: Removable<Ref<typeof TodoItemSchema>>
+  autoFocus: boolean
   onEnter: () => void
-  onToggle: () => void
-  onRemove: () => void
 }) {
-  const done = useValue(todoRef.done) as boolean
-  const bindText = useText(todoRef.text)
-  const inputEl = useRef<HTMLInputElement | null>(null)
-
-  // Compose useText's ref callback with our own node capture, so the same
-  // element both drives the CRDT binding and can be focused imperatively.
-  // Mirrors bindText's identity (it's stable while the text ref is), so we
-  // add no extra attach/detach churn.
-  const setInput = useCallback(
-    (el: HTMLInputElement | null) => {
-      inputEl.current = el
-      bindText(el)
-    },
-    [bindText],
-  )
-
-  // Focus this row's input when it's the freshly-created todo.
-  useEffect(() => {
-    if (!shouldFocus) return
-    inputEl.current?.focus()
-    onFocused()
-  }, [shouldFocus, onFocused])
-
-  const handleKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== "Enter") return
-    e.preventDefault()
-    // Empty field — nothing to submit; just leave the input.
-    if (e.currentTarget.value.trim() === "") {
-      e.currentTarget.blur()
-      return
-    }
-    // Submit: create the next todo and focus it, for rapid entry.
-    onEnter()
-  }
+  const done = useValue(todoRef.done)
 
   return (
     <li>
-      <input type="checkbox" checked={done} onChange={onToggle} />
       <input
-        ref={setInput}
+        type="checkbox"
+        checked={done}
+        onChange={() => todoRef.done.set(!done)}
+      />
+      <input
+        ref={useText(todoRef.text)}
         type="text"
         className={done ? "todo-text done" : "todo-text"}
         placeholder="What needs to be done?"
-        onKeyDown={handleKeyDown}
+        // eslint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus={autoFocus}
+        onKeyDown={e => {
+          if (e.key === "Enter") {
+            e.preventDefault()
+            onEnter()
+          }
+        }}
       />
-      <button type="button" onClick={onRemove}>
+      <button type="button" onClick={() => remove(todoRef)}>
         ×
       </button>
     </li>
@@ -122,37 +74,19 @@ function TodoItem({
 
 export function App() {
   const doc = useDocument("todos", TodoDoc)
-  const { todos } = useValue(doc) as {
-    todos: readonly { text: string; done: boolean }[]
+
+  // Reactive snapshot of the list — re-renders on add/remove and drives the
+  // empty-state. Text edits flow through useText, not through this snapshot.
+  const todos = useValue(doc.todos)
+
+  // The id of the just-created todo, so its row can autofocus on mount.
+  const [newId, setNewId] = useState<string | null>(null)
+
+  const addTodo = () => {
+    const id = crypto.randomUUID()
+    setNewId(id)
+    doc.todos.push({ id, text: "", done: false })
   }
-
-  // Index of the todo whose input should grab focus once it renders.
-  // Set when a todo is created (button or Enter), cleared after focusing.
-  const [focusIndex, setFocusIndex] = useState<number | null>(null)
-  const clearFocus = useCallback(() => setFocusIndex(null), [])
-
-  // ─── Mutations ─────────────────────────────────────────────────────
-
-  const addTodo = useCallback(() => {
-    // Push a new todo with empty text. The text field is a CRDT — the user
-    // types into the <input> bound via useText, which applies character-level
-    // edits directly to the CRDT. The new item is appended, so it lands at
-    // the current end index; focus it so typing can start immediately.
-    setFocusIndex(todos.length)
-    doc.todos.push({ text: "", done: false })
-  }, [doc, todos.length])
-
-  const toggleTodo = (index: number) => {
-    // Single mutation (read + set) — write directly, like addTodo/removeTodo.
-    const todo = doc.todos.at(index)
-    if (todo) todo.done.set(!todo.done())
-  }
-
-  const removeTodo = (index: number) => {
-    doc.todos.delete(index, 1)
-  }
-
-  // ─── Render ────────────────────────────────────────────────────────
 
   return (
     <div className="app">
@@ -167,15 +101,14 @@ export function App() {
       </div>
 
       <ul>
-        {todos.map((_todo, index) => (
+        {/* Map the child refs (stable identity, address-table cached) so each
+            row binds its own CRDT text; key by the todo's stable id. */}
+        {[...doc.todos].map(todoRef => (
           <TodoItem
-            key={index}
-            todoRef={doc.todos.at(index)}
-            shouldFocus={index === focusIndex}
-            onFocused={clearFocus}
+            key={todoRef.id()}
+            todoRef={todoRef}
+            autoFocus={todoRef.id() === newId}
             onEnter={addTodo}
-            onToggle={() => toggleTodo(index)}
-            onRemove={() => removeTodo(index)}
           />
         ))}
       </ul>

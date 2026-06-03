@@ -62,13 +62,14 @@ todo-react/
 import { Schema } from "@kyneta/schema"
 import { yjs } from "@kyneta/yjs-schema"
 
+export const TodoItemSchema = Schema.struct({
+  id: Schema.string(),      // ← stable identity (keys the list, never the index)
+  text: Schema.text(),      // ← CRDT text, not Schema.string()
+  done: Schema.boolean(),
+})
+
 export const TodoSchema = Schema.struct({
-  todos: Schema.list(
-    Schema.struct({
-      text: Schema.text(),    // ← CRDT text, not Schema.string()
-      done: Schema.boolean(),
-    }),
-  ),
+  todos: Schema.list(TodoItemSchema),
 })
 
 export const TodoDoc = yjs.bind(TodoSchema)
@@ -77,36 +78,52 @@ export const TodoDoc = yjs.bind(TodoSchema)
 ## The Component
 
 ```tsx
-import { useDocument, useValue, useText, change } from "@kyneta/react"
+import { useDocument, useValue, useText } from "@kyneta/react"
+import { remove } from "@kyneta/schema"
+import { useState } from "react"
 
-function TodoItem({ todoRef, onToggle, onRemove }) {
+// Self-contained: the row owns its done/text/remove through `todoRef`.
+function TodoItem({ todoRef, autoFocus, onEnter }) {
   const done = useValue(todoRef.done)
-  const textInputRef = useText(todoRef.text)
 
   return (
     <li>
-      <input type="checkbox" checked={done} onChange={onToggle} />
-      <input ref={textInputRef} type="text" className={done ? "done" : ""} />
-      <button onClick={onRemove}>×</button>
+      <input
+        type="checkbox"
+        checked={done}
+        onChange={() => todoRef.done.set(!done)}
+      />
+      <input
+        ref={useText(todoRef.text)}
+        type="text"
+        autoFocus={autoFocus}
+        onKeyDown={e => e.key === "Enter" && onEnter()}
+      />
+      <button onClick={() => remove(todoRef)}>×</button>
     </li>
   )
 }
 
 function App() {
   const doc = useDocument("todos", TodoDoc)
-  const { todos } = useValue(doc)
+  const todos = useValue(doc.todos)        // reactive snapshot (add/remove + empty-state)
+  const [newId, setNewId] = useState(null) // id of the row to autofocus
 
+  const addTodo = () => {
+    const id = crypto.randomUUID()
+    setNewId(id)
+    doc.todos.push({ id, text: "", done: false })
+  }
+
+  // Map the child refs (stable identity) and key by the todo's stable id.
   return (
     <ul>
-      {todos.map((_, index) => (
+      {[...doc.todos].map(todoRef => (
         <TodoItem
-          key={index}
-          todoRef={doc.todos.at(index)}
-          onToggle={() => {
-            const todo = doc.todos.at(index)
-            if (todo) todo.done.set(!todo.done())
-          }}
-          onRemove={() => doc.todos.delete(index, 1)}
+          key={todoRef.id()}
+          todoRef={todoRef}
+          autoFocus={todoRef.id() === newId}
+          onEnter={addTodo}
         />
       ))}
     </ul>
@@ -118,8 +135,9 @@ Key details:
 
 - `useText(todoRef.text)` returns a React ref callback — pass it as `ref` on the `<input>`
 - The `<input>` is **uncontrolled** — `useText` manages its value imperatively, not through React state
-- `useValue(todoRef.done)` subscribes only to the `done` field — text changes don't re-render
-- Adding a todo pushes `{ text: "", done: false }` — the user types into the CRDT-bound input
+- Rows are keyed by `todo.id` (a stable identity) and mapped from the child refs (`[...doc.todos]`) — **never `key={index}`**, which is unsafe for a collaborative list where a peer's concurrent insert/remove shifts positions and would mis-associate focus/cursor with the wrong row
+- Each row is self-contained: it toggles via `todoRef.done.set(...)` and removes itself via the **`remove(todoRef)`** facade — no index threading
+- Adding a todo pushes `{ id, text: "", done: false }`; the new row **autofocuses** so you can type immediately, and **Enter** adds the next one
 
 ## Architecture
 
