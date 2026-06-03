@@ -10,10 +10,10 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { useDocument, useSyncState, useText, useValue } from "@kyneta/react"
-import { remove, type Ref, type Removable } from "@kyneta/schema"
+import { useDocument, useSyncState, useValue } from "@kyneta/react"
 import { useState } from "react"
-import { TodoDoc, type TodoItemSchema } from "./schema.js"
+import { TodoDoc } from "./schema.js"
+import { TodoItem } from "./todo-item.js"
 
 function SyncIndicator({ doc }: { doc: object }) {
   const peerStates = useSyncState(doc)
@@ -26,45 +26,6 @@ function SyncIndicator({ doc }: { doc: object }) {
     >
       {synced ? "✅" : "⏳"}
     </span>
-  )
-}
-
-function TodoItem({
-  todoRef,
-  autoFocus,
-  onEnter,
-}: {
-  todoRef: Removable<Ref<typeof TodoItemSchema>>
-  autoFocus: boolean
-  onEnter: () => void
-}) {
-  const done = useValue(todoRef.done)
-
-  return (
-    <li>
-      <input
-        type="checkbox"
-        checked={done}
-        onChange={() => todoRef.done.set(!done)}
-      />
-      <input
-        ref={useText(todoRef.text)}
-        type="text"
-        className={done ? "todo-text done" : "todo-text"}
-        placeholder="What needs to be done?"
-        // eslint-disable-next-line jsx-a11y/no-autofocus
-        autoFocus={autoFocus}
-        onKeyDown={e => {
-          if (e.key === "Enter") {
-            e.preventDefault()
-            onEnter()
-          }
-        }}
-      />
-      <button type="button" onClick={() => remove(todoRef)}>
-        ×
-      </button>
-    </li>
   )
 }
 
