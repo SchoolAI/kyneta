@@ -9,9 +9,7 @@
     "url": "https://github.com/halecraft/kyneta",
     "directory": "packages/cast"
   },
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

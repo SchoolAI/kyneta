@@ -238,7 +238,7 @@ T3 is the explicit "the old CRDT history doesn't make sense under the new schema
 > 1. Quiesce writes on the affected documents.
 > 1. Snapshot the documents' plain state via `unwrap(ref)`.
 > 1. Apply your transform offline.
-> 1. Create fresh substrates from the transformed payloads via the `fromEntirety` factory primitive.
+> 1. Create fresh substrates from the transformed payloads via `fromEntirety` — a method on the substrate/replica factory object (e.g. `factory.fromEntirety(payload)`), not a standalone export from `@kyneta/schema`.
 > 1. Reload all clients.
 
 ### 6.1. Change a field's type (retype)
@@ -399,8 +399,8 @@ Migration.addNullable(path)
 // T1a — identity-preserving rename
 Migration.rename(from, to)
 Migration.move(from, to)
-Migration.renameVariant(sumPath, fromTag, toTag)
-Migration.renameDiscriminant(sumPath, newKey)
+Migration.renameVariant(path, from, to)
+Migration.renameDiscriminant(path, key)
 
 // T2 — lossy (returns Droppable<P>; call .drop() to unwrap)
 Migration.remove(path, schema).drop()
