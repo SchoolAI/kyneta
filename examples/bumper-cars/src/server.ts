@@ -51,6 +51,15 @@ const exchange = new Exchange({
   transports: [() => serverTransport],
   schemas: [PlayerInputDoc],
 
+  // ── departureTimeout ─────────────────────────────────────────────
+  // Connection is not presence: losing a peer's last channel emits
+  // `peer-disconnected` and holds the peer for this grace window before
+  // emitting `peer-departed`. A closed browser tab closes the socket
+  // ungracefully (no `depart` message), so with the 30_000ms default a
+  // departed player would linger in the roster for 30s. 1s is long
+  // enough to ride out a brief reconnect, short enough to feel instant.
+  departureTimeout: 1000,
+
   // ── canShare ─────────────────────────────────────────────────────
   // Outbound flow control: which peers see which documents?
   //

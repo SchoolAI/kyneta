@@ -490,23 +490,34 @@ sync(doc).onPeerSyncChange(states => {
 
 ### Peer Lifecycle
 
-`exchange.peers` is a reactive feed of connected peers — callable as a function, subscribable for changes:
+`exchange.peers` is a reactive feed of the peers this exchange is connected to — callable as a function, subscribable for changes:
 
 ```ts
 const peers = exchange.peers()  // ReadonlyMap<PeerId, PeerIdentityDetails>
 
 exchange.peers.subscribe(changeset => {
   for (const change of changeset.changes) {
-    if (change.type === "peer-joined") {
-      console.log(`${change.peer.name ?? change.peer.peerId} joined`)
-    } else {
-      console.log(`${change.peer.name ?? change.peer.peerId} left`)
+    switch (change.type) {
+      case "peer-established":  // first channel completed the handshake
+        console.log(`${change.peer.name ?? change.peer.peerId} connected`)
+        break
+      case "peer-disconnected": // all channels lost — may still reconnect
+        console.log(`${change.peer.name ?? change.peer.peerId} dropped`)
+        break
+      case "peer-reconnected":  // re-established before the departure timer
+        console.log(`${change.peer.name ?? change.peer.peerId} reconnected`)
+        break
+      case "peer-departed":     // definitively gone
+        console.log(`${change.peer.name ?? change.peer.peerId} left`)
+        break
     }
   }
 })
 ```
 
-Multi-transport deduplication: when a peer connects through multiple transports (e.g. both WebSocket and SSE), `peer-joined` fires once on the first channel, `peer-left` fires only when *all* channels are gone. On `shutdown()` or `reset()`, synthetic `peer-left` events are emitted for all connected peers.
+**Connection is not presence.** Losing the last channel to a peer does *not* remove it immediately. The peer first goes `peer-disconnected` and is held for `departureTimeout` (default `30_000` ms); reconnect within that window yields `peer-reconnected`, otherwise the timer expires into `peer-departed`. A graceful `shutdown()` — or a received `depart` message, or `departureTimeout: 0` — skips the grace period and departs at once. Set a short `departureTimeout` when dropped peers should disappear quickly (e.g. a live game roster); keep the default so brief network blips don't churn presence.
+
+Multi-transport deduplication: when a peer is connected through multiple transports (e.g. both WebSocket and SSE), `peer-established` fires once on the first channel, and the disconnect/departure transitions fire only when *all* channels are gone. On `shutdown()` or `reset()`, synthetic `peer-departed` events are emitted for all connected peers.
 
 ### Escape Hatches
 
@@ -553,7 +564,7 @@ You only engage the next level when you need it. Each level is additive — it d
 | `has(docId)` | Check if a document exists (interpret or replicate mode). |
 | `deferred` | `ReadonlySet<DocId>` — deferred document IDs. Participate in routing but have no local representation. |
 | `dismiss(docId)` | Leave the sync graph — removes locally, broadcasts `dismiss`, deletes from stores. |
-| `peers` | `CallableChangefeed<ReadonlyMap<PeerId, PeerIdentityDetails>, PeerChange>` — reactive peer presence. |
+| `peers` | `CallableChangefeed<ReadonlyMap<PeerId, PeerIdentityDetails>, PeerChange>` — reactive peer connection lifecycle (established / disconnected / reconnected / departed). |
 | `flush()` | Await all pending storage operations. |
 | `shutdown()` | Flush stores, disconnect transports, close handles. The recommended graceful teardown. |
 | `reset()` | Disconnect transports and clear state (synchronous). Does NOT flush pending storage. |
