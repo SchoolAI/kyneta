@@ -3,10 +3,10 @@
 // Verifies symmetric and asymmetric round-trips (binary, text, SSE pair),
 // fragmentation, reset/dispose semantics, and error routing.
 
-import type { Result, WireError } from "@kyneta/wire"
+import { decodeBinaryFrame, type Result, type WireError } from "@kyneta/wire"
 import { describe, expect, it, vi } from "vitest"
 import type { ChannelMsg, EstablishMsg, OfferMsg } from "../messages.js"
-import { Pipeline } from "../pipeline.js"
+import { type FrameTrace, Pipeline } from "../pipeline.js"
 import { PROTOCOL_VERSION } from "../types.js"
 
 // ---------------------------------------------------------------------------
@@ -227,22 +227,22 @@ describe("Pipeline — reset() rebuilds state", () => {
     const sender = new Pipeline({ send: "binary" })
 
     try {
-      // Send a message — advances alias state and uses the frame ID counter
+      // Send a message — advances alias state and the frame seq counter
       const firstResults = sender.send(establishMsg)
       expect(firstResults.length).toBeGreaterThan(0)
       const firstFrames = unwrapAll(firstResults)
 
-      // Reset — rebuilds alias state and frame ID counter from scratch
+      // Reset — rebuilds alias state and the frame seq counter from scratch
       sender.reset()
 
       // Send the same message — should produce identical output because
-      // the alias state and frame ID counter both restarted
+      // the alias state and frame seq counter both restarted
       const secondResults = sender.send(establishMsg)
       expect(secondResults.length).toBeGreaterThan(0)
       const secondFrames = unwrapAll(secondResults)
 
       // After reset, the wire output should be byte-identical to the first
-      // send because alias assignment and frame ID counter both restarted
+      // send because alias assignment and the frame seq counter both restarted
       expect(firstFrames.length).toBe(secondFrames.length)
       for (let i = 0; i < firstFrames.length; i++) {
         expect(secondFrames[i]).toEqual(firstFrames[i])
@@ -295,6 +295,102 @@ describe("Pipeline — onError fires", () => {
       expect(error).toHaveProperty("code")
     } finally {
       pipeline.dispose()
+    }
+  })
+})
+
+describe("Pipeline — frame seq", () => {
+  it("stamps a complete (sub-threshold) message with seq = 1", () => {
+    const sender = new Pipeline({ send: "binary" })
+    try {
+      const [frame] = unwrapAll(sender.send(establishMsg))
+      if (frame === undefined) throw new Error("expected one frame")
+      expect(decodeBinaryFrame(frame).seq).toBe(1)
+    } finally {
+      sender.dispose()
+    }
+  })
+
+  it("shares one seq across all fragments and advances the counter once", () => {
+    const sender = new Pipeline({ send: "binary", opts: { threshold: 100 } })
+    try {
+      // First send (establish) consumes seq 1.
+      sender.send(establishMsg)
+      // Second send (large offer) fragments — every piece shares seq 2.
+      const fragments = unwrapAll(sender.send(largeOffer))
+      expect(fragments.length).toBeGreaterThan(1)
+      for (const piece of fragments) {
+        expect(decodeBinaryFrame(piece).seq).toBe(2)
+      }
+      // The next send advances to seq 3 (the message bumped the counter once).
+      const [next] = unwrapAll(sender.send(establishMsg))
+      if (next === undefined) throw new Error("expected a frame")
+      expect(decodeBinaryFrame(next).seq).toBe(3)
+    } finally {
+      sender.dispose()
+    }
+  })
+})
+
+describe("Pipeline — onFrame fires", () => {
+  it("labels a received frame with the sender's seq, not the receiver's own counter", () => {
+    const aTraces: FrameTrace[] = []
+    const bTraces: FrameTrace[] = []
+    const a = new Pipeline({
+      send: "binary",
+      opts: { onFrame: e => aTraces.push(e) },
+    })
+    const b = new Pipeline({
+      send: "binary",
+      opts: { onFrame: e => bTraces.push(e) },
+    })
+
+    const seqsFor = (traces: FrameTrace[], dir: "send" | "receive") =>
+      traces.filter(e => e.dir === dir).map(e => e.seq)
+
+    try {
+      // B sends first, advancing B's own send counter. If a received frame
+      // were (wrongly) labeled with the receiver's counter, B's receive seqs
+      // below would not start at 1.
+      for (const f of unwrapAll(b.send(establishMsg))) a.receive(f)
+
+      // A sends two messages (A's send seqs 1, then 2); B receives both.
+      for (const f of unwrapAll(a.send(establishMsg))) b.receive(f)
+      for (const f of unwrapAll(a.send(establishMsg))) b.receive(f)
+
+      // A's send seqs are its own, monotonic from 1.
+      expect(seqsFor(aTraces, "send")).toEqual([1, 2])
+      // B observes A's send seqs on receive — not B's own counter (now at 2).
+      expect(seqsFor(bTraces, "receive")).toEqual([1, 2])
+      expect(bTraces.find(e => e.dir === "receive")?.kind).toBe("complete")
+    } finally {
+      a.dispose()
+      b.dispose()
+    }
+  })
+
+  it("fires once per emitted piece for a fragmented send", () => {
+    const traces: FrameTrace[] = []
+    const sender = new Pipeline({
+      send: "binary",
+      opts: { threshold: 100, onFrame: ev => traces.push(ev) },
+    })
+
+    try {
+      sender.send(establishMsg) // seq 1 (complete)
+      traces.length = 0 // focus on the fragmented send
+      const fragments = unwrapAll(sender.send(largeOffer)) // seq 2 (fragments)
+
+      expect(traces).toHaveLength(fragments.length)
+      traces.forEach((ev, i) => {
+        expect(ev.dir).toBe("send")
+        expect(ev.kind).toBe("fragment")
+        expect(ev.seq).toBe(2)
+        expect(ev.index).toBe(i)
+        expect(ev.total).toBe(fragments.length)
+      })
+    } finally {
+      sender.dispose()
     }
   })
 })

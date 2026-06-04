@@ -12,6 +12,7 @@ import {
   complete,
   err,
   fragmentGeneric,
+  nextFrameSeq,
   ok,
   type Reassembler,
   type Result,
@@ -37,7 +38,12 @@ export type PayloadOf<E extends Encoding> = {
 export interface PipelineState<R> {
   readonly aliasState: AliasState
   readonly reassembler: Reassembler<R>
-  readonly nextFrameId: () => number
+  /**
+   * Next per-direction frame sequence number to assign on send. Advanced
+   * functionally by `sendStep` (via `nextFrameSeq`) — never mutated in
+   * place — so `sendStep` stays a pure state transition.
+   */
+  readonly nextSeq: number
 }
 
 export interface ResolvedOpts {
@@ -54,9 +60,23 @@ export function sendStep<S>(
   sendCodec: WireCodec<S>,
   opts: ResolvedOpts,
   msg: ChannelMsg,
-): { state: PipelineState<unknown>; outputs: readonly Result<S, WireError>[] } {
+): {
+  state: PipelineState<unknown>
+  outputs: readonly Result<S, WireError>[]
+  // Trace facts for the imperative shell's onFrame hook. Present only when
+  // frame(s) were emitted; the shell derives index/total/size from `outputs`.
+  trace?: { seq: number; kind: "complete" | "fragment" }
+} {
   const aliasResult = applyOutboundAliasing(state.aliasState, msg)
-  const nextState = { ...state, aliasState: aliasResult.state }
+  // One seq per send() call: stamp this message's frame(s) with the current
+  // counter and advance it functionally for the next call. Every return path
+  // below carries `nextState`, so the counter advances uniformly per call.
+  const seq = state.nextSeq
+  const nextState = {
+    ...state,
+    aliasState: aliasResult.state,
+    nextSeq: nextFrameSeq(seq),
+  }
 
   if (!aliasResult.result.ok) {
     return {
@@ -75,16 +95,14 @@ export function sendStep<S>(
   const payloadSize = sendCodec.sizeOf(payload)
 
   if (opts.threshold > 0 && payloadSize > opts.threshold) {
-    const frameId = state.nextFrameId()
-    const fragResult = fragmentGeneric(
-      payload,
-      opts.threshold,
-      frameId,
-      sendCodec,
-    )
+    const fragResult = fragmentGeneric(payload, opts.threshold, seq, sendCodec)
 
     if (fragResult.kind === "fragments") {
-      return { state: nextState, outputs: fragResult.pieces.map(p => ok(p)) }
+      return {
+        state: nextState,
+        outputs: fragResult.pieces.map(p => ok(p)),
+        trace: { seq, kind: "fragment" },
+      }
     }
     if (fragResult.kind === "empty-payload") {
       return {
@@ -107,7 +125,9 @@ export function sendStep<S>(
   }
 
   // No fragmentation needed — send as a single complete frame.
-  const framed = sendCodec.encodeFrame(complete(sendCodec.wireVersion, payload))
+  const framed = sendCodec.encodeFrame(
+    complete(sendCodec.wireVersion, seq, payload),
+  )
   const framedSize = sendCodec.sizeOf(framed)
 
   if (framedSize > sendCodec.maxPayload) {
@@ -122,7 +142,11 @@ export function sendStep<S>(
     }
   }
 
-  return { state: nextState, outputs: [ok(framed)] }
+  return {
+    state: nextState,
+    outputs: [ok(framed)],
+    trace: { seq, kind: "complete" },
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +161,9 @@ export function receiveStep<R>(
 ): {
   state: PipelineState<R>
   inputs: readonly Result<ChannelMsg, WireError>[]
+  // Trace facts for the shell's onFrame hook — present only when a complete
+  // inbound message was decoded (pending fragments / errors carry none).
+  trace?: { seq: number; kind: "complete" }
 } {
   const reassemblyResult = state.reassembler.receive(piece)
 
@@ -199,5 +226,9 @@ export function receiveStep<R>(
     }
   }
 
-  return { state: nextState, inputs: [ok(aliasResult.result.value)] }
+  return {
+    state: nextState,
+    inputs: [ok(aliasResult.result.value)],
+    trace: { seq: frame.seq, kind: "complete" },
+  }
 }

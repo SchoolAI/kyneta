@@ -7,9 +7,12 @@
 //     'c' = complete
 //     'f' = fragment
 //
-// Complete frame:   ["1c", <payload>]
-// Fragment frame:   ["1f", frameId, index, total, totalSize, chunk]
+// Complete frame:   ["2c", seq, <payload>]
+// Fragment frame:   ["2f", seq, index, total, totalSize, chunk]
 //
+// `seq` is the per-direction monotonic message id, stamped on every
+// frame; for fragments it is also the reassembly group key (replacing
+// the v1 per-fragment `frameId` element, which it supersedes in place).
 // The payload is a JSON-safe object (single message) or array (batch).
 // Fragments carry JSON substring chunks. The receiver concatenates
 // chunks in index order and JSON.parse the result.
@@ -26,7 +29,7 @@ import {
 // Version
 // ---------------------------------------------------------------------------
 
-export const TEXT_WIRE_VERSION = 1
+export const TEXT_WIRE_VERSION = 2
 
 // ---------------------------------------------------------------------------
 // Prefix encoding
@@ -90,25 +93,24 @@ function parsePrefix(prefix: string): PrefixInfo {
 /**
  * Encode a `Frame<string>` into its text wire representation.
  *
- * For complete frames, the payload is JSON-parsed to embed as a
- * native JSON value (not a string within a string). This means
- * the payload string must be valid JSON.
- *
- * For fragment frames, the payload is a raw substring chunk —
- * it's embedded as a JSON string element in the array.
+ * `seq` follows the prefix in every frame. For complete frames, the
+ * payload is then embedded as a native JSON value (not a string within
+ * a string), so the payload string must be valid JSON. For fragment
+ * frames, the payload is a raw substring chunk embedded as a JSON
+ * string element.
  */
 export function encodeTextFrame(frame: Frame<string>): string {
-  const { version, content } = frame
+  const { version, seq, content } = frame
 
   if (content.kind === "complete") {
     const prefix = buildPrefix(version, false)
-    return `[${JSON.stringify(prefix)},${content.payload}]`
+    return `[${JSON.stringify(prefix)},${seq},${content.payload}]`
   }
 
   // Fragment
-  const { frameId, index, total, totalSize, payload } = content
+  const { index, total, totalSize, payload } = content
   const prefix = buildPrefix(version, true)
-  return JSON.stringify([prefix, frameId, index, total, totalSize, payload])
+  return JSON.stringify([prefix, seq, index, total, totalSize, payload])
 }
 
 // ---------------------------------------------------------------------------
@@ -153,14 +155,27 @@ export function decodeTextFrame(wire: string): Frame<string> {
     )
   }
 
-  if (!isFragment) {
-    // Complete frame: ["Vc", payload]
-    const payloadValue = arr[1]
-    const payload = JSON.stringify(payloadValue)
-    return complete(version, payload, null)
+  const seq = arr[1]
+  if (typeof seq !== "number") {
+    throw new TextFrameDecodeError(
+      "invalid_structure",
+      "Frame seq must be a number",
+    )
   }
 
-  // Fragment frame: ["Vf", frameId, index, total, totalSize, chunk]
+  if (!isFragment) {
+    // Complete frame: ["Vc", seq, payload]
+    if (arr.length < 3) {
+      throw new TextFrameDecodeError(
+        "truncated",
+        `Complete frame requires at least 3 elements, got ${arr.length}`,
+      )
+    }
+    const payload = JSON.stringify(arr[2])
+    return complete(version, seq, payload, null)
+  }
+
+  // Fragment frame: ["Vf", seq, index, total, totalSize, chunk]
   if (arr.length < 6) {
     throw new TextFrameDecodeError(
       "truncated",
@@ -168,18 +183,11 @@ export function decodeTextFrame(wire: string): Frame<string> {
     )
   }
 
-  const frameId = arr[1] as number
   const index = arr[2] as number
   const total = arr[3] as number
   const totalSize = arr[4] as number
   const chunk = arr[5] as string
 
-  if (typeof frameId !== "number") {
-    throw new TextFrameDecodeError(
-      "invalid_structure",
-      "Fragment frameId must be a number",
-    )
-  }
   if (
     typeof index !== "number" ||
     typeof total !== "number" ||
@@ -197,7 +205,7 @@ export function decodeTextFrame(wire: string): Frame<string> {
     )
   }
 
-  return fragment(version, frameId, index, total, totalSize, chunk, null)
+  return fragment(version, seq, index, total, totalSize, chunk, null)
 }
 
 // ---------------------------------------------------------------------------

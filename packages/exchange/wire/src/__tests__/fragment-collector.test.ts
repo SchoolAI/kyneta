@@ -85,7 +85,7 @@ describe("decideFragment — pure", () => {
 
   it("returns accept for a valid non-completing fragment", () => {
     const batch = {
-      frameId: 0,
+      seq: 0,
       expectedTotal: 3,
       expectedTotalSize: 100,
       receivedChunks: new Map<number, string>([[0, "abc"]]),
@@ -99,7 +99,7 @@ describe("decideFragment — pure", () => {
 
   it("returns complete when adding the final fragment", () => {
     const batch = {
-      frameId: 0,
+      seq: 0,
       expectedTotal: 3,
       expectedTotalSize: 100,
       receivedChunks: new Map<number, string>([
@@ -116,7 +116,7 @@ describe("decideFragment — pure", () => {
 
   it("returns reject_duplicate for already-received index", () => {
     const batch = {
-      frameId: 0,
+      seq: 0,
       expectedTotal: 3,
       expectedTotalSize: 100,
       receivedChunks: new Map<number, string>([[0, "abc"]]),
@@ -130,7 +130,7 @@ describe("decideFragment — pure", () => {
 
   it("returns reject_invalid_index for out-of-range index", () => {
     const batch = {
-      frameId: 0,
+      seq: 0,
       expectedTotal: 3,
       expectedTotalSize: 100,
       receivedChunks: new Map<number, string>(),
@@ -144,7 +144,7 @@ describe("decideFragment — pure", () => {
 
   it("returns reject_total_mismatch when total disagrees", () => {
     const batch = {
-      frameId: 0,
+      seq: 0,
       expectedTotal: 3,
       expectedTotalSize: 100,
       receivedChunks: new Map<number, string>(),
@@ -158,7 +158,7 @@ describe("decideFragment — pure", () => {
 
   it("returns reject_size_mismatch when totalSize disagrees", () => {
     const batch = {
-      frameId: 0,
+      seq: 0,
       expectedTotal: 3,
       expectedTotalSize: 100,
       receivedChunks: new Map<number, string>(),
@@ -328,7 +328,7 @@ describe("FragmentCollector — errors", () => {
     if (result.status === "error") {
       expect(result.error.type).toBe("duplicate_fragment")
       if (result.error.type === "duplicate_fragment") {
-        expect(result.error.frameId).toBe(1)
+        expect(result.error.seq).toBe(1)
         expect(result.error.index).toBe(0)
       }
     }

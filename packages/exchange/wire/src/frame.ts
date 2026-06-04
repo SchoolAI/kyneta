@@ -1,18 +1,19 @@
 // frame — binary frame encoding/decoding for @kyneta/wire.
 //
-// Every binary message is wrapped in a frame with a 6-byte header:
+// Every binary message is wrapped in a frame with a 10-byte header:
 //
-//   ┌──────────┬──────────┬───────────────────────────────────────────┐
-//   │ Version  │   Type   │           Payload Length                  │
-//   │ (1 byte) │ (1 byte) │         (4 bytes, big-endian)             │
-//   ├──────────┴──────────┴───────────────────────────────────────────┤
-//   │  [if fragment: frameId(2B) + index(2B) + total(2B)              │
-//   │                + totalSize(4B)]                                 │
+//   ┌──────────┬──────────┬─────────────────────┬─────────────────────┐
+//   │ Version  │   Type   │   Payload Length    │        Seq          │
+//   │ (1 byte) │ (1 byte) │  (4 bytes, BE u32)  │  (4 bytes, BE u32)  │
+//   ├──────────┴──────────┴─────────────────────┴─────────────────────┤
+//   │  [if fragment: index(2B) + total(2B) + totalSize(4B)]           │
 //   ├─────────────────────────────────────────────────────────────────┤
 //   │  Payload (codec-encoded bytes)                                  │
 //   └─────────────────────────────────────────────────────────────────┘
 //
 // The frame type byte distinguishes complete frames from fragments.
+// `seq` is the per-direction monotonic message id; for fragments it is
+// the reassembly group key (so there is no per-fragment id in the meta).
 // Batching is orthogonal — the payload is self-describing (CBOR array
 // vs map). The frame layer never needs to know.
 
@@ -41,7 +42,7 @@ import { decodeWireMessage, encodeWireMessage } from "./wire-message-helpers.js"
 export function encodeBinaryFrame(
   frame: Frame<Uint8Array>,
 ): Uint8Array<ArrayBuffer> {
-  const { version, content } = frame
+  const { version, seq, content } = frame
 
   if (content.kind === "complete") {
     const payload = content.payload
@@ -51,12 +52,13 @@ export function encodeBinaryFrame(
     view.setUint8(0, version)
     view.setUint8(1, BinaryFrameType.COMPLETE)
     view.setUint32(2, payload.length, false)
+    view.setUint32(6, seq, false)
 
     frameBytes.set(payload, HEADER_SIZE)
     return frameBytes
   }
 
-  const { frameId, index, total, totalSize, payload } = content
+  const { index, total, totalSize, payload } = content
 
   const totalLen = HEADER_SIZE + FRAGMENT_META_SIZE + payload.length
   const frameBytes = new Uint8Array(totalLen)
@@ -65,11 +67,10 @@ export function encodeBinaryFrame(
   view.setUint8(0, version)
   view.setUint8(1, BinaryFrameType.FRAGMENT)
   view.setUint32(2, payload.length, false)
+  view.setUint32(6, seq, false)
 
-  // Fragment metadata
+  // Fragment metadata (group key `seq` lives in the header above)
   let offset = HEADER_SIZE
-  view.setUint16(offset, frameId, false)
-  offset += 2
   view.setUint16(offset, index, false)
   offset += 2
   view.setUint16(offset, total, false)
@@ -123,6 +124,7 @@ export function decodeBinaryFrame(
 
   const type = view.getUint8(1) as BinaryFrameTypeValue
   const payloadLength = view.getUint32(2, false)
+  const seq = view.getUint32(6, false)
 
   if (type === BinaryFrameType.COMPLETE) {
     const expectedLength = HEADER_SIZE + payloadLength
@@ -134,7 +136,7 @@ export function decodeBinaryFrame(
     }
 
     const payload = frame.slice(HEADER_SIZE, HEADER_SIZE + payloadLength)
-    return complete(version, payload, null)
+    return complete(version, seq, payload, null)
   }
 
   if (type === BinaryFrameType.FRAGMENT) {
@@ -147,8 +149,6 @@ export function decodeBinaryFrame(
     }
 
     let offset = HEADER_SIZE
-    const frameId = view.getUint16(offset, false)
-    offset += 2
     const index = view.getUint16(offset, false)
     offset += 2
     const total = view.getUint16(offset, false)
@@ -157,15 +157,7 @@ export function decodeBinaryFrame(
     offset += 4
 
     const payload = frame.slice(offset, offset + payloadLength)
-    return fragmentFrame(
-      version,
-      frameId,
-      index,
-      total,
-      totalSize,
-      payload,
-      null,
-    )
+    return fragmentFrame(version, seq, index, total, totalSize, payload, null)
   }
 
   throw new FrameDecodeError(

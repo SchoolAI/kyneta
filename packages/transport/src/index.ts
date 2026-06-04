@@ -100,7 +100,7 @@ export {
 // Wire pipeline
 // ---------------------------------------------------------------------------
 
-export { Pipeline, type WireOpts } from "./pipeline.js"
+export { type FrameTrace, Pipeline, type WireOpts } from "./pipeline.js"
 export type { Encoding, PayloadOf } from "./pipeline-core.js"
 
 // ---------------------------------------------------------------------------

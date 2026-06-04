@@ -24,13 +24,13 @@ export type WireError =
   | {
       readonly code: "reassembly-timeout"
       readonly detail: {
-        readonly frameId: number
+        readonly seq: number
         readonly partialCount: number
       }
     }
   | {
       readonly code: "reassembly-evicted"
-      readonly detail: { readonly frameId: number }
+      readonly detail: { readonly seq: number }
     }
   | {
       readonly code: "frame-too-large"

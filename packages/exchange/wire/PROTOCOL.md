@@ -4,7 +4,7 @@ Wire protocol for `@kyneta/transport` message transport. Defines the universal `
 
 ## Overview
 
-Every message sent over a transport is wrapped in a **frame**. The frame is the universal delivery unit — there is no unframed path. A frame carries a protocol version, an optional content hash, and content that is either **complete** (the full payload) or a **fragment** (one piece of a larger payload).
+Every message sent over a transport is wrapped in a **frame**. The frame is the universal delivery unit — there is no unframed path. A frame carries a protocol version, a per-direction **sequence number** (`seq`), an optional content hash, and content that is either **complete** (the full payload) or a **fragment** (one piece of a larger payload). The `seq` stamps every frame so each exchanged message is referenceable at the protocol level (debugging/tracing); for fragments it also serves as the reassembly group key.
 
 Two encoding pipelines share this frame abstraction:
 
@@ -42,6 +42,7 @@ The text pipeline uses human-readable type strings (`"establish"`, `"present"`, 
 ```typescript
 type Frame<T> = {
   version: number
+  seq: number               // per-direction monotonic message id (uint32, wraps)
   hash: string | null       // null today; hex SHA-256 digest in the future
   content: Complete<T> | Fragment<T>
 }
@@ -53,7 +54,6 @@ type Complete<T> = {
 
 type Fragment<T> = {
   kind: "fragment"
-  frameId: string           // groups fragments of the same payload
   index: number             // 0-based position
   total: number             // total fragment count
   totalSize: number         // total payload size (bytes or characters)
@@ -63,7 +63,9 @@ type Fragment<T> = {
 
 Binary pipeline: `Frame<Uint8Array>`. Text pipeline: `Frame<string>`.
 
-Fragments are **fully self-describing**. Every fragment carries `frameId`, `index`, `total`, and `totalSize`. There is no separate "fragment header" message — the receiver auto-creates collection state on first contact with a new `frameId`.
+`seq` is advanced once per logical message (one `Pipeline.send`), shared by all fragments of that message, and stamped on every frame — complete or fragment. Two peers can name the same exchange by `seq` (the sender's send-`seq` equals the receiver's receive-`seq` for that message).
+
+Fragments are **fully self-describing**. Every fragment carries `index`, `total`, and `totalSize`, and is grouped for reassembly by the enclosing frame's `seq`. There is no separate "fragment header" message — the receiver auto-creates collection state on first contact with a new `seq`.
 
 ## Codec Interfaces
 
@@ -83,23 +85,24 @@ Implementation in `src/json.ts` — human-readable JSON with full type strings. 
 
 ## Binary Wire Format
 
-### Frame Header (6 bytes)
+### Frame Header (10 bytes)
 
 ```
 Offset  Size   Field
 ──────  ─────  ──────────────────
-0       1      Version (WIRE_VERSION = 2 — frame encoding axis)
+0       1      Version (WIRE_VERSION = 3 — frame encoding axis)
 1       1      Type (0x00 = complete, 0x01 = fragment)
 2       4      Payload length (Uint32 big-endian)
+6       4      Seq (Uint32 big-endian) — per-direction monotonic message id
 ```
 
 > **Note — three distinct version axes.** This header byte is the *frame
-> encoding* version (`WIRE_VERSION = 2`). It is unrelated to the per-doc
+> encoding* version (`WIRE_VERSION = 3`). It is unrelated to the per-doc
 > `SyncMode` and to the establish `protocolVersion` (`pv`, the sync
 > wire-contract revision; see "Protocol Version Compatibility"). Do not
 > conflate them.
 
-The v1 framing tightening (jj:spwsxmoq) compacted the header from 7 bytes to 6 by removing the hash-algorithm byte (replaced by a future frame trailer when hash verification is added) and removed the single-byte transport prefix layer.
+`payloadLength` stays at offset 2; `seq` is appended at offset 6. A stream framer that delimits frames by reading the type byte and payload length therefore needs no offset changes when this field was added — only the header size constant.
 
 ### Complete Frame
 
@@ -113,17 +116,16 @@ The type byte is `0x00`. Payload length covers the codec-encoded bytes.
 ### Fragment Frame
 
 ```
-[6-byte header]
-[frameId:   2 bytes uint16 big-endian]
+[10-byte header]   (the header's seq field is the fragment group key)
 [index:     2 bytes uint16 big-endian]
 [total:     2 bytes uint16 big-endian]
 [totalSize: 4 bytes uint32 big-endian]
 [payload: chunk bytes]
 ```
 
-The type byte is `0x01`. Payload length covers the **chunk data only** (not the 10 bytes of fragment metadata). Total frame size = 6 (header) + 10 (metadata) + payload length.
+The type byte is `0x01`. Payload length covers the **chunk data only** (not the 8 bytes of fragment metadata). Total frame size = 10 (header) + 8 (metadata) + payload length.
 
-The frame ID is a per-channel-direction monotonic uint16 counter (`createFrameIdCounter()` in `@kyneta/wire`). It wraps at 65535; in practice fragment batches are short-lived so wrap-around is non-issue.
+Fragments are grouped for reassembly by the header `seq` — there is no separate per-fragment id. `seq` is a per-channel-direction monotonic uint32 advanced by the pure `nextFrameSeq` helper in `@kyneta/wire`; the counter *state* lives in the pipeline (`PipelineState.nextSeq`). It wraps at 2³², which is effectively never within a channel-direction lifetime.
 
 ### No Transport Prefixes
 
@@ -180,7 +182,7 @@ Decoders MUST tolerate absent optional fields by applying these defaults:
 Encode:
   ChannelMsg → applyOutboundAliasing → WireMessage
   → encodeWireMessage(wire) → Uint8Array
-  → encodeBinaryFrame(complete(0, payload)) → framed bytes
+  → encodeBinaryFrame(complete(WIRE_VERSION, seq, payload)) → framed bytes
   → wrapCompleteMessage(framed) → transport payload
 
 Decode:
@@ -197,7 +199,7 @@ Decode:
 The first element of the JSON array is a 2-character string:
 
 ```
-Position 0: version character ('0' = version 0, '1' = version 1, ...)
+Position 0: version character ('1' = version 1, '2' = version 2, ...)
 Position 1: type + hash (case-encoded)
   'c' = complete, no hash
   'C' = complete, with SHA-256 hash (digest in next element)
@@ -205,32 +207,34 @@ Position 1: type + hash (case-encoded)
   'F' = fragment, with SHA-256 hash (digest in next element)
 ```
 
+`TEXT_WIRE_VERSION` is currently `2`, so live prefixes are `"2c"` / `"2f"`.
+
 ### Complete Frame
 
 ```json
-["0c", <payload>]
+["2c", seq, <payload>]
 ```
 
-The payload is a native JSON value — an object for a single message, an array for a batch. It is embedded directly (not as a string within a string).
+`seq` (a JSON number) follows the prefix. The payload is a native JSON value — an object for a single message, an array for a batch — embedded directly (not as a string within a string).
 
 With hash:
 
 ```json
-["0C", "hexdigest", <payload>]
+["2C", "hexdigest", seq, <payload>]
 ```
 
 ### Fragment Frame
 
 ```json
-["0f", "frameId", index, total, totalSize, "chunk"]
+["2f", seq, index, total, totalSize, "chunk"]
 ```
 
-The chunk is a JSON substring of the serialized payload. The receiver concatenates chunks in index order and `JSON.parse` the result.
+`seq` is the fragment group key (it took the slot the v1 per-fragment `frameId` occupied). The chunk is a JSON substring of the serialized payload. The receiver concatenates chunks sharing a `seq` in index order and `JSON.parse` the result.
 
 With hash:
 
 ```json
-["0F", "hexdigest", "frameId", index, total, totalSize, "chunk"]
+["2F", "hexdigest", seq, index, total, totalSize, "chunk"]
 ```
 
 ### Text Encoding Flow
@@ -240,7 +244,7 @@ Encode:
   ChannelMsg → applyOutboundAliasing → WireMessage
   → encodeTextWireMessage(wire) → JSON-safe object
   → JSON.stringify(object) → payload string
-  → encodeTextFrame(complete(0, payload)) → wire string
+  → encodeTextFrame(complete(TEXT_WIRE_VERSION, seq, payload)) → wire string
 
 Decode:
   wire string → decodeTextFrame → Frame<string> { content: Complete }
@@ -257,27 +261,26 @@ Large payloads are split into JSON substring chunks:
 Encode:
   payload string → fragmentTextPayload(payload, maxChunkSize) → wire string[]
 
-Each wire string is a complete, self-describing fragment frame:
-  ["0f", "a1b2c3d4", 0, 3, 1500, "{\"type\":\"offer\",\"docId\":\"doc"]
-  ["0f", "a1b2c3d4", 1, 3, 1500, "-1\",\"offerType\":\"snapshot\",\"pa"]
-  ["0f", "a1b2c3d4", 2, 3, 1500, "yload\":{\"encoding\":\"binary\"}}"]
+Each wire string is a complete, self-describing fragment frame (all sharing one seq):
+  ["2f", 42, 0, 3, 1500, "{\"type\":\"offer\",\"docId\":\"doc"]
+  ["2f", 42, 1, 3, 1500, "-1\",\"offerType\":\"snapshot\",\"pa"]
+  ["2f", 42, 2, 3, 1500, "yload\":{\"encoding\":\"binary\"}}"]
 ```
 
 ## Fragmentation Protocol
 
 ### Self-Describing Fragments
 
-Every fragment — binary or text — carries its full metadata:
+Every fragment — binary or text — carries its full metadata. The group key (`seq`) lives in the frame header (binary offset 6 / text array element 1), not in this block:
 
-| Field | Binary (v1) | Text |
+| Field | Binary (v3) | Text |
 |-------|-------------|------|
-| Frame ID | 2 bytes uint16 big-endian | JSON number |
 | Index | 2 bytes uint16 big-endian | JSON number |
 | Total | 2 bytes uint16 big-endian | JSON number |
 | Total Size | 4 bytes uint32 big-endian | JSON number |
 | Chunk | Raw bytes | JSON string (substring) |
 
-There is no separate "fragment header" message. The `FragmentCollector` auto-creates tracking state when it first encounters a new frame ID.
+There is no separate "fragment header" message. The `FragmentCollector` auto-creates tracking state when it first encounters a new `seq`.
 
 ### FragmentCollector<T> — Generic Reassembly
 
@@ -325,16 +328,16 @@ Sender:
   1. Encode message → complete binary frame (6-byte header + payload)
   2. If frame size ≤ threshold: wrapCompleteMessage(frame) → send
   3. If frame size > threshold:
-     a. Generate next frameId (uint16 per-channel-direction counter)
+     a. Use the message's seq (the per-direction counter already advanced once for this send)
      b. Split payload into chunks of maxChunkSize bytes
-     c. For each chunk: build fragment frame (header + metadata + chunk)
+     c. For each chunk: build fragment frame (header carries seq; metadata + chunk)
      d. wrapFragment(fragmentFrame) → send each
 
 Receiver:
   1. parseTransportPayload(data)
   2. If complete: decodeBinaryFrame(data) → Frame<Uint8Array> → decodeWireMessage → ChannelMsg
   3. If fragment: decodeBinaryFrame(data) → Frame<Uint8Array> with Fragment content
-     → collector.addFragment(frameId, index, total, totalSize, chunk)
+     → collector.addFragment(frame.seq, index, total, totalSize, chunk)
      → eventually: complete data → decodeWireMessage → ChannelMsg
 ```
 
@@ -482,7 +485,7 @@ When hash verification is added, it will be a frame **trailer**, not a header by
 
 ## Counter-Shape Parallel
 
-The wire layer exports `createFrameIdCounter()` — a per-channel-direction monotonic counter that wraps at uint16 (`& 0xffff`) for fragment IDs at the transport-framing layer. The alias counter (per-channel-direction, monotonic, CBOR-major-type-0-encoded, unbounded JS number) follows the same conceptual *position* at the exchange layer but the encoding differs: framing uses fixed-width with wrap; aliasing uses CBOR varint with no wrap. Same shape, different layers, different encoding.
+The wire layer exports `nextFrameSeq(prev)` — a pure uint32 increment (`(prev + 1) >>> 0`) that advances the per-channel-direction frame `seq` at the transport-framing layer; the counter *state* is a field in `PipelineState` (`nextSeq`), advanced functionally by `sendStep`. The alias counter (per-channel-direction, monotonic, CBOR-major-type-0-encoded, unbounded JS number) is incremented the same way — a pure functional bump threaded through immutable `AliasState`. So the two counters are now the same **shape** and the same **style** (pure increments in threaded state); only the encoding differs: framing uses fixed-width uint32 with wrap; aliasing uses CBOR varint with no wrap.
 
 ## Hash Support (Reserved)
 
@@ -544,14 +547,14 @@ Shared:
 | `src/wire-types.ts` | CBOR integer discriminators and compact field names |
 | `src/frame.ts` | Binary frame encode/decode (`encodeBinaryFrame`, `decodeBinaryFrame`, convenience functions) |
 | `src/text-frame.ts` | Text frame encode/decode (`encodeTextFrame`, `decodeTextFrame`, `fragmentTextPayload`) |
-| `src/fragment.ts` | Binary transport payload construction/parsing, `fragmentPayload`, hex/ID helpers |
+| `src/fragment-generic.ts` | `SubstrateOps<T>`/`WireCodec<T>` interfaces, `fragmentGeneric<T>`, and the pure `nextFrameSeq` seq helper |
 | `src/fragment-collector.ts` | Generic `FragmentCollector<T>`, pure `decideFragment`, `CollectorOps<T>`, `TimerAPI` |
-| `src/reassembler.ts` | `FragmentReassembler` — binary wrapper around `FragmentCollector<Uint8Array>` |
-| `src/text-reassembler.ts` | `TextReassembler` — text wrapper around `FragmentCollector<string>` |
+| `src/reassembler-generic.ts` | `Reassembler<T>` — substrate-agnostic wrapper around `FragmentCollector<T>` |
 
-## Protocol Version History
+The **Version** column is the binary `WIRE_VERSION` byte (the text pipeline carries its own `TEXT_WIRE_VERSION`, currently `2`). All entries are pre-release; the first stable release ships at `WIRE_VERSION = 3`.
 
 | Version | Changes |
 |---------|---------|
-| 0 | Pre-release. Unified `Frame<T>` architecture. 7-byte binary header. Single-byte transport prefixes. 8-byte string frameId, 4-byte index/total. |
-| 1 | **Current.** Compact 6-byte binary header (version, type, payloadLength); no hash-algorithm byte (deferred to frame trailer). Numeric uint16 frameId / index / total; uint32 totalSize. Removed transport-prefix layer. **DocId & schemaHash aliasing** with `a`/`dx`/`sa`/`shx` fields. **Wire features negotiation** in `establish` (`f` map; backward-compat). **Identifier length caps** (DocId 512 UTF-8 bytes; schemaHash 256). **Delivery-mode taxonomy** (muxed, streamed-deferred, datagram-deferred). **`vacant` message** (`0x14`) — additive negative-ack to interest; old peers reject the unknown discriminator harmlessly (set-membership), so it is wire-backward-compatible. **Establish `protocolVersion`** (`pv: [major, minor]`; absent ⇒ `[1,0]`; emitted only when non-default) — names the sync wire-contract revision, compared by the three-tier rule (features silent / minor warning / major error); additive and byte-identical for `[1,0]` peers. |
+| 0–1 | Pre-release. Unified `Frame<T>` architecture. 7-byte binary header. Single-byte transport prefixes. 8-byte string frameId, 4-byte index/total. |
+| 2 | Compact 6-byte binary header (version, type, payloadLength); no hash-algorithm byte (deferred to frame trailer). Numeric uint16 frameId / index / total; uint32 totalSize. Removed transport-prefix layer. **DocId & schemaHash aliasing** with `a`/`dx`/`sa`/`shx` fields. **Wire features negotiation** in `establish` (`f` map; backward-compat). **Identifier length caps** (DocId 512 UTF-8 bytes; schemaHash 256). **Delivery-mode taxonomy** (muxed, streamed-deferred, datagram-deferred). **`vacant` message** (`0x14`) — additive negative-ack to interest; old peers reject the unknown discriminator harmlessly (set-membership), so it is wire-backward-compatible. **Establish `protocolVersion`** (`pv: [major, minor]`; absent ⇒ `[1,0]`; emitted only when non-default) — names the sync wire-contract revision, compared by the three-tier rule (features silent / minor warning / major error); additive and byte-identical for `[1,0]` peers. |
+| 3 | **Current.** 10-byte binary header — appends a uint32 **`seq`** (per-direction monotonic message id) at offset 6; `payloadLength` stays at offset 2. Text frames gain a `seq` element after the prefix (`TEXT_WIRE_VERSION` 1→2). The per-fragment `frameId` metadata field is **removed** — the header `seq` is the reassembly group key (binary fragment meta 10→8 bytes; text fragment arity unchanged). `seq` stamps every frame so each exchanged message is referenceable for debugging/tracing, surfaced via the opt-in `WireOpts.onFrame` hook. Breaking vs. v2 — gated by the version byte / text prefix; landed pre-2.0 so no shipped peers are affected. |

@@ -101,11 +101,11 @@ The outbound pipeline is similarly direct:
 ChannelMsg
   └─ applyOutboundAliasing ──► WireMessage
      └─ encodeWireMessage ──► Uint8Array (payload)
-        └─ encodeBinaryFrame(complete(WIRE_VERSION, payload)) ──► Uint8Array (framed)
+        └─ encodeBinaryFrame(complete(WIRE_VERSION, seq, payload)) ──► Uint8Array (framed)
            └─ connection.write(framed)
 ```
 
-There is no `fragmentPayload` call. Every message is one complete frame with a 6-byte header. The kernel splits writes across chunks based on its own buffering; `feedBytes` reassembles them from length alone.
+There is no `fragmentPayload` call. Every message is one complete frame with a 10-byte header. The kernel splits writes across chunks based on its own buffering; `feedBytes` reassembles them from length alone.
 
 ### Why no fragmentation layer
 

@@ -103,14 +103,15 @@ export type FragmentResult<T> =
  *
  * @param payload    - The encoded payload to fragment
  * @param threshold  - Maximum size per chunk (substrate units)
- * @param frameId    - Caller-owned frame identifier grouping fragments
+ * @param seq        - The message's sequence number, shared by all its
+ *                     fragments and used as the reassembly group key
  * @param ops        - Substrate operations
  * @returns Tagged result — `fragments`, `empty-payload`, or `too-many-fragments`
  */
 export function fragmentGeneric<T>(
   payload: T,
   threshold: number,
-  frameId: number,
+  seq: number,
   ops: SubstrateOps<T>,
 ): FragmentResult<T> {
   const totalSize = ops.sizeOf(payload)
@@ -134,10 +135,10 @@ export function fragmentGeneric<T>(
 
     const frame = {
       version: ops.wireVersion,
+      seq,
       hash: null,
       content: {
         kind: "fragment" as const,
-        frameId,
         index: i,
         total,
         totalSize,
@@ -152,20 +153,20 @@ export function fragmentGeneric<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Frame ID counter
+// Frame sequence number
 // ---------------------------------------------------------------------------
 
 /**
- * Create a monotonic uint16 frame ID counter.
+ * Advance a uint32 frame sequence number, wrapping at 2³².
  *
- * Returns a closure that yields 1, 2, …, 65535, 0, 1, … on each call.
- * The wrapping matches the 2-byte `frameId` field in the binary frame
- * layout — callers never need to know the field width.
+ * Pure: `nextFrameSeq(prev)` returns the next value (`(prev + 1) >>> 0`),
+ * yielding `…, 2³²−1, 0, 1, …`. The wrap width matches the 4-byte `seq`
+ * field in the binary frame header.
  *
- * Create one counter per connection; pass it (or its return value)
- * to `fragmentGeneric` / the Pipeline.
+ * The per-direction counter *state* is owned by the pipeline
+ * (`PipelineState.nextSeq`), which advances it functionally with this
+ * helper — this module owns only the wrap arithmetic, a frame-format fact.
  */
-export function createFrameIdCounter(): () => number {
-  let id = 0
-  return () => (id = (id + 1) & 0xffff)
+export function nextFrameSeq(prev: number): number {
+  return (prev + 1) >>> 0
 }

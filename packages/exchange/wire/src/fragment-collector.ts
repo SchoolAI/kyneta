@@ -57,9 +57,9 @@ export interface CollectorConfig {
   /** Maximum total size across all in-flight frames (default: 50MB for binary, 50M chars for text). */
   maxTotalSize: number
   /** Callback when a frame times out. */
-  onTimeout?: (frameId: number) => void
+  onTimeout?: (seq: number) => void
   /** Callback when a frame is evicted due to pressure. */
-  onEvicted?: (frameId: number) => void
+  onEvicted?: (seq: number) => void
 }
 
 const DEFAULT_CONFIG: CollectorConfig = {
@@ -88,12 +88,12 @@ export type CollectorResult<T> =
  * Errors that can occur during fragment collection.
  */
 export type CollectorError =
-  | { type: "duplicate_fragment"; frameId: number; index: number }
-  | { type: "invalid_index"; frameId: number; index: number; max: number }
-  | { type: "total_mismatch"; frameId: number; expected: number; got: number }
-  | { type: "size_mismatch"; frameId: number; expected: number; actual: number }
-  | { type: "timeout"; frameId: number }
-  | { type: "evicted"; frameId: number }
+  | { type: "duplicate_fragment"; seq: number; index: number }
+  | { type: "invalid_index"; seq: number; index: number; max: number }
+  | { type: "total_mismatch"; seq: number; expected: number; got: number }
+  | { type: "size_mismatch"; seq: number; expected: number; actual: number }
+  | { type: "timeout"; seq: number }
+  | { type: "evicted"; seq: number }
   | { type: "disposed" }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ export type CollectorError =
  * Internal state for an in-flight frame being reassembled.
  */
 interface BatchState<T> {
-  readonly frameId: number
+  readonly seq: number
   readonly expectedTotal: number
   readonly expectedTotalSize: number
   readonly receivedChunks: Map<number, T>
@@ -136,10 +136,10 @@ export type FragmentDecision =
  * Pure decision function — determines what to do with an incoming fragment.
  *
  * Takes the current batch state (or undefined if this is the first fragment
- * for a given frameId) and the fragment's metadata. Returns a decision
+ * for a given seq) and the fragment's metadata. Returns a decision
  * with zero side effects.
  *
- * @param batch - Current batch state, or undefined if no batch exists for this frameId
+ * @param batch - Current batch state, or undefined if no batch exists for this seq
  * @param index - Fragment index (0-based)
  * @param total - Total number of fragments expected
  * @param totalSize - Total size of the reassembled payload
@@ -150,7 +150,7 @@ export function decideFragment<T>(
   total: number,
   totalSize: number,
 ): FragmentDecision {
-  // First fragment for this frameId — create batch
+  // First fragment for this seq — create batch
   if (batch === undefined) {
     if (index < 0 || index >= total) {
       return { action: "reject_invalid_index" }
@@ -197,7 +197,7 @@ export function decideFragment<T>(
 /**
  * Generic stateful fragment collector.
  *
- * Collects fragment frames by frameId and reassembles them into
+ * Collects fragment frames by seq and reassembles them into
  * complete payloads. Manages timeouts, memory limits, and eviction.
  *
  * The collector is parameterized on T (the chunk type) and injected
@@ -212,13 +212,13 @@ export function decideFragment<T>(
  *   { sizeOf: s => s.length, concatenate: chunks => chunks.join("") },
  * )
  *
- * const result = collector.addFragment("frame-1", 0, 3, 100, "hello")
+ * const result = collector.addFragment(1, 0, 3, 100, "hello")
  * // result.status === "pending"
  *
- * const result2 = collector.addFragment("frame-1", 2, 3, 100, "world")
+ * const result2 = collector.addFragment(1, 2, 3, 100, "world")
  * // result2.status === "pending"
  *
- * const result3 = collector.addFragment("frame-1", 1, 3, 100, " ")
+ * const result3 = collector.addFragment(1, 1, 3, 100, " ")
  * // result3.status === "complete", result3.data === "hello world"
  *
  * collector.dispose()
@@ -252,18 +252,18 @@ export class FragmentCollector<T> {
   /**
    * Add a fragment to the collector.
    *
-   * Auto-creates batch state on first fragment for a given frameId.
+   * Auto-creates batch state on first fragment for a given seq.
    * Validates total/totalSize consistency across fragments.
    * Returns the reassembled payload when all fragments arrive.
    *
-   * @param frameId - Identifier grouping fragments of the same payload
+   * @param seq - Identifier grouping fragments of the same payload
    * @param index - Zero-based index of this fragment
    * @param total - Total number of fragments expected
    * @param totalSize - Total size of the reassembled payload
    * @param chunk - This fragment's data chunk
    */
   addFragment(
-    frameId: number,
+    seq: number,
     index: number,
     total: number,
     totalSize: number,
@@ -273,12 +273,12 @@ export class FragmentCollector<T> {
       return { status: "error", error: { type: "disposed" } }
     }
 
-    const batch = this.#batches.get(frameId)
+    const batch = this.#batches.get(seq)
     const decision = decideFragment(batch, index, total, totalSize)
 
     return this.#executeDecision(
       decision,
-      frameId,
+      seq,
       index,
       total,
       totalSize,
@@ -340,7 +340,7 @@ export class FragmentCollector<T> {
 
   #executeDecision(
     decision: FragmentDecision,
-    frameId: number,
+    seq: number,
     index: number,
     total: number,
     totalSize: number,
@@ -351,26 +351,26 @@ export class FragmentCollector<T> {
       case "reject_duplicate":
         return {
           status: "error",
-          error: { type: "duplicate_fragment", frameId, index },
+          error: { type: "duplicate_fragment", seq, index },
         }
 
       case "reject_invalid_index":
         return {
           status: "error",
-          error: { type: "invalid_index", frameId, index, max: total - 1 },
+          error: { type: "invalid_index", seq, index, max: total - 1 },
         }
 
       case "reject_total_mismatch": {
         if (batch === undefined) {
           throw new Error(
-            `FragmentCollector bug: reject_total_mismatch for frameId=${frameId} but batch is undefined`,
+            `FragmentCollector bug: reject_total_mismatch for seq=${seq} but batch is undefined`,
           )
         }
         return {
           status: "error",
           error: {
             type: "total_mismatch",
-            frameId,
+            seq,
             expected: batch.expectedTotal,
             got: total,
           },
@@ -380,14 +380,14 @@ export class FragmentCollector<T> {
       case "reject_size_mismatch": {
         if (batch === undefined) {
           throw new Error(
-            `FragmentCollector bug: reject_size_mismatch for frameId=${frameId} but batch is undefined`,
+            `FragmentCollector bug: reject_size_mismatch for seq=${seq} but batch is undefined`,
           )
         }
         return {
           status: "error",
           error: {
             type: "size_mismatch",
-            frameId,
+            seq,
             expected: batch.expectedTotalSize,
             actual: totalSize,
           },
@@ -400,7 +400,7 @@ export class FragmentCollector<T> {
           this.#evictOldest()
         }
 
-        const newBatch = this.#createBatch(frameId, total, totalSize)
+        const newBatch = this.#createBatch(seq, total, totalSize)
         this.#addChunkToBatch(newBatch, index, chunk)
         return { status: "pending" }
       }
@@ -408,7 +408,7 @@ export class FragmentCollector<T> {
       case "accept": {
         if (batch === undefined) {
           throw new Error(
-            `FragmentCollector bug: accept for frameId=${frameId} but batch is undefined`,
+            `FragmentCollector bug: accept for seq=${seq} but batch is undefined`,
           )
         }
         this.#addChunkToBatch(batch, index, chunk)
@@ -419,10 +419,10 @@ export class FragmentCollector<T> {
           if (!evicted) break
 
           // If we evicted the current batch, return error
-          if (!this.#batches.has(frameId)) {
+          if (!this.#batches.has(seq)) {
             return {
               status: "error",
-              error: { type: "evicted", frameId },
+              error: { type: "evicted", seq },
             }
           }
         }
@@ -439,7 +439,7 @@ export class FragmentCollector<T> {
               status: "error",
               error: {
                 type: "size_mismatch",
-                frameId,
+                seq,
                 expected: totalSize,
                 actual: actualSize,
               },
@@ -450,7 +450,7 @@ export class FragmentCollector<T> {
 
         // Add the final chunk, then reassemble
         this.#addChunkToBatch(batch, index, chunk)
-        return this.#completeBatch(frameId, batch)
+        return this.#completeBatch(seq, batch)
       }
     }
   }
@@ -460,12 +460,12 @@ export class FragmentCollector<T> {
   // ==========================================================================
 
   #createBatch(
-    frameId: number,
+    seq: number,
     expectedTotal: number,
     expectedTotalSize: number,
   ): BatchState<T> {
     const batch: BatchState<T> = {
-      frameId,
+      seq,
       expectedTotal,
       expectedTotalSize,
       receivedChunks: new Map(),
@@ -476,10 +476,10 @@ export class FragmentCollector<T> {
 
     // Set up timeout timer
     batch.timerId = this.#timer.setTimeout(() => {
-      this.#handleTimeout(frameId)
+      this.#handleTimeout(seq)
     }, this.#config.timeoutMs)
 
-    this.#batches.set(frameId, batch)
+    this.#batches.set(seq, batch)
     return batch
   }
 
@@ -490,14 +490,14 @@ export class FragmentCollector<T> {
     this.#totalSize += chunkSize
   }
 
-  #completeBatch(frameId: number, batch: BatchState<T>): CollectorResult<T> {
+  #completeBatch(seq: number, batch: BatchState<T>): CollectorResult<T> {
     // Cancel timeout timer
     if (batch.timerId !== undefined) {
       this.#timer.clearTimeout(batch.timerId)
     }
 
     // Remove from tracking
-    this.#batches.delete(frameId)
+    this.#batches.delete(seq)
     this.#totalSize -= batch.receivedSize
 
     // Validate total size
@@ -509,7 +509,7 @@ export class FragmentCollector<T> {
         status: "error",
         error: {
           type: "size_mismatch",
-          frameId,
+          seq,
           expected: batch.expectedTotalSize,
           actual: batch.receivedSize,
         },
@@ -522,7 +522,7 @@ export class FragmentCollector<T> {
       const chunk = batch.receivedChunks.get(i)
       if (chunk === undefined) {
         throw new Error(
-          `FragmentCollector bug: missing chunk at index ${i} for frameId=${frameId} (expected ${batch.expectedTotal} chunks, received ${batch.receivedChunks.size})`,
+          `FragmentCollector bug: missing chunk at index ${i} for seq=${seq} (expected ${batch.expectedTotal} chunks, received ${batch.receivedChunks.size})`,
         )
       }
       ordered.push(chunk)
@@ -536,16 +536,16 @@ export class FragmentCollector<T> {
   // PRIVATE — timeout handling
   // ==========================================================================
 
-  #handleTimeout(frameId: number): void {
-    const batch = this.#batches.get(frameId)
+  #handleTimeout(seq: number): void {
+    const batch = this.#batches.get(seq)
     if (!batch) return
 
     // Clean up
-    this.#batches.delete(frameId)
+    this.#batches.delete(seq)
     this.#totalSize -= batch.receivedSize
 
     // Notify
-    this.#config.onTimeout?.(frameId)
+    this.#config.onTimeout?.(seq)
   }
 
   // ==========================================================================
@@ -557,11 +557,11 @@ export class FragmentCollector<T> {
    * @returns true if a batch was evicted
    */
   #evictOldest(): boolean {
-    let oldest: { frameId: number; batch: BatchState<T> } | undefined
+    let oldest: { seq: number; batch: BatchState<T> } | undefined
 
-    for (const [frameId, batch] of this.#batches) {
+    for (const [seq, batch] of this.#batches) {
       if (!oldest || batch.startedAt < oldest.batch.startedAt) {
-        oldest = { frameId, batch }
+        oldest = { seq, batch }
       }
     }
 
@@ -573,11 +573,11 @@ export class FragmentCollector<T> {
     }
 
     // Remove batch
-    this.#batches.delete(oldest.frameId)
+    this.#batches.delete(oldest.seq)
     this.#totalSize -= oldest.batch.receivedSize
 
     // Notify
-    this.#config.onEvicted?.(oldest.frameId)
+    this.#config.onEvicted?.(oldest.seq)
 
     return true
   }

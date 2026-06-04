@@ -26,9 +26,12 @@ import { offerWire, presentWire } from "./__helpers__/wire-fixtures.js"
 // Helper
 // ---------------------------------------------------------------------------
 
+/** A representative non-zero seq for round-trip assertions. */
+const SEQ = 7
+
 function encodeToFrame(wire: WireMessage): string {
   const payload = encodeTextWireMessage(wire)
-  return encodeTextFrame(complete(TEXT_WIRE_VERSION, payload))
+  return encodeTextFrame(complete(TEXT_WIRE_VERSION, SEQ, payload))
 }
 
 // ---------------------------------------------------------------------------
@@ -36,18 +39,22 @@ function encodeToFrame(wire: WireMessage): string {
 // ---------------------------------------------------------------------------
 
 describe("Text frame — prefix", () => {
-  it("complete frame has prefix '1c'", () => {
-    const frame = complete(TEXT_WIRE_VERSION, '{"type":"present","docs":[]}')
+  it("complete frame has prefix '2c'", () => {
+    const frame = complete(
+      TEXT_WIRE_VERSION,
+      SEQ,
+      '{"type":"present","docs":[]}',
+    )
     const wire = encodeTextFrame(frame)
     const arr = JSON.parse(wire)
-    expect(arr[0]).toBe("1c")
+    expect(arr[0]).toBe("2c")
   })
 
-  it("fragment frame has prefix '1f'", () => {
+  it("fragment frame has prefix '2f'", () => {
     const frame = fragment(TEXT_WIRE_VERSION, 0xaabb, 0, 3, 100, "chunk")
     const wire = encodeTextFrame(frame)
     const arr = JSON.parse(wire)
-    expect(arr[0]).toBe("1f")
+    expect(arr[0]).toBe("2f")
   })
 })
 
@@ -68,12 +75,13 @@ describe("Text frame — complete round-trip", () => {
         },
       ],
     })
-    const frame = complete(TEXT_WIRE_VERSION, payload)
+    const frame = complete(TEXT_WIRE_VERSION, SEQ, payload)
     const wire = encodeTextFrame(frame)
     const decoded = decodeTextFrame(wire)
 
     expect(isComplete(decoded)).toBe(true)
     expect(decoded.version).toBe(TEXT_WIRE_VERSION)
+    expect(decoded.seq).toBe(SEQ)
     expect(decoded.hash).toBeNull()
     expect(decoded.content.payload).toBe(payload)
   })
@@ -93,7 +101,7 @@ describe("Text frame — complete round-trip", () => {
       },
       { type: "interest", docId: "b" },
     ])
-    const frame = complete(TEXT_WIRE_VERSION, payload)
+    const frame = complete(TEXT_WIRE_VERSION, SEQ, payload)
     const wire = encodeTextFrame(frame)
     const decoded = decodeTextFrame(wire)
 
@@ -113,7 +121,7 @@ describe("Text frame — complete round-trip", () => {
         },
       ],
     })
-    const frame = complete(TEXT_WIRE_VERSION, payload)
+    const frame = complete(TEXT_WIRE_VERSION, SEQ, payload)
     const wire = encodeTextFrame(frame)
 
     expect(() => JSON.parse(wire)).not.toThrow()
@@ -133,19 +141,20 @@ describe("Text frame — complete round-trip", () => {
         },
       ],
     })
-    const frame = complete(TEXT_WIRE_VERSION, payload)
+    const frame = complete(TEXT_WIRE_VERSION, SEQ, payload)
     const wire = encodeTextFrame(frame)
     const arr = JSON.parse(wire)
 
-    // arr[1] should be the parsed object, not a string
-    expect(typeof arr[1]).toBe("object")
-    expect(arr[1].type).toBe("present")
+    // arr[1] is the seq; arr[2] should be the parsed object, not a string
+    expect(typeof arr[1]).toBe("number")
+    expect(typeof arr[2]).toBe("object")
+    expect(arr[2].type).toBe("present")
   })
 
   it("does not call JSON.parse when encoding a complete frame", () => {
     const parseSpy = vi.spyOn(JSON, "parse")
     const payload = JSON.stringify({ type: "present", docs: [] })
-    const frame = complete(TEXT_WIRE_VERSION, payload)
+    const frame = complete(TEXT_WIRE_VERSION, SEQ, payload)
     encodeTextFrame(frame)
     expect(parseSpy).not.toHaveBeenCalled()
     parseSpy.mockRestore()
@@ -154,10 +163,10 @@ describe("Text frame — complete round-trip", () => {
   it("preserves payload string exactly without JSON.parse artifacts", () => {
     // Values that JavaScript JSON.parse normalizes: 1.0 → 1, 1e2 → 100, -0 → 0
     const payload = '{"value":1.0,"exp":1e2,"negZero":-0}'
-    const frame = complete(TEXT_WIRE_VERSION, payload)
+    const frame = complete(TEXT_WIRE_VERSION, SEQ, payload)
     const wire = encodeTextFrame(frame)
     // Direct concatenation preserves the raw payload; parse/stringify would normalize
-    expect(wire).toBe('["1c",{"value":1.0,"exp":1e2,"negZero":-0}]')
+    expect(wire).toBe('["2c",7,{"value":1.0,"exp":1e2,"negZero":-0}]')
   })
 })
 
@@ -166,11 +175,11 @@ describe("Text frame — complete round-trip", () => {
 // ---------------------------------------------------------------------------
 
 describe("Text frame — fragment round-trip", () => {
-  it("round-trips a fragment frame", () => {
-    const frameId = 0xa1b2
+  it("round-trips a fragment frame (seq is the group key)", () => {
+    const seq = 0xa1b2
     const frame = fragment(
       TEXT_WIRE_VERSION,
-      frameId,
+      seq,
       2,
       5,
       1000,
@@ -181,10 +190,10 @@ describe("Text frame — fragment round-trip", () => {
 
     expect(isFragment(decoded)).toBe(true)
     expect(decoded.version).toBe(TEXT_WIRE_VERSION)
+    expect(decoded.seq).toBe(seq)
     expect(decoded.hash).toBeNull()
 
     if (decoded.content.kind === "fragment") {
-      expect(decoded.content.frameId).toBe(frameId)
       expect(decoded.content.index).toBe(2)
       expect(decoded.content.total).toBe(5)
       expect(decoded.content.totalSize).toBe(1000)
@@ -197,9 +206,9 @@ describe("Text frame — fragment round-trip", () => {
     const wire = encodeTextFrame(frame)
     const arr = JSON.parse(wire)
 
-    // ["1f", frameId, index, total, totalSize, chunk]
+    // ["2f", seq, index, total, totalSize, chunk]
     expect(typeof arr[0]).toBe("string") // prefix
-    expect(typeof arr[1]).toBe("number") // frameId
+    expect(typeof arr[1]).toBe("number") // seq
     expect(typeof arr[2]).toBe("number") // index
     expect(typeof arr[3]).toBe("number") // total
     expect(typeof arr[4]).toBe("number") // totalSize
@@ -268,7 +277,7 @@ describe("Text frame — error handling", () => {
   })
 
   it("throws on array too short", () => {
-    expect(() => decodeTextFrame('["1c"]')).toThrow(TextFrameDecodeError)
+    expect(() => decodeTextFrame('["2c"]')).toThrow(TextFrameDecodeError)
   })
 
   it("throws on invalid prefix — wrong length", () => {
@@ -287,53 +296,61 @@ describe("Text frame — error handling", () => {
   })
 
   it("throws on unsupported version", () => {
-    expect(() => decodeTextFrame('["9c", 123]')).toThrow(TextFrameDecodeError)
-    expect(() => decodeTextFrame('["9c", 123]')).toThrow(
+    expect(() => decodeTextFrame('["9c", 1, 123]')).toThrow(
+      TextFrameDecodeError,
+    )
+    expect(() => decodeTextFrame('["9c", 1, 123]')).toThrow(
+      "Unsupported text wire version",
+    )
+  })
+
+  it("rejects the prior-version '1c' prefix with unsupported_version", () => {
+    expect(() => decodeTextFrame('["1c", {"type":"present"}]')).toThrow(
       "Unsupported text wire version",
     )
   })
 
   it("throws on truncated fragment frame", () => {
-    // "1f" expects frameId, index, total, totalSize, chunk = 6 elements
-    expect(() => decodeTextFrame('["1f", 1, 0, 3]')).toThrow(
+    // "2f" expects seq, index, total, totalSize, chunk = 6 elements
+    expect(() => decodeTextFrame('["2f", 1, 0, 3]')).toThrow(
       TextFrameDecodeError,
     )
-    expect(() => decodeTextFrame('["1f", 1, 0, 3]')).toThrow("at least 6")
+    expect(() => decodeTextFrame('["2f", 1, 0, 3]')).toThrow("at least 6")
   })
 
-  it("throws on non-number frameId in fragment", () => {
+  it("throws on non-number seq", () => {
     expect(() =>
-      decodeTextFrame('["1f", "not_a_number", 0, 3, 100, "chunk"]'),
+      decodeTextFrame('["2f", "not_a_number", 0, 3, 100, "chunk"]'),
     ).toThrow(TextFrameDecodeError)
     expect(() =>
-      decodeTextFrame('["1f", "not_a_number", 0, 3, 100, "chunk"]'),
-    ).toThrow("frameId must be a number")
+      decodeTextFrame('["2f", "not_a_number", 0, 3, 100, "chunk"]'),
+    ).toThrow("Frame seq must be a number")
   })
 
   it("throws on non-number index in fragment", () => {
-    expect(() => decodeTextFrame('["1f", 1, "zero", 3, 100, "chunk"]')).toThrow(
+    expect(() => decodeTextFrame('["2f", 1, "zero", 3, 100, "chunk"]')).toThrow(
       TextFrameDecodeError,
     )
-    expect(() => decodeTextFrame('["1f", 1, "zero", 3, 100, "chunk"]')).toThrow(
+    expect(() => decodeTextFrame('["2f", 1, "zero", 3, 100, "chunk"]')).toThrow(
       "must be numbers",
     )
   })
 
   it("throws on non-string chunk in fragment", () => {
-    expect(() => decodeTextFrame('["1f", 1, 0, 3, 100, 42]')).toThrow(
+    expect(() => decodeTextFrame('["2f", 1, 0, 3, 100, 42]')).toThrow(
       TextFrameDecodeError,
     )
-    expect(() => decodeTextFrame('["1f", 1, 0, 3, 100, 42]')).toThrow(
+    expect(() => decodeTextFrame('["2f", 1, 0, 3, 100, 42]')).toThrow(
       "chunk must be a string",
     )
   })
 
-  it("rejects v0 hash prefix variants 'C' and 'F'", () => {
+  it("rejects hash prefix variants 'C' and 'F' (reserved, not emitted)", () => {
     expect(() =>
-      decodeTextFrame('["1C", "deadbeef", {"type": "present"}]'),
+      decodeTextFrame('["2C", "deadbeef", {"type": "present"}]'),
     ).toThrow(TextFrameDecodeError)
     expect(() =>
-      decodeTextFrame('["1F", "deadbeef", 1, 0, 3, 100, "chunk"]'),
+      decodeTextFrame('["2F", "deadbeef", 1, 0, 3, 100, "chunk"]'),
     ).toThrow(TextFrameDecodeError)
   })
 })

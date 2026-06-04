@@ -15,6 +15,7 @@
 import { SYNC_AUTHORITATIVE } from "@kyneta/schema"
 import type { ChannelMsg, PresentMsg } from "@kyneta/transport"
 import { FrameStreamParser, Pipeline } from "@kyneta/transport"
+import { complete, encodeBinaryFrame, WIRE_VERSION } from "@kyneta/wire"
 import { describe, expect, it, vi } from "vitest"
 import { UnixSocketConnection } from "../connection.js"
 import { MockUnixSocket } from "./mock-unix-socket.js"
@@ -309,16 +310,12 @@ describe("UnixSocketConnection", () => {
   it("silently drops invalid CBOR frames and continues operating", () => {
     const { socket, received } = createStartedConnection()
 
-    // Valid 6-byte header with payloadLength=14, followed by garbage payload.
-    // The FrameStreamParser extracts the frame, but Pipeline.receive()
-    // fails to decode the garbage CBOR — the error Result is silently
-    // skipped (no message delivered).
-    const garbage = new Uint8Array(20)
-    const view = new DataView(garbage.buffer)
-    view.setUint8(0, 1) // version
-    view.setUint8(1, 0x00) // type COMPLETE
-    view.setUint32(2, 14, false) // payload length
-    for (let i = 6; i < 20; i++) garbage[i] = 0xff
+    // A structurally valid binary frame wrapping garbage CBOR. The
+    // FrameStreamParser extracts the frame, but Pipeline.receive() fails
+    // to decode the garbage CBOR — the error Result is silently skipped
+    // (no message delivered).
+    const garbageCbor = new Uint8Array(14).fill(0xff)
+    const garbage = encodeBinaryFrame(complete(WIRE_VERSION, 1, garbageCbor))
 
     socket.emitData(garbage)
 

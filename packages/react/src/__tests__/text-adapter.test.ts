@@ -1,11 +1,7 @@
 import { textChange } from "@kyneta/schema"
 import { batch, createDoc, Schema } from "@kyneta/schema/basic"
 import { describe, expect, it, vi } from "vitest"
-import {
-  attach,
-  diffText,
-  transformSelection,
-} from "../text-adapter.js"
+import { attach, diffText, transformSelection } from "../text-adapter.js"
 
 // ===========================================================================
 // Functional Core: diffText

@@ -93,10 +93,10 @@ export {
 // ---------------------------------------------------------------------------
 
 export {
-  createFrameIdCounter,
   FRAGMENT_TOTAL_MAX,
   type FragmentResult,
   fragmentGeneric,
+  nextFrameSeq,
   type SubstrateOps,
   type WireCodec,
 } from "./fragment-generic.js"

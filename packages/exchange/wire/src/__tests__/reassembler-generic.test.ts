@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest"
 import { WIRE_VERSION } from "../constants.js"
-import { createFrameIdCounter, fragmentGeneric } from "../fragment-generic.js"
+import { fragmentGeneric } from "../fragment-generic.js"
 import { BINARY_CODEC } from "../frame.js"
 import { complete } from "../frame-types.js"
 import { Reassembler } from "../reassembler-generic.js"
@@ -30,9 +30,9 @@ function createTestPayload(size: number): Uint8Array<ArrayBuffer> {
 function fragmentOrThrow(
   payload: Uint8Array<ArrayBuffer>,
   threshold: number,
-  frameId: number,
+  seq: number,
 ): readonly Uint8Array<ArrayBuffer>[] {
-  const result = fragmentGeneric(payload, threshold, frameId, BINARY_CODEC)
+  const result = fragmentGeneric(payload, threshold, seq, BINARY_CODEC)
   if (result.kind !== "fragments") {
     throw new Error(`Expected 'fragments', got '${result.kind}'`)
   }
@@ -46,7 +46,7 @@ function fragmentOrThrow(
 describe("Reassembler — complete frame pass-through", () => {
   it("returns the frame immediately for a complete message", () => {
     const payload = createTestPayload(42)
-    const frame = complete(WIRE_VERSION, payload)
+    const frame = complete(WIRE_VERSION, 9, payload)
     const encoded = BINARY_CODEC.encodeFrame(frame)
 
     const reassembler = new Reassembler(BINARY_CODEC)
@@ -63,6 +63,7 @@ describe("Reassembler — complete frame pass-through", () => {
       }
       expect(result.frame.content.payload).toEqual(payload)
       expect(result.frame.version).toBe(WIRE_VERSION)
+      expect(result.frame.seq).toBe(9)
     } finally {
       reassembler.dispose()
     }
@@ -76,8 +77,7 @@ describe("Reassembler — complete frame pass-through", () => {
 describe("Reassembler — in-order fragment reassembly", () => {
   it("collects fragments in order and returns complete on the last one", () => {
     const payload = createTestPayload(150)
-    const nextId = createFrameIdCounter()
-    const pieces = fragmentOrThrow(payload, 50, nextId())
+    const pieces = fragmentOrThrow(payload, 50, 1)
 
     // ceil(150 / 50) = 3 fragments
     expect(pieces).toHaveLength(3)
@@ -103,6 +103,8 @@ describe("Reassembler — in-order fragment reassembly", () => {
             throw new Error("Expected complete content kind")
           }
           expect(result.frame.content.payload).toEqual(payload)
+          // The reassembled complete frame carries the fragment group's seq.
+          expect(result.frame.seq).toBe(1)
         }
       }
     } finally {
@@ -118,8 +120,7 @@ describe("Reassembler — in-order fragment reassembly", () => {
 describe("Reassembler — out-of-order fragments", () => {
   it("reassembles fragments delivered as [2, 0, 1]", () => {
     const payload = createTestPayload(150)
-    const nextId = createFrameIdCounter()
-    const pieces = fragmentOrThrow(payload, 50, nextId())
+    const pieces = fragmentOrThrow(payload, 50, 1)
 
     // ceil(150 / 50) = 3 fragments
     expect(pieces).toHaveLength(3)
@@ -179,9 +180,8 @@ describe("Reassembler — interleaved fragments", () => {
     const payload1 = createTestPayload(150) // 3 fragments at threshold 50
     const payload2 = createTestPayload(100) // 2 fragments at threshold 50
 
-    const counter = createFrameIdCounter()
-    const id1 = counter() // 1
-    const id2 = counter() // 2
+    const id1 = 1
+    const id2 = 2
 
     const frags1 = fragmentOrThrow(payload1, 50, id1)
     const frags2 = fragmentOrThrow(payload2, 50, id2)
@@ -246,6 +246,9 @@ describe("Reassembler — interleaved fragments", () => {
 
       expect(result1.frame.content.payload).toEqual(payload1)
       expect(result2.frame.content.payload).toEqual(payload2)
+      // Each reassembled message carries its own distinct group seq.
+      expect(result1.frame.seq).toBe(id1)
+      expect(result2.frame.seq).toBe(id2)
     } finally {
       reassembler.dispose()
     }
@@ -268,7 +271,7 @@ describe("Reassembler — dispose", () => {
 
     // After dispose, receive returns error
     const payload = createTestPayload(10)
-    const frame = complete(WIRE_VERSION, payload)
+    const frame = complete(WIRE_VERSION, 1, payload)
     const encoded = BINARY_CODEC.encodeFrame(frame)
 
     const result = reassembler.receive(encoded)
@@ -287,8 +290,7 @@ describe("Reassembler — dispose", () => {
 describe("Reassembler — reset", () => {
   it("clears pending state so fragments restart from scratch", () => {
     const payload = createTestPayload(150)
-    const nextId = createFrameIdCounter()
-    const pieces = fragmentOrThrow(payload, 50, nextId())
+    const pieces = fragmentOrThrow(payload, 50, 1)
 
     expect(pieces).toHaveLength(3)
 

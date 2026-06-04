@@ -185,18 +185,18 @@ Asymmetric wire encoding — text frames downstream (SSE), binary CBOR upstream 
 | Direction | Transport | Wire format |
 |-----------|-----------|-------------|
 | Client → Server | HTTP POST (`application/octet-stream`) | Binary CBOR frame |
-| Server → Client | SSE `data:` event | Text frame (`["1c", <payload>]`) |
+| Server → Client | SSE `data:` event | Text frame (`["2c", seq, <payload>]`) |
 
 ### Text Frames
 
-Every message is wrapped in a text frame — a JSON array with a 2-character prefix:
+Every message is wrapped in a text frame — a JSON array with a 2-character prefix followed by the per-direction `seq`:
 
 ```/dev/null/text-frame-example.txt#L1-5
-Complete frame:  ["0c", {"type":"present","docs":[{"docId":"doc-1"}]}]
-Fragment frame:  ["0f", "a1b2c3d4", 0, 3, 1500, "{\"type\":\"offer\"..."]
+Complete frame:  ["2c", 42, {"type":"present","docs":[{"docId":"doc-1"}]}]
+Fragment frame:  ["2f", 42, 0, 3, 1500, "{\"type\":\"offer\"..."]
 ```
 
-The `"0c"` prefix means "version 0, complete, no hash". Fragments use `"0f"` and carry `frameId`, `index`, `total`, `totalSize`, and a JSON substring chunk.
+The `"2c"` prefix means "version 2, complete, no hash". `seq` is the per-direction message id (it groups a message's fragments). Fragments use `"2f"` and carry `seq`, `index`, `total`, `totalSize`, and a JSON substring chunk.
 
 ### Why Text Instead of Binary?
 

@@ -24,7 +24,7 @@ import {
 /**
  * Discriminated union representing the parser's current phase.
  *
- * - `"header"`: accumulating bytes until we have a complete 6-byte header
+ * - `"header"`: accumulating bytes until we have a complete `HEADER_SIZE`-byte header
  * - `"payload"`: header parsed, accumulating payload bytes
  *
  * The buffer holds accumulated bytes for the current phase. The offset

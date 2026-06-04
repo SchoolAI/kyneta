@@ -5,9 +5,9 @@
 
 import { describe, expect, it } from "vitest"
 import {
-  createFrameIdCounter,
   FRAGMENT_TOTAL_MAX,
   fragmentGeneric,
+  nextFrameSeq,
   type SubstrateOps,
 } from "../fragment-generic.js"
 import { BINARY_CODEC } from "../frame.js"
@@ -67,8 +67,7 @@ function runSubstrateTests<T>(c: SubstrateTestCase<T>) {
   describe(`fragmentGeneric — ${c.name} substrate`, () => {
     it("fragments and reassembles with round-trip fidelity", () => {
       const payload = c.makePayload(200)
-      const nextId = createFrameIdCounter()
-      const result = fragmentGeneric(payload, 50, nextId(), c.codec)
+      const result = fragmentGeneric(payload, 50, 1, c.codec)
 
       if (result.kind !== "fragments") {
         throw new Error(`Expected 'fragments', got '${result.kind}'`)
@@ -99,15 +98,13 @@ function runSubstrateTests<T>(c: SubstrateTestCase<T>) {
     })
 
     it("empty payload returns empty-payload", () => {
-      const nextId = createFrameIdCounter()
-      const result = fragmentGeneric(c.makeEmpty(), 50, nextId(), c.codec)
+      const result = fragmentGeneric(c.makeEmpty(), 50, 1, c.codec)
       expect(result.kind).toBe("empty-payload")
     })
 
     it("too many fragments returns too-many-fragments", () => {
       const payload = c.makePayload(FRAGMENT_TOTAL_MAX + 1)
-      const nextId = createFrameIdCounter()
-      const result = fragmentGeneric(payload, 1, nextId(), c.codec)
+      const result = fragmentGeneric(payload, 1, 1, c.codec)
 
       if (result.kind !== "too-many-fragments") {
         throw new Error(`Expected 'too-many-fragments', got '${result.kind}'`)
@@ -118,16 +115,37 @@ function runSubstrateTests<T>(c: SubstrateTestCase<T>) {
 
     it("single chunk when payload fits within threshold", () => {
       const payload = c.makePayload(10)
-      const nextId = createFrameIdCounter()
-      const result = fragmentGeneric(payload, 100, nextId(), c.codec)
+      const result = fragmentGeneric(payload, 100, 1, c.codec)
 
       if (result.kind !== "fragments") {
         throw new Error(`Expected 'fragments', got '${result.kind}'`)
       }
       expect(result.pieces).toHaveLength(1)
     })
+
+    it("stamps the passed seq on every fragment of the message", () => {
+      const payload = c.makePayload(200)
+      const result = fragmentGeneric(payload, 50, 4242, c.codec)
+      if (result.kind !== "fragments") {
+        throw new Error(`Expected 'fragments', got '${result.kind}'`)
+      }
+      expect(result.pieces).toHaveLength(4)
+      for (const piece of result.pieces) {
+        const frame = c.codec.decodeFrame(piece)
+        expect(frame.seq).toBe(4242)
+        expect(frame.content.kind).toBe("fragment")
+      }
+    })
   })
 }
 
 runSubstrateTests(binaryCase)
 runSubstrateTests(textCase)
+
+describe("nextFrameSeq", () => {
+  it("is a uint32 increment that wraps (…, 2³²−1, 0, 1, …)", () => {
+    expect(nextFrameSeq(41)).toBe(42)
+    expect(nextFrameSeq(0xfffffffe)).toBe(0xffffffff)
+    expect(nextFrameSeq(0xffffffff)).toBe(0) // wrap — would truncate under uint16
+  })
+})

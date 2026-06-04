@@ -56,9 +56,7 @@ describe("TextRefLike", () => {
 describe("useText", () => {
   it("returns a stable ref callback", () => {
     const doc = createTestDoc("hello")
-    const { result, rerender } = renderHook(() =>
-      useText(doc.title),
-    )
+    const { result, rerender } = renderHook(() => useText(doc.title))
 
     const first = result.current
     rerender()
@@ -73,9 +71,7 @@ describe("useText", () => {
       const doc = createTestDoc("initial text")
       const textarea = document.createElement("textarea")
 
-      const { result } = renderHook(() =>
-        useText(doc.title),
-      )
+      const { result } = renderHook(() => useText(doc.title))
 
       // Simulate React calling the ref callback with the element
       act(() => {
@@ -90,9 +86,7 @@ describe("useText", () => {
       const textarea = document.createElement("textarea")
       textarea.value = "stale"
 
-      const { result } = renderHook(() =>
-        useText(doc.title),
-      )
+      const { result } = renderHook(() => useText(doc.title))
 
       act(() => {
         result.current(textarea)
@@ -107,9 +101,7 @@ describe("useText", () => {
       const doc = createTestDoc("abc")
       const textarea = document.createElement("textarea")
 
-      const { result } = renderHook(() =>
-        useText(doc.title),
-      )
+      const { result } = renderHook(() => useText(doc.title))
 
       // Attach
       act(() => {
@@ -134,9 +126,7 @@ describe("useText", () => {
       const doc = createTestDoc("abc")
       const textarea = document.createElement("textarea")
 
-      const { result } = renderHook(() =>
-        useText(doc.title),
-      )
+      const { result } = renderHook(() => useText(doc.title))
 
       act(() => {
         result.current(textarea)
@@ -166,9 +156,7 @@ describe("useText", () => {
         d.title.insert(0, "pre-populated")
       })
 
-      const { result } = renderHook(() =>
-        useText(doc.title),
-      )
+      const { result } = renderHook(() => useText(doc.title))
 
       act(() => {
         result.current(textarea)
@@ -181,9 +169,7 @@ describe("useText", () => {
       const doc = createTestDoc("hello")
       const textarea = document.createElement("textarea")
 
-      const { result } = renderHook(() =>
-        useText(doc.title),
-      )
+      const { result } = renderHook(() => useText(doc.title))
 
       act(() => {
         result.current(textarea)

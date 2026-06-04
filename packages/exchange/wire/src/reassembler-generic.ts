@@ -32,9 +32,9 @@ export interface ReassemblerConfig {
   /** Maximum total size across all in-flight groups (default: 50M). */
   readonly maxTotalSize?: number
   /** Callback when a batch times out. */
-  readonly onTimeout?: (frameId: number) => void
+  readonly onTimeout?: (seq: number) => void
   /** Callback when a batch is evicted due to pressure. */
-  readonly onEvicted?: (frameId: number) => void
+  readonly onEvicted?: (seq: number) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -130,9 +130,10 @@ export class Reassembler<T> {
         return { status: "complete", frame }
       }
 
-      const { frameId, index, total, totalSize, payload } = frame.content
+      const { index, total, totalSize, payload } = frame.content
+      // Group fragments by the frame's seq (the per-message id in the header).
       const result = this.#collector.addFragment(
-        frameId,
+        frame.seq,
         index,
         total,
         totalSize,
@@ -142,7 +143,12 @@ export class Reassembler<T> {
       if (result.status === "complete") {
         return {
           status: "complete",
-          frame: complete(this.#ops.wireVersion, result.data, frame.hash),
+          frame: complete(
+            this.#ops.wireVersion,
+            frame.seq,
+            result.data,
+            frame.hash,
+          ),
         }
       }
 

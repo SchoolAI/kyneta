@@ -19,7 +19,11 @@
 //
 // No React imports — this module is framework-agnostic.
 
-import { CHANGEFEED, type Changeset, type HasChangefeed } from "@kyneta/changefeed"
+import {
+  CHANGEFEED,
+  type Changeset,
+  type HasChangefeed,
+} from "@kyneta/changefeed"
 import {
   batch,
   isTextChange,

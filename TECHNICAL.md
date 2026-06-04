@@ -24,7 +24,7 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the 30,000-foot design — thesis
 
 ## Canonical test counts
 
-Every test count in every per-package `TECHNICAL.md` agrees with this table. Run dates: 2026-05-08 (rows updated for SQL-store-family work; other rows from 2026-04-20).
+Every test count in every per-package `TECHNICAL.md` agrees with this table. Run dates: 2026-05-08 (rows updated for SQL-store-family work; other rows from 2026-04-20); `@kyneta/wire` and `@kyneta/transport` rows updated 2026-06-03 (frame `seq`).
 
 | Package | Passed | Skipped | Files |
 |---------|-------:|--------:|------:|
@@ -33,8 +33,8 @@ Every test count in every per-package `TECHNICAL.md` agrees with this table. Run
 | `@kyneta/schema` | 1,901 | 8 | 59 |
 | `@kyneta/loro-schema` | 201 | 4 | 11 |
 | `@kyneta/yjs-schema` | 217 | 4 | 9 |
-| `@kyneta/transport` | 8 | 0 | 1 |
-| `@kyneta/wire` | 216 | 0 | 9 |
+| `@kyneta/transport` | 68 | 0 | 5 |
+| `@kyneta/wire` | 254 | 0 | 9 |
 | `@kyneta/websocket-transport` | 56 | 0 | 2 |
 | `@kyneta/sse-transport` | 44 | 0 | 3 |
 | `@kyneta/webrtc-transport` | 27 | 0 | 2 |
@@ -82,9 +82,9 @@ Two additional test suites live outside the main package graph:
 
 ### Transport + wire
 
-**`@kyneta/transport`** — Abstract transport contract. `abstract class Transport<G>`, channel lifecycle (`Generated → Connected → Established`), seven-message protocol vocabulary (two lifecycle — `establish`, `depart`; five sync — `present`, `interest`, `offer`, `dismiss`, `vacant`), and identity types. Peer deps: `@kyneta/machine`, `@kyneta/schema`. 8 tests. → `packages/transport/TECHNICAL.md`.
+**`@kyneta/transport`** — Abstract transport contract. `abstract class Transport<G>`, channel lifecycle (`Generated → Connected → Established`), seven-message protocol vocabulary (two lifecycle — `establish`, `depart`; five sync — `present`, `interest`, `offer`, `dismiss`, `vacant`), and identity types. Peer deps: `@kyneta/machine`, `@kyneta/schema`. 68 tests. → `packages/transport/TECHNICAL.md`.
 
-**`@kyneta/wire`** — Universal wire format. One `Frame<T>` abstraction (Complete or Fragment), one alias-aware pipeline per transport family (`applyOutboundAliasing → encodeWireMessage → binary frame` for binary transports; `applyOutboundAliasing → encodeTextWireMessage → text frame` for text transports), two framings (6-byte binary header, 2-char text prefix), fragmentation for cloud gateway limits, and a pure `feedBytes` stream-frame parser for stream-oriented transports. Internal CBOR encoder fixes a UTF-8 byte-length bug that plagued `@levischuck/tiny-cbor`. Peer dep: `@kyneta/transport`. 216 tests across 9 files. → `packages/exchange/wire/TECHNICAL.md`.
+**`@kyneta/wire`** — Universal wire format. One `Frame<T>` abstraction (Complete or Fragment), one alias-aware pipeline per transport family (`applyOutboundAliasing → encodeWireMessage → binary frame` for binary transports; `applyOutboundAliasing → encodeTextWireMessage → text frame` for text transports), two framings (10-byte binary header, 2-char text prefix), fragmentation for cloud gateway limits, and a pure `feedBytes` stream-frame parser for stream-oriented transports. Internal CBOR encoder fixes a UTF-8 byte-length bug that plagued `@levischuck/tiny-cbor`. Peer dep: `@kyneta/transport`. 254 tests across 9 files. → `packages/exchange/wire/TECHNICAL.md`.
 
 **`@kyneta/bridge-transport`** — In-process transport for testing. Alias-aware delivery via `queueMicrotask()`. The `Bridge` byte router connects multiple `BridgeTransport` instances in a single process, running the production alias transformer and `WireMessage` pipeline end-to-end. Peer deps: `@kyneta/transport`, `@kyneta/wire`. Location: `packages/exchange/transports/bridge`.
 

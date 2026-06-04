@@ -4,7 +4,7 @@
 > **Role**: Wire-format primitives — frame envelopes, CBOR/JSON wire codecs, generic fragmentation and reassembly, wire-message validation, identifier validation, and the `Result`/`WireError` types. A pure leaf package with no transport dependency. The orchestrator (`Pipeline`) lives in `@kyneta/transport`.
 > **Depends on**: `@kyneta/schema`
 > **Depended on by**: `@kyneta/transport` (workspace dependency), and through it every concrete transport
-> **Canonical symbols**: `Frame<T>`, `Complete<T>`, `Fragment<T>`, `complete`, `fragment`, `isComplete`, `isFragment`, `encodeBinaryFrame`, `decodeBinaryFrame`, `encodeTextFrame`, `decodeTextFrame`, `BINARY_CODEC`, `TEXT_CODEC`, `SubstrateOps<T>`, `WireCodec<T>`, `fragmentGeneric`, `createFrameIdCounter`, `FRAGMENT_TOTAL_MAX`, `Reassembler<T>`, `FragmentCollector<T>`, `decideFragment`, `encodeWireMessage`, `decodeWireMessage`, `encodeTextWireMessage`, `decodeTextWireMessage`, `validateWireMessage`, `WireValidationFailure`, `validateDocId`, `validateSchemaHash`, `WireError`, `Result`, `Ok`, `Err`, `ok`, `err`, `WIRE_VERSION`, `HEADER_SIZE`, `FRAGMENT_META_SIZE`, `FrameDecodeError`, `TextFrameDecodeError`
+> **Canonical symbols**: `Frame<T>`, `Complete<T>`, `Fragment<T>`, `complete`, `fragment`, `isComplete`, `isFragment`, `encodeBinaryFrame`, `decodeBinaryFrame`, `encodeTextFrame`, `decodeTextFrame`, `BINARY_CODEC`, `TEXT_CODEC`, `SubstrateOps<T>`, `WireCodec<T>`, `fragmentGeneric`, `nextFrameSeq`, `FRAGMENT_TOTAL_MAX`, `Reassembler<T>`, `FragmentCollector<T>`, `decideFragment`, `encodeWireMessage`, `decodeWireMessage`, `encodeTextWireMessage`, `decodeTextWireMessage`, `validateWireMessage`, `WireValidationFailure`, `validateDocId`, `validateSchemaHash`, `WireError`, `Result`, `Ok`, `Err`, `ok`, `err`, `WIRE_VERSION`, `HEADER_SIZE`, `FRAGMENT_META_SIZE`, `FrameDecodeError`, `TextFrameDecodeError`
 > **Key invariant(s)**: Every byte that crosses a transport is a `Frame<T>`. Wire is a leaf — it defines the format but never orchestrates the pipeline. The orchestrator (`Pipeline`) composes wire's codecs, fragmentation, and validation into a send/receive path.
 
 A small kit for turning `WireMessage` values into bytes (or JSON-safe strings) that can travel over any wire, and turning them back. It is pure format mechanics — encoding, framing, fragmentation, reassembly, validation — with no transport-specific logic and no transport dependency.
@@ -26,10 +26,11 @@ Consumed by `@kyneta/transport` (which re-exports `Result`/`WireError` and uses 
 
 | Term | Means | Not to be confused with |
 |------|-------|-------------------------|
-| `Frame<T>` | `{ version, hash, content: Complete<T> \| Fragment<T> }` — the universal delivery unit. | A networking "frame" in the ISO-OSI sense; an HTML/animation frame |
+| `Frame<T>` | `{ version, seq, hash, content: Complete<T> \| Fragment<T> }` — the universal delivery unit. | A networking "frame" in the ISO-OSI sense; an HTML/animation frame |
 | `Complete<T>` | `{ kind: "complete", payload: T }` — the frame carries the whole message. | `Fragment<T>` |
-| `Fragment<T>` | `{ kind: "fragment", frameId, index, total, totalSize, payload }` — one chunk of a larger payload. | A TCP/IP network fragment; a URL fragment |
-| `WIRE_VERSION` | The current binary wire protocol version (`2`). | A schema version, a package version |
+| `Fragment<T>` | `{ kind: "fragment", index, total, totalSize, payload }` — one chunk of a larger payload, grouped by the frame's `seq`. | A TCP/IP network fragment; a URL fragment |
+| `seq` | Per-direction monotonic message id (uint32, wraps) on every frame; the fragment reassembly group key. | A schema version; the CBOR alias counter (different layer/encoding) |
+| `WIRE_VERSION` | The current binary wire protocol version (`3`). | A schema version, a package version |
 | `SubstrateOps<T>` | Bytes-level operations interface for fragmentation/reassembly, parameterized by substrate type. | `WireCodec<T>`, which extends it with wire-message encode/decode |
 | `WireCodec<T>` | Full codec: `SubstrateOps<T>` + `encodeWire`/`decodeWire`. One record per substrate. | A general-purpose codec library |
 | `Reassembler<T>` | Generic fragment reassembler parameterized by `SubstrateOps<T>`. Replaces the former per-substrate reassemblers. | `FragmentCollector<T>`, which is the underlying collection engine |
@@ -73,15 +74,16 @@ Consumed by `@kyneta/transport` (which re-exports `Result`/`WireError` and uses 
 
 Source: `packages/exchange/wire/src/frame-types.ts`.
 
-```/dev/null/frame.txt#L1-5
+```/dev/null/frame.txt#L1-6
 Frame<T> = {
   version: number
+  seq: number                  // per-direction monotonic message id (uint32, wraps)
   hash: string | null          // null today; reserved for hex SHA-256 digest
   content: Complete<T> | Fragment<T>
 }
 ```
 
-`Complete<T>` carries a single `payload: T`. `Fragment<T>` carries `frameId`, `index`, `total`, `totalSize`, and a chunk. Constructors: `complete(version, payload, hash?)` and `fragment(version, frameId, index, total, totalSize, payload, hash?)`. Type guards: `isComplete(frame)`, `isFragment(frame)`.
+`Complete<T>` carries a single `payload: T`. `Fragment<T>` carries `index`, `total`, `totalSize`, and a chunk — its reassembly group key is the enclosing frame's `seq`. Constructors: `complete(version, seq, payload, hash?)` and `fragment(version, seq, index, total, totalSize, payload, hash?)`. Type guards: `isComplete(frame)`, `isFragment(frame)`.
 
 The two type parameters actually used are `Frame<Uint8Array>` and `Frame<string>` — one per substrate.
 
@@ -92,20 +94,21 @@ The two type parameters actually used are `Frame<Uint8Array>` and `Frame<string>
 Source: `packages/exchange/wire/src/constants.ts`, `packages/exchange/wire/src/frame.ts`.
 
 ```/dev/null/frame-layout.txt#L1-6
- 0       1       2                                     6
-┌───────┬───────┬─────────────────────────────────────┐
-│ Vers  │ Type  │        Payload length (u32 BE)       │
-└───────┴───────┴─────────────────────────────────────┘
-  (if Type == FRAGMENT: 10 bytes of fragment metadata)
+ 0       1       2                     6                     10
+┌───────┬───────┬─────────────────────┬─────────────────────┐
+│ Vers  │ Type  │ Payload length (u32) │      Seq (u32)      │
+└───────┴───────┴─────────────────────┴─────────────────────┘
+  (if Type == FRAGMENT: 8 bytes of fragment metadata)
   payload bytes...
 ```
 
 | Byte(s) | Field | Values |
 |---------|-------|--------|
-| 0 | `version` | `WIRE_VERSION = 2` |
+| 0 | `version` | `WIRE_VERSION = 3` |
 | 1 | `type` | `BinaryFrameType.COMPLETE = 0x00` / `BinaryFrameType.FRAGMENT = 0x01` |
 | 2–5 | `payloadLength` | `u32` big-endian |
-| 6+ | *fragment meta* | if `type == FRAGMENT`: `frameId(u16 BE) + index(u16 BE) + total(u16 BE) + totalSize(u32 BE)` = 10 bytes |
+| 6–9 | `seq` | `u32` big-endian — per-direction monotonic message id; for fragments, the group key |
+| 10+ | *fragment meta* | if `type == FRAGMENT`: `index(u16 BE) + total(u16 BE) + totalSize(u32 BE)` = 8 bytes |
 | … | `payload` | `payloadLength` bytes |
 
 `encodeBinaryFrame(frame)` writes this layout; `decodeBinaryFrame(bytes)` reads it. Truncation, version mismatch, and unknown frame type all raise `FrameDecodeError` (with a typed `code` discriminant).
@@ -157,8 +160,8 @@ WireCodec<T> extends SubstrateOps<T> = {
 
 | Codec | `T` | Wire version | Transports (via Pipeline) |
 |-------|-----|--------------|---------------------------|
-| `BINARY_CODEC` | `Uint8Array` | `WIRE_VERSION = 2` | WebSocket, WebRTC, Unix socket |
-| `TEXT_CODEC` | `string` | `TEXT_WIRE_VERSION = 1` | SSE |
+| `BINARY_CODEC` | `Uint8Array` | `WIRE_VERSION = 3` | WebSocket, WebRTC, Unix socket |
+| `TEXT_CODEC` | `string` | `TEXT_WIRE_VERSION = 2` | SSE |
 
 `Pipeline` in `@kyneta/transport` accepts a `WireCodec<T>` and wires it into the send/receive path. Concrete transports never call these codecs directly.
 
@@ -250,8 +253,8 @@ Discriminated union of all wire-pipeline error variants:
 | `decode-failed` | `unknown` | CBOR/JSON parse |
 | `frame-decode-failed` | `FrameDecodeErrorCode \| TextFrameDecodeErrorCode` | Frame decode |
 | `reassembly-failed` | `ReassembleError` | Reassembler |
-| `reassembly-timeout` | `{ frameId, partialCount }` | Reassembler timeout |
-| `reassembly-evicted` | `{ frameId }` | Reassembler memory pressure |
+| `reassembly-timeout` | `{ seq, partialCount }` | Reassembler timeout |
+| `reassembly-evicted` | `{ seq }` | Reassembler memory pressure |
 | `frame-too-large` | `{ size, limit }` | Send-side size check |
 | `empty-payload` | `{ totalSize: 0 }` | Fragmentation edge case |
 | `too-many-fragments` | `{ total, max }` | Fragmentation overflow |
@@ -284,14 +287,14 @@ Discriminated union of all wire-pipeline error variants:
 | File | Lines | Role |
 |------|-------|------|
 | `src/index.ts` | ~170 | Public exports. |
-| `src/constants.ts` | ~70 | Wire protocol constants (`WIRE_VERSION = 2`, header/fragment sizes, identifier caps). |
+| `src/constants.ts` | ~70 | Wire protocol constants (`WIRE_VERSION = 3`, header/fragment sizes, identifier caps). |
 | `src/frame-types.ts` | ~120 | `Frame<T>`, `Complete<T>`, `Fragment<T>` + guards. |
 | `src/cbor-encoding.ts` | ~550 | Internal CBOR encoder/decoder (RFC 8949, major types 0–7). |
 | `src/wire-types.ts` | ~250 | Compact wire-message shape + enums. |
 | `src/wire-message-helpers.ts` | ~170 | `encodeWireMessage`/`decodeWireMessage` + text variants — WireMessage ↔ bytes/string. |
 | `src/frame.ts` | ~220 | Binary frame encode/decode + `BINARY_CODEC` record. |
 | `src/text-frame.ts` | ~300 | Text frame encode/decode + `TEXT_CODEC` record. |
-| `src/fragment-generic.ts` | ~130 | `SubstrateOps<T>`, `WireCodec<T>`, `fragmentGeneric<T>`, `createFrameIdCounter`. |
+| `src/fragment-generic.ts` | ~130 | `SubstrateOps<T>`, `WireCodec<T>`, `fragmentGeneric<T>`, `nextFrameSeq`. |
 | `src/fragment-collector.ts` | ~550 | Generic `FragmentCollector<T>` + pure `decideFragment`. |
 | `src/reassembler-generic.ts` | ~160 | `Reassembler<T>` — generic reassembler wrapping `FragmentCollector<T>`. |
 | `src/validate-wire-message.ts` | ~250 | `validateWireMessage` — runtime shape validation at the decoder seam. |

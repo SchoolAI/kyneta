@@ -5,6 +5,7 @@ import {
   decodeBinaryFrame,
   encodeBinaryFrame,
   fragment,
+  HEADER_SIZE,
   WIRE_VERSION,
 } from "@kyneta/wire"
 import { describe, expect, it } from "vitest"
@@ -13,7 +14,7 @@ import { FrameStreamParser } from "../frame-stream-parser.js"
 describe("FrameStreamParser", () => {
   it("single frame round-trip", () => {
     const frame = encodeBinaryFrame(
-      complete(WIRE_VERSION, new Uint8Array([1, 2, 3])),
+      complete(WIRE_VERSION, 1, new Uint8Array([1, 2, 3])),
     )
     const parser = new FrameStreamParser()
     const results = parser.feed(frame)
@@ -29,7 +30,7 @@ describe("FrameStreamParser", () => {
 
   it("split delivery: partial feed yields nothing, remainder completes", () => {
     const frame = encodeBinaryFrame(
-      complete(WIRE_VERSION, new Uint8Array([1, 2, 3])),
+      complete(WIRE_VERSION, 1, new Uint8Array([1, 2, 3])),
     )
     const mid = Math.floor(frame.length / 2)
     const parser = new FrameStreamParser()
@@ -46,10 +47,10 @@ describe("FrameStreamParser", () => {
 
   it("coalesced delivery: two frames in one buffer yield two results with correct content", () => {
     const frame1 = encodeBinaryFrame(
-      complete(WIRE_VERSION, new Uint8Array([10])),
+      complete(WIRE_VERSION, 1, new Uint8Array([10])),
     )
     const frame2 = encodeBinaryFrame(
-      complete(WIRE_VERSION, new Uint8Array([20])),
+      complete(WIRE_VERSION, 2, new Uint8Array([20])),
     )
     const combined = new Uint8Array(frame1.length + frame2.length)
     combined.set(frame1, 0)
@@ -77,9 +78,9 @@ describe("FrameStreamParser", () => {
 
   it("extracts a zero-payload frame", () => {
     const parser = new FrameStreamParser()
-    // Build a 6-byte header with payload length = 0
-    const header = new Uint8Array(6)
-    header[0] = 2 // version
+    // Build a header with payload length = 0 (seq bytes at offset 6 stay zero)
+    const header = new Uint8Array(HEADER_SIZE)
+    header[0] = WIRE_VERSION // version
     header[1] = 0 // type
     new DataView(header.buffer).setUint32(2, 0, false) // payload length = 0
 
@@ -104,7 +105,7 @@ describe("FrameStreamParser", () => {
 
   it("reset() clears partial state", () => {
     const frame = encodeBinaryFrame(
-      complete(WIRE_VERSION, new Uint8Array([1, 2, 3])),
+      complete(WIRE_VERSION, 1, new Uint8Array([1, 2, 3])),
     )
     const parser = new FrameStreamParser()
 
@@ -124,7 +125,8 @@ describe("FrameStreamParser", () => {
 
   it("round-trips a binary fragment frame", () => {
     const payload = new Uint8Array([0xaa, 0xbb, 0xcc, 0xdd, 0xee])
-    const original = fragment(WIRE_VERSION, 0xabcd, 2, 5, 1000, payload)
+    const seq = 0xabcd
+    const original = fragment(WIRE_VERSION, seq, 2, 5, 1000, payload)
     const encoded = encodeBinaryFrame(original)
 
     const parser = new FrameStreamParser()
@@ -142,11 +144,11 @@ describe("FrameStreamParser", () => {
 
     // And decodeBinaryFrame must be able to parse the result
     const decoded = decodeBinaryFrame(r.value)
+    expect(decoded.seq).toBe(seq)
     expect(decoded.content.kind).toBe("fragment")
     if (decoded.content.kind !== "fragment") {
       throw new Error("expected fragment frame")
     }
-    expect(decoded.content.frameId).toBe(0xabcd)
     expect(decoded.content.index).toBe(2)
     expect(decoded.content.total).toBe(5)
     expect(decoded.content.totalSize).toBe(1000)

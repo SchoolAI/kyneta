@@ -231,7 +231,7 @@ describe("SseConnection — handlePostBody", () => {
     // Construct a structurally valid binary frame wrapping garbage CBOR.
     // The frame parser accepts it (valid header), but CBOR decode fails.
     const garbageCbor = new Uint8Array([0xff, 0xfe, 0xfd, 0xfc])
-    const frame = encodeBinaryFrame(complete(WIRE_VERSION, garbageCbor))
+    const frame = encodeBinaryFrame(complete(WIRE_VERSION, 1, garbageCbor))
 
     const result = conn.handlePostBody(frame)
     expect(result.type).toBe("error")

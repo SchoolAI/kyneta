@@ -1,8 +1,8 @@
 // Binary frame encode/decode tests.
 //
-// Verifies the 6-byte frame header (version + type + Uint32 payload length)
-// for both complete and fragment frames, using wire-level message fixtures.
-// Batching is orthogonal to framing — not tested here.
+// Verifies the 10-byte frame header (version + type + Uint32 payload length
+// + Uint32 seq) for both complete and fragment frames, using wire-level
+// message fixtures. Batching is orthogonal to framing — not tested here.
 
 import {
   SYNC_AUTHORITATIVE,
@@ -36,13 +36,17 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Read the 6-byte frame header fields. */
+/** A representative non-zero seq for round-trip assertions. */
+const SEQ = 7
+
+/** Read the 10-byte frame header fields. */
 function readHeader(frame: Uint8Array) {
   const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength)
   return {
     version: view.getUint8(0),
     type: view.getUint8(1),
     payloadLength: view.getUint32(2, false),
+    seq: view.getUint32(6, false),
   }
 }
 
@@ -50,9 +54,9 @@ function readHeader(frame: Uint8Array) {
  * Encode a WireMessage into a binary frame:
  * WireMessage → encodeWireMessage → binary frame.
  */
-function encodeToFrame(wire: WireMessage): Uint8Array<ArrayBuffer> {
+function encodeToFrame(wire: WireMessage, seq = SEQ): Uint8Array<ArrayBuffer> {
   const payload = encodeWireMessage(wire)
-  return encodeBinaryFrame(complete(WIRE_VERSION, payload))
+  return encodeBinaryFrame(complete(WIRE_VERSION, seq, payload))
 }
 
 /**
@@ -68,7 +72,7 @@ function decodeFromFrame(payload: Uint8Array): WireMessage {
 // ---------------------------------------------------------------------------
 
 describe("Binary frame — complete", () => {
-  it("encodes a complete frame with correct 6-byte header", () => {
+  it("encodes a complete frame with correct 10-byte header", () => {
     const wire = presentWire([
       {
         docId: "doc-1",
@@ -86,6 +90,7 @@ describe("Binary frame — complete", () => {
     expect(header.version).toBe(WIRE_VERSION)
     expect(header.type).toBe(BinaryFrameType.COMPLETE)
     expect(header.payloadLength).toBe(frame.length - HEADER_SIZE)
+    expect(header.seq).toBe(SEQ)
   })
 
   it("round-trips a present message", () => {
@@ -114,6 +119,7 @@ describe("Binary frame — complete", () => {
 
     expect(isComplete(frame)).toBe(true)
     expect(frame.version).toBe(WIRE_VERSION)
+    expect(frame.seq).toBe(SEQ)
     expect(frame.hash).toBeNull()
 
     const decoded = decodeFromFrame(frame.content.payload)
@@ -292,6 +298,7 @@ describe("Binary frame — fragment", () => {
     expect(header.version).toBe(WIRE_VERSION)
     expect(header.type).toBe(BinaryFrameType.FRAGMENT)
     expect(header.payloadLength).toBe(payload.length)
+    expect(header.seq).toBe(0xabcd)
   })
 
   it("fragment frame size = header + fragment meta + payload", () => {
@@ -304,19 +311,19 @@ describe("Binary frame — fragment", () => {
     )
   })
 
-  it("round-trips a fragment frame", () => {
+  it("round-trips a fragment frame (seq is the group key)", () => {
     const payload = new Uint8Array([1, 2, 3, 4, 5])
-    const frameId = 0xa1b2
-    const original = fragment(WIRE_VERSION, frameId, 3, 10, 500, payload)
+    const seq = 0xa1b2
+    const original = fragment(WIRE_VERSION, seq, 3, 10, 500, payload)
     const encoded = encodeBinaryFrame(original)
     const decoded = decodeBinaryFrame(encoded)
 
     expect(isFragment(decoded)).toBe(true)
     expect(decoded.version).toBe(WIRE_VERSION)
+    expect(decoded.seq).toBe(seq)
     expect(decoded.hash).toBeNull()
 
     if (decoded.content.kind === "fragment") {
-      expect(decoded.content.frameId).toBe(frameId)
       expect(decoded.content.index).toBe(3)
       expect(decoded.content.total).toBe(10)
       expect(decoded.content.totalSize).toBe(500)
@@ -324,15 +331,13 @@ describe("Binary frame — fragment", () => {
     }
   })
 
-  it("preserves frameId through round-trip", () => {
-    const frameId = 0
-    const frame = fragment(WIRE_VERSION, frameId, 0, 1, 5, new Uint8Array([42]))
+  it("preserves a large uint32 seq through round-trip", () => {
+    const seq = 0xfffffffe
+    const frame = fragment(WIRE_VERSION, seq, 0, 1, 5, new Uint8Array([42]))
     const encoded = encodeBinaryFrame(frame)
     const decoded = decodeBinaryFrame(encoded)
 
-    if (decoded.content.kind === "fragment") {
-      expect(decoded.content.frameId).toBe(frameId)
-    }
+    expect(decoded.seq).toBe(seq)
   })
 
   it("handles max values for index and total", () => {
@@ -370,11 +375,12 @@ describe("Binary frame — encodeBinaryFrame generic", () => {
       },
     ])
     const payload = encodeWireMessage(wire)
-    const frame = complete(WIRE_VERSION, payload)
+    const frame = complete(WIRE_VERSION, SEQ, payload)
     const encoded = encodeBinaryFrame(frame)
 
     const decoded = decodeBinaryFrame(encoded)
     expect(isComplete(decoded)).toBe(true)
+    expect(decoded.seq).toBe(SEQ)
     expect(decoded.content.payload).toEqual(payload)
   })
 
@@ -438,7 +444,7 @@ describe("Binary frame — error handling", () => {
   it("rejects truncated fragment frame", () => {
     // Fragment frame needs header + fragment meta + payload
     // Create one that claims payload but is too short for fragment meta
-    const frame = new Uint8Array(HEADER_SIZE + 5) // too short for 10-byte fragment meta
+    const frame = new Uint8Array(HEADER_SIZE + 4) // too short for 8-byte fragment meta
     const view = new DataView(frame.buffer)
     view.setUint8(0, WIRE_VERSION)
     view.setUint8(1, BinaryFrameType.FRAGMENT)
@@ -446,6 +452,22 @@ describe("Binary frame — error handling", () => {
 
     expect(() => decodeBinaryFrame(frame)).toThrow(FrameDecodeError)
     expect(() => decodeBinaryFrame(frame)).toThrow("truncated")
+  })
+
+  it("rejects a prior-version (v2) frame with unsupported_version", () => {
+    const frame = new Uint8Array(HEADER_SIZE + 4)
+    const view = new DataView(frame.buffer)
+    view.setUint8(0, 2) // the previous frame-encoding version
+    view.setUint8(1, BinaryFrameType.COMPLETE)
+    view.setUint32(2, 4, false)
+
+    try {
+      decodeBinaryFrame(frame)
+      expect.unreachable("should have thrown")
+    } catch (error) {
+      expect(error).toBeInstanceOf(FrameDecodeError)
+      expect((error as FrameDecodeError).code).toBe("unsupported_version")
+    }
   })
 
   it("rejects unknown frame type", () => {
@@ -496,11 +518,12 @@ describe("Binary frame — edge cases", () => {
   it("complete frame with empty payload is valid (header-only)", () => {
     // A complete frame with 0-length payload is structurally valid
     // (though the codec may fail to decode it)
-    const frame = complete(WIRE_VERSION, new Uint8Array(0))
+    const frame = complete(WIRE_VERSION, SEQ, new Uint8Array(0))
     const encoded = encodeBinaryFrame(frame)
 
     const decoded = decodeBinaryFrame(encoded)
     expect(isComplete(decoded)).toBe(true)
+    expect(decoded.seq).toBe(SEQ)
     expect(decoded.content.payload.length).toBe(0)
   })
 
