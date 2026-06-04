@@ -95,9 +95,9 @@ Source: `packages/exchange/wire/src/constants.ts`, `packages/exchange/wire/src/f
 
 ```/dev/null/frame-layout.txt#L1-6
  0       1       2                     6                     10
-┌───────┬───────┬─────────────────────┬─────────────────────┐
+┌───────┬───────┬──────────────────────┬─────────────────────┐
 │ Vers  │ Type  │ Payload length (u32) │      Seq (u32)      │
-└───────┴───────┴─────────────────────┴─────────────────────┘
+└───────┴───────┴──────────────────────┴─────────────────────┘
   (if Type == FRAGMENT: 8 bytes of fragment metadata)
   payload bytes...
 ```
