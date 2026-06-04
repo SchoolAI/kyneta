@@ -80,6 +80,20 @@ Every step below is additive — earlier code doesn't change.
 
 See the [`@kyneta/exchange` README](./packages/exchange/README.md) for the full walkthrough with code.
 
+## Observability (experimental)
+
+Subscribe to a correlated event stream across every layer — engine (sync
+state), protocol (the message vocabulary), doc (changesets), directory
+(peers/documents), diagnostics (silent failures), and wire (frames):
+
+```ts
+const stop = exchange.observe(ev => console.log(ev.peerId, ev.layer, ev))
+// later: exchange.docHistory("my-todos")?.summary()  // version + op counts
+```
+
+Opt-in and zero-cost when no sink is attached. The `ObsEvent` shape is
+experimental (`v: 1`) and may change. See `packages/exchange/PRODUCT.md`.
+
 ## Why Kyneta
 
 **Schemas should be walked once.** A schema tree gets traversed for reading, mutation, observation, validation, sync, and more. Most frameworks implement these as parallel switch dispatches that drift apart. Kyneta's schema algebra collapses them into one catamorphism with pluggable interpreters — all behaviors are derived from the same structure. Your schema is the single source of truth not by convention, but by construction. Add a field and every behavior follows. There is nothing else to update.

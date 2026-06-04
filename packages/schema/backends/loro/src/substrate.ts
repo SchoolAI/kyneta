@@ -41,6 +41,9 @@ import {
   type BatchOptions,
   buildWritableContext,
   type ChangeBase,
+  DEVTOOLS_HISTORY,
+  type DevtoolsHistory,
+  type DevtoolsHistorySummary,
   deepClonePreState,
   deriveSchemaBinding,
   executeBatch,
@@ -330,6 +333,7 @@ export function createLoroSubstrate(
 
   const substrate = {
     [BACKING_DOC]: doc,
+    [DEVTOOLS_HISTORY]: loroDevtoolsHistory(() => doc),
 
     reader: reader,
 
@@ -645,6 +649,39 @@ export function createLoroSubstrate(
  * that need to accumulate state, compute per-peer deltas, and compact
  * storage without ever interpreting document fields.
  */
+// ---------------------------------------------------------------------------
+// DevTools history capability (pull) — version/op summary + safe time-travel
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the `DevtoolsHistory` capability over a LoroDoc accessor. `getDoc`
+ * is a thunk because the replica swaps its backing doc on `advance()`.
+ */
+function loroDevtoolsHistory(getDoc: () => LoroDocType): DevtoolsHistory {
+  return {
+    summary(): DevtoolsHistorySummary {
+      const d = getDoc()
+      const actors: Record<string, number> = {}
+      for (const [peer, counter] of d.version().toJSON()) {
+        actors[String(peer)] = counter
+      }
+      return {
+        version: new LoroVersion(d.version()).serialize(),
+        opCount: d.opCount(),
+        actors,
+      }
+    },
+    // Time-travel WITHOUT mutating the live doc: fork an independent copy,
+    // check the fork out to the target version's frontiers, read its value.
+    valueAt(version: string): unknown {
+      const target = LoroVersion.parse(version)
+      const fork = getDoc().fork()
+      fork.checkout(fork.vvToFrontiers(target.vv))
+      return fork.toJSON()
+    },
+  }
+}
+
 export function createLoroReplica(doc: LoroDocType): Replica<LoroVersion> {
   let currentDoc = doc
 
@@ -652,6 +689,7 @@ export function createLoroReplica(doc: LoroDocType): Replica<LoroVersion> {
     get [BACKING_DOC]() {
       return currentDoc
     },
+    [DEVTOOLS_HISTORY]: loroDevtoolsHistory(() => currentDoc),
 
     version(): LoroVersion {
       return new LoroVersion(currentDoc.version())

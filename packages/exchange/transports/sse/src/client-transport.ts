@@ -178,6 +178,8 @@ export class SseClientTransport extends Transport<void> {
         reassemblyTimeoutMs: 10_000,
         onError: (e, dir) =>
           console.warn(`[SseClientTransport] wire error (${dir}):`, e),
+        // Lazy: pipeline built in the constructor (pre-`_initialize`).
+        onFrame: ev => this.frameObserver?.(ev),
       },
     })
 

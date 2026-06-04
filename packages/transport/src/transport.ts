@@ -14,6 +14,7 @@
 import type { Channel, ConnectedChannel, GeneratedChannel } from "./channel.js"
 import { ChannelDirectory } from "./channel-directory.js"
 import type { AddressedEnvelope, ChannelMsg } from "./messages.js"
+import type { FrameTrace } from "./pipeline.js"
 import type { ChannelId, PeerIdentityDetails, TransportType } from "./types.js"
 
 export type AnyTransport = Transport<any>
@@ -68,6 +69,12 @@ export type TransportContext = {
    * would collide when one synchronizer owns multiple transports.
    */
   mintChannelId: () => ChannelId
+  /**
+   * Optional DevTools per-frame trace hook. When present, transports
+   * thread it into their `Pipeline` (`opts.onFrame`) so wire-level frames
+   * surface to the observation bus. Absent ⇒ no wire observation.
+   */
+  onFrame?: (ev: FrameTrace) => void
 }
 
 // Callbacks only (without identity) for lifecycle state
@@ -229,7 +236,22 @@ export abstract class Transport<G> {
       onChannelRemoved: context.onChannelRemoved,
       onChannelEstablish: context.onChannelEstablish,
       mintChannelId: context.mintChannelId,
+      onFrame: context.onFrame,
     }
+  }
+
+  /**
+   * The DevTools frame-trace hook injected via `TransportContext`, or
+   * `undefined` if not observing. Concrete transports pass this into their
+   * `Pipeline` as `opts.onFrame`. Reading it once per `Pipeline` construction
+   * is sufficient — the hook itself internally checks whether a sink is
+   * attached, so it is cheap when unobserved.
+   */
+  protected get frameObserver(): ((ev: FrameTrace) => void) | undefined {
+    const lifecycle = this.#lifecycle
+    return lifecycle.state === "initialized" || lifecycle.state === "started"
+      ? lifecycle.onFrame
+      : undefined
   }
 
   async _start(): Promise<void> {

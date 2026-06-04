@@ -13,6 +13,21 @@ export {
   describeSyncStatus,
   type SyncStatusSummary,
 } from "./describe-sync-status.js"
+// DevTools observation protocol (experimental — `ObsEvent` v:1 may change).
+export {
+  createObservationBus,
+  OBS_PROTOCOL_VERSION,
+  type ObsEvent,
+  type ObsEventBody,
+  type ObservationBus,
+  type ObsLayer,
+  type ObsOp,
+  type ObsSink,
+  observeInput,
+  observeSessionEffect,
+  observeSyncEffect,
+  summarizeChangeset,
+} from "./observe.js"
 export type {
   Connectivity,
   DocChange,

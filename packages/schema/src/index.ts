@@ -456,8 +456,11 @@ export {
 export type {
   BatchOptions,
   Delivery,
+  DevtoolsHistory,
+  DevtoolsHistorySummary,
   DocMetadata,
   Durability,
+  HasDevtoolsHistory,
   HasTreeNodeAllocation,
   RecordInverseFn,
   Replica,
@@ -476,7 +479,9 @@ export type {
 export {
   BACKING_DOC,
   computeSchemaHash,
+  DEVTOOLS_HISTORY,
   HASH_ALGORITHM_VERSION,
+  hasDevtoolsHistory,
   hasTreeNodeAllocation,
   RECORD_INVERSE,
   replicaTypesCompatible,

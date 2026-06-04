@@ -9,6 +9,7 @@
 > - **Substrate agnosticism.** `@kyneta/schema` defines the boundary; substrates (plain, Loro, Yjs) implement it. The exchange never inspects substrate-native state; transports never inspect substrate payloads.
 > - **Content-addressed identity.** Schema identities, document hashes, and CnIds are all derived from content — renames change display names, not stored data.
 > - **Delta-driven reactivity.** Every update flows as a typed change through `[CHANGEFEED]`. Subscribers compute the minimum necessary work from the change, not by re-running queries.
+> - **Observation is a passive side-output, not convergence state.** DevTools observability (`exchange.observe`, experimental) tees the exchange's existing effect/message streams into an `ObsEvent` bus — fire-and-forget, zero-cost when unobserved, never a Mealy effect and never re-entering dispatch. Distinct from `[CHANGEFEED]` reactive convergence.
 >
 > **System invariants**:
 > 1. **The exchange never inspects `SubstratePayload`.** Transports carry payloads opaquely; only the substrate produces and consumes them (`packages/exchange/src/sync-program.ts`, `packages/schema/src/substrate.ts`).

@@ -17,7 +17,7 @@
 // - connection.#handleData (imperative) dispatches decoded messages
 // - The write queue is imperative state; encoding is pure
 
-import type { Channel, ChannelMsg } from "@kyneta/transport"
+import type { Channel, ChannelMsg, FrameTrace } from "@kyneta/transport"
 import { FrameStreamParser, Pipeline } from "@kyneta/transport"
 import type { UnixSocket } from "./types.js"
 
@@ -57,11 +57,11 @@ export class UnixSocketConnection {
   #writeQueue: Uint8Array[] = []
   #draining = false
 
-  constructor(socket: UnixSocket) {
+  constructor(socket: UnixSocket, onFrame?: (ev: FrameTrace) => void) {
     this.#socket = socket
     this.#pipeline = new Pipeline({
       send: "binary",
-      opts: { threshold: Infinity },
+      opts: { threshold: Infinity, onFrame },
     })
     this.#parser = new FrameStreamParser()
   }

@@ -127,6 +127,64 @@ export function hasTreeNodeAllocation(
  */
 export const STRUCTURAL_YJS_CLIENT_ID = 0
 
+// ---------------------------------------------------------------------------
+// DEVTOOLS_HISTORY — optional capability for DevTools history inspection
+// ---------------------------------------------------------------------------
+
+/**
+ * A point-in-time summary of a replica's version/op history, for DevTools.
+ * Deliberately substrate-neutral and cheap — the detail of the CRDT op DAG
+ * is intentionally out of scope here.
+ */
+export interface DevtoolsHistorySummary {
+  /** Serialized current version (same string `Version.serialize()` produces). */
+  readonly version: string
+  /** Total op count retained (substrate-defined granularity; 0 if unknown). */
+  readonly opCount: number
+  /** Per-actor op counts (the CRDT version vector), when the substrate has one. */
+  readonly actors?: Readonly<Record<string, number>>
+}
+
+/**
+ * Optional **pull** capability: a renderer/devtool reads it lazily (e.g. when
+ * a developer drills into a document) — it is NOT pushed through the
+ * observation bus. Substrates that can answer cheaply implement it; others
+ * omit it and `hasDevtoolsHistory` returns false (graceful absence, exactly
+ * like {@link TREE_NODE_ALLOCATE}).
+ */
+export interface DevtoolsHistory {
+  /** A cheap version/op summary of this replica. */
+  summary(): DevtoolsHistorySummary
+  /**
+   * Materialize the document value at a past `version` (as produced by
+   * `Version.serialize()`), WITHOUT mutating the live replica. Optional —
+   * substrates that cannot time-travel safely omit it.
+   */
+  valueAt?(version: string): unknown
+}
+
+/** Symbol under which a replica/substrate exposes {@link DevtoolsHistory}. */
+export const DEVTOOLS_HISTORY: unique symbol = Symbol.for(
+  "kyneta:devtools-history",
+) as any
+
+/** Marker for replicas/substrates that implement {@link DEVTOOLS_HISTORY}. */
+export interface HasDevtoolsHistory {
+  readonly [DEVTOOLS_HISTORY]: DevtoolsHistory
+}
+
+/** Returns `true` if `value` exposes the DevTools history capability. */
+export function hasDevtoolsHistory(
+  value: unknown,
+): value is HasDevtoolsHistory {
+  return (
+    value !== null &&
+    value !== undefined &&
+    (typeof value === "object" || typeof value === "function") &&
+    DEVTOOLS_HISTORY in (value as object)
+  )
+}
+
 export { computeSchemaHash, HASH_ALGORITHM_VERSION } from "./hash.js"
 
 // ---------------------------------------------------------------------------

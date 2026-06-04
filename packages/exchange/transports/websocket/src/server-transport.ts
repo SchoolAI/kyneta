@@ -177,6 +177,7 @@ export class WebsocketServerTransport extends Transport<PeerId> {
       socket,
       {
         fragmentThreshold: this.#fragmentThreshold,
+        onFrame: ev => this.frameObserver?.(ev),
       },
     )
     connection._setChannel(channel)

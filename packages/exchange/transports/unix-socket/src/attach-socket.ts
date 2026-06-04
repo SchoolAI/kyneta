@@ -25,7 +25,7 @@ export function attachSocket(
   sink: ChannelSink,
   opts: { establish: boolean },
 ): { channel: ConnectedChannel; connection: UnixSocketConnection } {
-  const connection = new UnixSocketConnection(socket)
+  const connection = new UnixSocketConnection(socket, ev => sink.onFrame(ev))
   // generate(connection) binds the channel's send straight to this connection.
   const channel = sink.addChannel(connection)
   connection.setChannel(channel)

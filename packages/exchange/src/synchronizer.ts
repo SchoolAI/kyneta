@@ -12,7 +12,11 @@
 // drives `tick/quiescent` self-messages until the cascade reaches a
 // output-phase level.
 
-import type { ReactiveMap, ReactiveMapHandle } from "@kyneta/changefeed"
+import type {
+  Changeset,
+  ReactiveMap,
+  ReactiveMapHandle,
+} from "@kyneta/changefeed"
 import { createReactiveMap } from "@kyneta/changefeed"
 import {
   createDispatcher,
@@ -23,6 +27,7 @@ import {
   type ObservableHandle,
 } from "@kyneta/machine"
 import type {
+  DevtoolsHistory,
   DocMetadata,
   ReplicaFactoryLike,
   ReplicaLike,
@@ -32,6 +37,7 @@ import type {
   SyncMode,
   Version,
 } from "@kyneta/schema"
+import { DEVTOOLS_HISTORY, hasDevtoolsHistory } from "@kyneta/schema"
 import type {
   AddressedEnvelope,
   AnyTransport,
@@ -40,13 +46,24 @@ import type {
   ChannelMsg,
   ConnectedChannel,
   DocId,
+  FrameTrace,
   PeerId,
   PeerIdentityDetails,
   SyncMsg,
   WireFeatures,
 } from "@kyneta/transport"
 import { isLifecycleMsg } from "@kyneta/transport"
-
+import {
+  createObservationBus,
+  frameTraceToBody,
+  type ObsEventBody,
+  type ObservationBus,
+  type ObsSink,
+  observeInput,
+  observeSessionEffect,
+  observeSyncEffect,
+  summarizeChangeset,
+} from "./observe.js"
 import {
   createSessionUpdate,
   initSession,
@@ -334,6 +351,14 @@ export class Synchronizer {
   // State-advanced listeners
   readonly #stateAdvancedListeners = new Set<(docId: DocId) => void>()
 
+  /**
+   * DevTools observation bus. A passive, fire-and-forget side-output —
+   * never a Mealy effect, never re-enters dispatch, never enters the shared
+   * `Lease` budget. Tee call sites gate on `enabled` for zero cost when no
+   * sink is attached. Context: jj:qpmkoryn.
+   */
+  readonly #observationBus: ObservationBus
+
   readonly #canReset: EpochBoundaryPredicate
   readonly #canConnect?: (peer: PeerIdentityDetails) => boolean
   readonly #canShare: (docId: DocId, peer: PeerIdentityDetails) => boolean
@@ -354,6 +379,44 @@ export class Synchronizer {
     }
   }
 
+  /**
+   * Subscribe a DevTools sink to the observation bus. Returns an
+   * unsubscribe function. The first sink flips `bus.enabled` true, which
+   * is what the tee call sites gate on.
+   */
+  observe(sink: ObsSink): () => void {
+    return this.#observationBus.subscribe(sink)
+  }
+
+  /**
+   * Publish a document changeset to the observation bus. Called by the
+   * Exchange from the per-doc changefeed subscription for BOTH local and
+   * replay changesets (before the sync echo-filter), so the doc layer
+   * covers every interpreted doc — including remote-auto-resolved ones.
+   */
+  observeDocChangeset(docId: DocId, changeset: Changeset<unknown>): void {
+    if (!this.#observationBus.enabled) return
+    this.#observationBus.publish(summarizeChangeset(docId, changeset))
+  }
+
+  /** Fan an array of observation bodies into the bus. */
+  #tee(bodies: readonly ObsEventBody[]): void {
+    for (const body of bodies) this.#observationBus.publish(body)
+  }
+
+  /**
+   * Lazy **pull** DevTools history for a doc, if its substrate implements the
+   * capability (Loro does; plain/Yjs return `undefined`). Read on demand by a
+   * renderer — not pushed through the bus.
+   */
+  docHistory(docId: DocId): DevtoolsHistory | undefined {
+    const runtime = this.#docRuntimes.get(docId)
+    if (!runtime) return undefined
+    return hasDevtoolsHistory(runtime.replica)
+      ? runtime.replica[DEVTOOLS_HISTORY]
+      : undefined
+  }
+
   constructor({
     identity,
     transports = [],
@@ -368,6 +431,9 @@ export class Synchronizer {
     lease,
   }: SynchronizerParams) {
     this.identity = identity
+    // Create the observation bus before #buildHandles — the decorated
+    // executors and transition taps reference it.
+    this.#observationBus = createObservationBus(identity.peerId)
     this.#departureTimeout = departureTimeout ?? 30_000
     this.#selfFeatures = selfFeatures
     this.#canReset = canReset
@@ -388,6 +454,13 @@ export class Synchronizer {
       onChannelReceive: this.channelReceive.bind(this),
       onChannelEstablish: this.channelEstablish.bind(this),
       mintChannelId: (): ChannelId => this.#nextChannelId++,
+      // Wire-frame observation. Always supplied (cheap when no sink): the
+      // hook checks `bus.enabled` per frame. Transports thread it into their
+      // Pipeline's `opts.onFrame`.
+      onFrame: (ev: FrameTrace): void => {
+        if (this.#observationBus.enabled)
+          this.#observationBus.publish(frameTraceToBody(ev))
+      },
     }
 
     // Create TransportManager
@@ -422,7 +495,14 @@ export class Synchronizer {
     }
     const sessionHandle = createObservableProgram(
       sessionProgram,
-      (effect, _dispatch) => this.#executeSessionEffect(effect),
+      (effect, _dispatch) => {
+        // Observation tee — the effect IS the data; map it purely, publish,
+        // then execute. Guard before the mapper so nothing allocates when
+        // unobserved.
+        if (this.#observationBus.enabled)
+          this.#tee(observeSessionEffect(effect))
+        this.#executeSessionEffect(effect)
+      },
       { lease: this.#lease, label: "synchronizer:session" },
     )
 
@@ -435,9 +515,35 @@ export class Synchronizer {
     }
     const syncHandle = createObservableProgram(
       syncProgram,
-      (effect, _dispatch) => this.#executeSyncEffect(effect),
+      (effect, _dispatch) => {
+        if (this.#observationBus.enabled) this.#tee(observeSyncEffect(effect))
+        this.#executeSyncEffect(effect)
+      },
       { lease: this.#lease, label: "synchronizer:sync" },
     )
+
+    // Engine layer — coalesced TEA state transitions (fire only when
+    // `from !== to`). Always attached but guarded, so re-`#buildHandles()`
+    // on reset re-binds for free; the cost when unobserved is one boolean
+    // check per transition.
+    sessionHandle.subscribeToTransitions(t => {
+      if (!this.#observationBus.enabled) return
+      this.#observationBus.publish({
+        layer: "engine",
+        kind: "transition",
+        program: "session",
+        summary: `peers=${t.to.peers.size} channels=${t.to.channels.size}`,
+      })
+    })
+    syncHandle.subscribeToTransitions(t => {
+      if (!this.#observationBus.enabled) return
+      this.#observationBus.publish({
+        layer: "engine",
+        kind: "transition",
+        program: "sync",
+        summary: `docs=${t.to.documents.size} peers=${t.to.peers.size}`,
+      })
+    })
 
     // The outer coordinator owns cross-program input ordering: a
     // session `sync-event` effect re-enters as a `route` here rather
@@ -464,6 +570,9 @@ export class Synchronizer {
     const outerHandle = createDispatcher<OuterMsg>(
       (msg, dispatch) => {
         if (msg.type === "route") {
+          // Inbound-message tee — `route` is the sole inbound-input point,
+          // so it captures protocol-IN (and the triggering Msg).
+          if (this.#observationBus.enabled) this.#tee(observeInput(msg.input))
           if (msg.input.type.startsWith("sess/")) {
             sessionHandle.dispatch(msg.input as SessionInput)
           } else {

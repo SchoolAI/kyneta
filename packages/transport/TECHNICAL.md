@@ -306,7 +306,7 @@ Scheduling (`setTimeout`, retry on failure) happens inside each concrete transpo
 | `Transport<G>` | `src/transport.ts` | Abstract base class — concrete transports extend. |
 | `AnyTransport` | `src/transport.ts` | `Transport<any>` — for heterogeneous collections. |
 | `TransportFactory` | `src/transport.ts` | `() => AnyTransport`. |
-| `TransportContext` | `src/transport.ts` | `{ identity, onChannelReceive, onChannelAdded, onChannelRemoved, onChannelEstablish }`. |
+| `TransportContext` | `src/transport.ts` | `{ identity, onChannelReceive, onChannelAdded, onChannelRemoved, onChannelEstablish, mintChannelId, onFrame? }`. The optional `onFrame?(ev: FrameTrace)` is the DevTools wire-observation hook the consumer (Synchronizer) injects; transports thread it into their `Pipeline` (`opts.onFrame`) — read via the base `Transport`'s `protected get frameObserver`. Additive; absent ⇒ no wire observation. |
 | `Channel` | `src/channel.ts` | `ConnectedChannel \| EstablishedChannel`. |
 | `GeneratedChannel` | `src/channel.ts` | Pre-registration; has `send` + `stop` + `transportType`. |
 | `ConnectedChannel` | `src/channel.ts` | Post-registration, pre-handshake; `send: (LifecycleMsg) => void`. |

@@ -152,6 +152,7 @@ export class SseServerTransport extends Transport<PeerId> {
     // Create connection object with fragmentation config
     const connection = new SseConnection(resolvedPeerId, channel.channelId, {
       fragmentThreshold: this.#fragmentThreshold,
+      onFrame: ev => this.frameObserver?.(ev),
     })
     connection._setChannel(channel)
 

@@ -225,6 +225,7 @@ export class WebrtcTransport extends Transport<DataChannelContext> {
             `[webrtc-transport] wire error (${dir}) for peer ${remotePeerId}:`,
             e,
           ),
+        onFrame: ev => this.frameObserver?.(ev),
       },
     })
 

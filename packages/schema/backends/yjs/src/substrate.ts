@@ -63,6 +63,9 @@ import {
   applyChange,
   BACKING_DOC,
   buildWritableContext,
+  DEVTOOLS_HISTORY,
+  type DevtoolsHistory,
+  type DevtoolsHistorySummary,
   deepClonePreState,
   deriveSchemaBinding,
   executeBatch,
@@ -248,6 +251,7 @@ export function createYjsSubstrate(
 
   const substrate = {
     [BACKING_DOC]: doc,
+    [DEVTOOLS_HISTORY]: yjsDevtoolsHistory(() => doc),
 
     reader: reader,
 
@@ -521,6 +525,33 @@ function trivialBinding(schema: SchemaNode): SchemaBinding {
  * that need to accumulate state, compute per-peer deltas, and compact
  * storage without ever interpreting document fields.
  */
+// ---------------------------------------------------------------------------
+// DevTools history capability (pull) — version/op summary.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the `DevtoolsHistory` capability over a Y.Doc accessor.
+ *
+ * `summary()` only: reliable Yjs time-travel (`valueAt`) requires the doc to
+ * be constructed with `gc: false`, which this substrate does not impose (it
+ * wraps a user-provided Y.Doc). So `valueAt` is intentionally omitted.
+ * Context: jj:qpmkoryn.
+ */
+function yjsDevtoolsHistory(getDoc: () => Y.Doc): DevtoolsHistory {
+  return {
+    summary(): DevtoolsHistorySummary {
+      const sv = Y.encodeStateVector(getDoc())
+      const actors: Record<string, number> = {}
+      let opCount = 0
+      for (const [client, clock] of Y.decodeStateVector(sv)) {
+        actors[String(client)] = clock
+        opCount += clock
+      }
+      return { version: new YjsVersion(sv).serialize(), opCount, actors }
+    },
+  }
+}
+
 export function createYjsReplica(doc: Y.Doc): Replica<YjsVersion> {
   let currentDoc = doc
   let currentBase: YjsVersion = new YjsVersion(Y.encodeStateVector(new Y.Doc()))
@@ -529,6 +560,7 @@ export function createYjsReplica(doc: Y.Doc): Replica<YjsVersion> {
     get [BACKING_DOC]() {
       return currentDoc
     },
+    [DEVTOOLS_HISTORY]: yjsDevtoolsHistory(() => currentDoc),
 
     version(): YjsVersion {
       return YjsVersion.fromDoc(currentDoc)

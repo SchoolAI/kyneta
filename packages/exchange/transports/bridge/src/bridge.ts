@@ -198,6 +198,7 @@ export class BridgeTransport extends Transport<BridgeTransportContext> {
           threshold: 100 * 1024,
           onError: (e, dir) =>
             console.warn(`[BridgeTransport] wire error (${dir}):`, e),
+          onFrame: this.frameObserver,
         },
       }),
     )

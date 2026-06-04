@@ -29,6 +29,7 @@ import {
   type BoundSchema,
   createRef,
   type Defer,
+  type DevtoolsHistory,
   type FactoryBuilder,
   type Interpret,
   type Ref,
@@ -54,6 +55,7 @@ import type { Capabilities } from "./capabilities.js"
 import { createCapabilities, DEFAULT_REPLICAS } from "./capabilities.js"
 import type { Policy } from "./governance.js"
 import { Governance } from "./governance.js"
+import type { ObsSink } from "./observe.js"
 import type { Store, StoreMeta } from "./store/store.js"
 import {
   allDocsIdle,
@@ -592,6 +594,9 @@ export class Exchange {
         [...bound.supportedHashes],
       ).then(() => {
         subscribe(ref, changeset => {
+          // Observation tee — publish BOTH local and replay changesets
+          // (before the echo filter) so the doc layer sees every change.
+          this.#synchronizer.observeDocChangeset(docId, changeset)
           // Filter on the structural `replay` flag — not the `origin`
           // label string — so foreign-origin merges still don't echo
           // and `batch(doc, fn, { origin: "sync" })` still broadcasts.
@@ -612,6 +617,7 @@ export class Exchange {
       })
 
       subscribe(ref, changeset => {
+        this.#synchronizer.observeDocChangeset(docId, changeset)
         // See companion subscriber above for the replay-vs-origin
         // rationale; identical filter.
         if (changeset.replay) return
@@ -1318,6 +1324,30 @@ export class Exchange {
    */
   register(policy: Policy): () => void {
     return this.#governance.register(policy)
+  }
+
+  /**
+   * Subscribe a DevTools observation sink. Returns an unsubscribe function.
+   *
+   * The sink receives a correlated `ObsEvent` stream across the engine,
+   * protocol, doc, directory, and diagnostic layers (plus wire/substrate in
+   * later phases). Opt-in and zero-cost when no sink is attached.
+   *
+   * **Experimental** — the `ObsEvent` shape (`v: 1`) may change.
+   */
+  observe(sink: ObsSink): () => void {
+    return this.#synchronizer.observe(sink)
+  }
+
+  /**
+   * Lazy DevTools history for a document — version/op summary and (where the
+   * substrate supports it, e.g. Loro) `valueAt(version)` time-travel.
+   * Returns `undefined` for unknown docs or substrates without the capability.
+   *
+   * **Experimental.**
+   */
+  docHistory(docId: DocId): DevtoolsHistory | undefined {
+    return this.#synchronizer.docHistory(docId)
   }
 
   /** @internal */

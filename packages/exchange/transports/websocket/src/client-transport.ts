@@ -168,6 +168,9 @@ export class WebsocketClientTransport extends Transport<void> {
         reassemblyTimeoutMs: 10_000,
         onError: (e, dir) =>
           console.warn(`[WebsocketClient] wire error (${dir}):`, e),
+        // Lazy: the pipeline is built in the constructor (pre-`_initialize`),
+        // so read the frame hook at frame-time via the getter.
+        onFrame: ev => this.frameObserver?.(ev),
       },
     })
 

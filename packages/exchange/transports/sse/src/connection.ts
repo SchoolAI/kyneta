@@ -17,7 +17,7 @@
 //   receive direction: binary (POST body → Uint8Array)
 
 import type { Channel, ChannelMsg, PeerId } from "@kyneta/transport"
-import { Pipeline } from "@kyneta/transport"
+import { type FrameTrace, Pipeline } from "@kyneta/transport"
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -60,6 +60,8 @@ export interface SseConnectionConfig {
    * Default: 60000 (60K chars)
    */
   fragmentThreshold?: number
+  /** Optional DevTools per-frame trace hook, threaded into the Pipeline. */
+  onFrame?: (ev: FrameTrace) => void
 }
 
 /**
@@ -98,6 +100,7 @@ export class SseConnection {
             `[SseConnection] wire error (${dir}) for peer ${peerId}:`,
             e,
           ),
+        onFrame: config?.onFrame,
       },
     })
   }

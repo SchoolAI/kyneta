@@ -13,6 +13,7 @@ import type {
   ChannelId,
   ChannelMsg,
   ConnectedChannel,
+  FrameTrace,
   GeneratedChannel,
   TransportType,
 } from "@kyneta/transport"
@@ -29,6 +30,8 @@ export interface ChannelSink {
   addChannel(connection: UnixSocketConnection): ConnectedChannel
   removeChannel(channelId: ChannelId): void
   establishChannel(channelId: ChannelId): void
+  /** DevTools per-frame trace hook (lazy — undefined until observed). */
+  onFrame(ev: FrameTrace): void
 }
 
 /**
@@ -48,6 +51,7 @@ export abstract class SocketTransport extends Transport<UnixSocketConnection> {
       addChannel: connection => this.addChannel(connection),
       removeChannel: channelId => this.removeChannel(channelId),
       establishChannel: channelId => this.establishChannel(channelId),
+      onFrame: ev => this.frameObserver?.(ev),
     }
   }
 

@@ -11,7 +11,7 @@
 // kyneta naming conventions and the kyneta wire format.
 
 import type { Channel, ChannelMsg, PeerId } from "@kyneta/transport"
-import { Pipeline } from "@kyneta/transport"
+import { type FrameTrace, Pipeline } from "@kyneta/transport"
 import type { Socket } from "./types.js"
 
 /**
@@ -31,6 +31,8 @@ export interface WebsocketConnectionConfig {
    * Default: 100KB (safe for AWS API Gateway's 128KB limit)
    */
   fragmentThreshold?: number
+  /** Optional DevTools per-frame trace hook, threaded into the Pipeline. */
+  onFrame?: (ev: FrameTrace) => void
 }
 
 /**
@@ -68,6 +70,7 @@ export class WebsocketConnection {
         reassemblyTimeoutMs: 10_000,
         onError: (e, dir) =>
           console.warn(`[WebsocketConnection] wire error (${dir}):`, e),
+        onFrame: config?.onFrame,
       },
     })
   }

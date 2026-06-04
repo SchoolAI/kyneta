@@ -796,11 +796,57 @@ For durability guarantees, use the `cohort` predicate to prevent compaction past
 | `src/sync.ts` | 195 | `sync(doc)` helper + `registerSync`. |
 | `src/types.ts` | 135 | `DocChange`, `DocInfo`, `PeerChange`, `PeerDocSyncState`, `PeerState`, `PeerSyncState`, `Connectivity`. |
 | `src/describe-sync-status.ts` | 48 | `describeSyncStatus`, `SyncStatusSummary` — pure presentational projection. |
+| `src/observe.ts` | — | DevTools observation protocol (`ObsEvent`), bus (`createObservationBus`), and pure effect/msg/changeset/frame mappers. Experimental. |
 | `src/utils.ts` | 50 | `validatePeerId`. (Random ID generation extracted to `@kyneta/random`.) |
 | `src/store/` | — | `Store` interface, in-memory implementation, shared utilities (`seq-tracker.ts`, `validateAppend` in `store.ts`). |
 | `src/transport/` | — | Transport-manager glue. |
 | `src/testing/` | — | Test-only helpers exported from `@kyneta/exchange/testing`. |
 | `src/__tests__/` | 17 files | Full dispatch-loop, governance, capabilities, line, persistent-peer-id, storage, compaction, classification, and end-to-end tests. |
+
+## Observation bus (experimental)
+
+Source: `src/observe.ts`, `src/synchronizer.ts`. DevTools observability is a
+**tee on the effect/message stream**, not publish calls scattered through the
+shell. The Synchronizer already routes everything through pure data seams — the
+two program executors (`#executeSessionEffect`/`#executeSyncEffect`) and the
+outer coordinator's `route` branch — so observation is *another interpreter of
+that data stream*. `src/observe.ts` holds the protocol (`ObsEvent` + bodies),
+the bus (`createObservationBus`), and **pure** mappers
+(`observeSessionEffect`/`observeSyncEffect`/`observeInput`/`summarizeChangeset`/
+`frameTraceToBody`) that are unit-tested with effect/msg literals — no Exchange.
+
+`exchange.observe(sink)` (→ `synchronizer.observe`) streams a correlated
+`ObsEvent` across six layers:
+
+| Layer | Source seam |
+|-------|-------------|
+| `engine` | both handles' `subscribeToTransitions` (coalesced; `from !== to`) |
+| `protocol` | OUT = `send`/`send-to-peer(s)`/`send-offer(s)` effects; IN = the `route` input tap |
+| `directory` | `emit-peer-events`/`emit-doc-events` effects |
+| `doc` | the per-`DocRuntime` changefeed subscription in `exchange.ts#interpretDoc` (both local + replay, before the echo filter — so auto-resolved docs are covered) |
+| `diagnostic` | the unified `diagnostic` effect (both programs) carrying a structured `Diagnostic` — see below |
+| `wire` | `TransportContext.onFrame` ← each transport's `Pipeline.onFrame`/`FrameTrace` (carries `frameSeq`, a per-(channel,direction) trace id — deliberately *not* the envelope's monotonic `seq`, and not a sound cross-peer key; the cross-peer key is the reserved `Frame.hash`) |
+
+Invariants: **zero cost when unobserved** (every tee call site is guarded by
+`bus.enabled` before any mapper runs); **fire-and-forget** — the bus swallows
+sink errors and never calls `dispatch`, so it is a passive side-output, never a
+Mealy effect and never inside the shared `Lease` budget (mirrors
+`@kyneta/machine`'s `notifyTransition`). `ObsEvent` is experimental (`v: 1`).
+
+The `diagnostic` body aliases the producer-side `Diagnostic` discriminated union
+(`src/types.ts`, jj:nztkqwpm): `DiagnosticBody = { layer: "diagnostic"; kind:
+"diagnostic" } & Diagnostic`, keyed on `code` with `severity`/`message`/`peer`
+and per-variant `local`/`remote` + `docId` — so a renderer can attribute, group,
+and severity-gate diagnostics without parsing the message string. Aliasing (not
+re-declaring) is sound because `PeerId`/`DocId` are plain `string`; the spine
+guard still holds (`Diagnostic` declares `peer`, never the envelope's `peerId`).
+
+`exchange.docHistory(docId)` is the orthogonal **pull** surface: it reads the
+optional `DEVTOOLS_HISTORY` capability (`@kyneta/schema`) off the doc's
+substrate — Loro implements it deeply (version/op summary + `fork()`-based
+`valueAt` time-travel), Yjs gives a summary, plain returns `undefined`.
+
+Product rationale (why a bus, why renderers are deferred): `PRODUCT.md`.
 
 ## Testing
 
