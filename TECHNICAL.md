@@ -48,6 +48,7 @@ Every test count in every per-package `TECHNICAL.md` agrees with this table. Run
 | `@kyneta/exchange` | 463 | 0 | 17 |
 | `@kyneta/index` | 143 | 0 | 8 |
 | `@kyneta/react` | 84 | 0 | 7 |
+| `@kyneta/devtools` | 9 | 0 | 3 |
 | `@kyneta/compiler` (exp.) | 547 | 0 | 13 |
 | `@kyneta/cast` (exp.) | 634 | 0 | 27 |
 | `@kyneta/perspective` (exp., private) | 1,374 | 0 | 35 |
@@ -114,6 +115,8 @@ Two additional test suites live outside the main package graph:
 **`@kyneta/exchange`** — Substrate-agnostic document sync runtime. Two pure TEA programs (session + sync) sharing one serialized dispatch queue, a `Synchronizer` shell, and an `Exchange` façade adding storage, governance (composable `Policy`), capability negotiation, reactive `peers` + `documents` collections, a `Line` primitive for reliable peer-to-peer message streams, and `persistentPeerId` for browser-tab-unique IDs via a `localStorage` CAS lease. Invariants: the exchange never inspects `SubstratePayload`; session never sees documents; sync never sees channels. Peer deps: `@kyneta/schema`, `@kyneta/changefeed`; direct dep: `@kyneta/transport`. 420 tests across 17 files. → `packages/exchange/TECHNICAL.md`.
 
 **`@kyneta/index`** — DBSP-grounded reactive indexing over keyed collections. Three-layer pipeline: `Source<V>` (consumer-stateless delta producer) → `Collection<V>` (stateful ℐ integrator, *is* a `Changefeed`) → `SecondaryIndex` / `JoinIndex`. All internal algebra on ℤ-sets; `Source.flatMap` for bilinear composition; `Index.by` for grouping with reactive field-mutation watchers; `Index.join` for bilinear incremental joins. Five `Source` constructors (`create`, `fromRecord`, `fromList`, `fromExchange`, `of`). Dep: `@kyneta/changefeed`. 143 tests. → `packages/index/TECHNICAL.md`.
+
+**`@kyneta/devtools`** (experimental) — A reactive **world model** folded from the `exchange.observe()` (`ObsEvent`) stream, composed from existing machinery: `@kyneta/index` for the append log + cross-peer `docId` grouping (`Index.by`), and `@kyneta/changefeed` `ReactiveMap`s for LWW current-state (peers/documents/sync status). The only bespoke logic is one pure `classify` (`ObsEvent → routings`); `createWorldModel` + `attach(exchange, model)` wire it. Cross-peer correlation keys on the shared `docId` (frame `seq` collides per channel/direction — a correct frame-thread awaits a content-addressed `Frame.hash`). Deps: `@kyneta/index`, `@kyneta/changefeed`, `@kyneta/exchange`. 9 tests. → `packages/devtools/TECHNICAL.md`.
 
 **`@kyneta/react`** — Thin React bindings. `ExchangeProvider` + `useExchange` for context; `useDocument` for ref access; `useValue` for reactive reads (with snapshot caching for referential stability); `useDocReady` for the monotonic readiness latch and `useSyncState` for the raw per-peer array; `useText` for uncontrolled `<input>` / `<textarea>` binding with selection-stable patching through remote edits. Pure store factories (`createChangefeedStore`, `createDerivedSyncStore`, `createSyncStore`) form the functional core; hooks are thin `useSyncExternalStore` wrappers. Text-adapter (`attach`, `diffText`, `transformSelection`) is framework-agnostic. Peer deps: `@kyneta/schema`, `@kyneta/changefeed`, `@kyneta/exchange`, `react` ≥ 18. 84 tests. → `packages/react/TECHNICAL.md`.
 
@@ -235,7 +238,8 @@ kyneta/
 │   │       ├── postgres/     # @kyneta/postgres-store
 │   │       └── prisma/       # @kyneta/prisma-store
 │   ├── index/                # @kyneta/index
-│   └── react/                # @kyneta/react
+│   ├── react/                # @kyneta/react
+│   └── devtools/             # @kyneta/devtools
 │
 ├── experimental/             # experimental packages (public surface may shift)
 │   ├── compiler/             # @kyneta/compiler

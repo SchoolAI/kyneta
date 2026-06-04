@@ -16,7 +16,7 @@ import type { Changeset } from "@kyneta/changefeed"
 import type { ChannelMsg, FrameTrace } from "@kyneta/transport"
 import type { SessionEffect, SessionInput } from "./session-program.js"
 import type { SyncEffect, SyncInput } from "./sync-program.js"
-import type { Diagnostic } from "./types.js"
+import type { Diagnostic, PeerSyncState } from "./types.js"
 
 // ---------------------------------------------------------------------------
 // Protocol version + common envelope
@@ -93,6 +93,20 @@ export interface DocEventBody {
   readonly docId: string
 }
 
+/**
+ * layer "directory" — authoritative per-peer-doc sync status (from the
+ * synchronizer's peer-sync-state changes). This is the reconciliation result
+ * a consumer must NOT re-derive from protocol events — it is emitted here so a
+ * faithful directory/status view folds purely from the event stream.
+ */
+export interface SyncStateBody {
+  readonly layer: "directory"
+  readonly kind: "sync-state"
+  readonly docId: string
+  readonly peer: string
+  readonly state: "pending" | "synced" | "vacant"
+}
+
 /** A single op inside a changeset, flattened for display. */
 export interface ObsOp {
   readonly type: string
@@ -167,6 +181,7 @@ export type ObsEventBody =
   | MessageBody
   | PeerEventBody
   | DocEventBody
+  | SyncStateBody
   | ChangesetBody
   | TransitionBody
   | DiagnosticBody
@@ -388,6 +403,24 @@ export function observeInput(input: SessionInput | SyncInput): ObsEventBody[] {
     default:
       return []
   }
+}
+
+/**
+ * Map a doc's per-peer sync states to `sync-state` events (one per peer).
+ * The authoritative reconciliation result — emitted so consumers fold status
+ * from the stream rather than re-deriving it.
+ */
+export function observePeerSyncState(
+  docId: string,
+  peerStates: readonly PeerSyncState[],
+): ObsEventBody[] {
+  return peerStates.map(ps => ({
+    layer: "directory" as const,
+    kind: "sync-state" as const,
+    docId,
+    peer: ps.peer.peerId,
+    state: ps.state,
+  }))
 }
 
 /** Map a wire `FrameTrace` to a `wire` event. */

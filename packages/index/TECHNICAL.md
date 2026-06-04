@@ -3,7 +3,7 @@
 > **Package**: `@kyneta/index`
 > **Role**: DBSP-grounded reactive indexing over keyed collections. A three-layer pipeline — `Source` (consumer-stateless delta producer) → `Collection` (stateful ℐ integrator, *is* a `Changefeed`) → `SecondaryIndex` / `JoinIndex` (grouping + join operators) — with all internal algebra computed on ℤ-sets.
 > **Depends on**: `@kyneta/changefeed`
-> **Depended on by**: Application code that builds live, queryable views over document collections (exchange-backed or otherwise).
+> **Depended on by**: `@kyneta/devtools` (the observability world model — its first in-repo runtime consumer); application code that builds live, queryable views over document collections (exchange-backed or otherwise).
 > **Canonical symbols**: `Source`, `SourceEvent`, `SourceHandle`, `ExchangeSourceHandle`, `SourceMapping`, `FlatMapOptions`, `ReactiveMapSourceOptions`, `diffValueMaps`, `Collection`, `CollectionChange`, `integrate`, `IntegrationStep`, `SecondaryIndex`, `IndexChange`, `JoinIndex`, `KeySpec`, `field`, `keys`, `Index`, `Index.by`, `Index.join`, `ZSet`, `add`, `negate`, `single`, `zero`, `positive`, `diff`, `isEmpty`, `entries`, `fromKeys`, `toAdded`, `toRemoved`, `createWatcherTable`, `WatcherTable`
 > **Key invariant(s)**:
 > 1. Every operator's internal representation is a ℤ-set (`ReadonlyMap<string, number>` with no zero-weight entries). Public change types (`CollectionChange`, `IndexChange`) are projections, not the internal form.
@@ -12,7 +12,7 @@
 
 A set of incremental operators for maintaining live views over keyed data. You start with a `Source<V>` — typically built from a `@kyneta/schema` document, an `exchange.documents`-backed collection, a static record, or another operator — and build up through `Collection`, `SecondaryIndex`, and `JoinIndex`. Every operator is incremental: a change at the input becomes a ℤ-set delta that propagates through the pipeline in O(|Δ|) time, not O(|state|).
 
-Used by applications that need live joins, filters, groupings, or flat-mappings over document collections. Not imported by any other Kyneta package at runtime — indexes are a consumer-side convenience, not a framework foundation.
+Used by applications that need live joins, filters, groupings, or flat-mappings over document collections, and in-repo by `@kyneta/devtools` (its first runtime consumer, for the observability world model). Still a consumer-side convenience, not a core-path dependency — the sync engine, transports, and substrates do not import it.
 
 ---
 

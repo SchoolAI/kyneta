@@ -822,7 +822,7 @@ the bus (`createObservationBus`), and **pure** mappers
 |-------|-------------|
 | `engine` | both handles' `subscribeToTransitions` (coalesced; `from !== to`) |
 | `protocol` | OUT = `send`/`send-to-peer(s)`/`send-offer(s)` effects; IN = the `route` input tap |
-| `directory` | `emit-peer-events`/`emit-doc-events` effects |
+| `directory` | `emit-peer-events`/`emit-doc-events` effects, plus the authoritative per-peer-doc **`sync-state`** event teed in `#emitPeerSyncChanges` (`observePeerSyncState`) — the reconciliation result a consumer must not re-derive (jj:pusmrzuy) |
 | `doc` | the per-`DocRuntime` changefeed subscription in `exchange.ts#interpretDoc` (both local + replay, before the echo filter — so auto-resolved docs are covered) |
 | `diagnostic` | the unified `diagnostic` effect (both programs) carrying a structured `Diagnostic` — see below |
 | `wire` | `TransportContext.onFrame` ← each transport's `Pipeline.onFrame`/`FrameTrace` (carries `frameSeq`, a per-(channel,direction) trace id — deliberately *not* the envelope's monotonic `seq`, and not a sound cross-peer key; the cross-peer key is the reserved `Frame.hash`) |

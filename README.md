@@ -158,6 +158,12 @@ A plain JS substrate is built into `@kyneta/schema` — no external package need
 |---------|-------------|-------|
 | [`@kyneta/react`](./packages/react) | React bindings over `@kyneta/schema` + `@kyneta/exchange`. Hooks for document access, sync status, and reactive observation via `useSyncExternalStore`. | 84 |
 
+### Observability (experimental)
+
+| Package | Description | Tests |
+|---------|-------------|-------|
+| [`@kyneta/devtools`](./packages/devtools) | Reactive world model over `exchange.observe()` (`ObsEvent`), composed from `@kyneta/index` + `@kyneta/changefeed`. One pure classifier; cross-peer correlation by `docId`. Experimental. | 9 |
+
 ## Dependencies
 
 ```
@@ -182,7 +188,8 @@ A plain JS substrate is built into `@kyneta/schema` — no external package need
                     │        └──► @kyneta/unix-socket-transport
                     │
                     ├──► @kyneta/leveldb-store
-                    └──► @kyneta/react  (+ react)
+                    ├──► @kyneta/react  (+ react)
+                    └──► @kyneta/devtools (+ index, changefeed) ── experimental
 
 @kyneta/machine                         (standalone — used by exchange, transports)
 @kyneta/perspective                     (standalone — private, not published)

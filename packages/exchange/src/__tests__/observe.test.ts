@@ -473,6 +473,17 @@ describe("observe — integration (two peers, one bridge)", () => {
       true,
     )
     expect(a.some(e => e.layer === "engine" && e.program === "sync")).toBe(true)
+    // directory: authoritative per-peer-doc sync-state reaches `synced` on both
+    const syncedOn = (evs: ObsEvent[]) =>
+      evs.some(
+        e =>
+          e.layer === "directory" &&
+          e.kind === "sync-state" &&
+          e.docId === "d" &&
+          e.state === "synced",
+      )
+    expect(syncedOn(a)).toBe(true)
+    expect(syncedOn(b)).toBe(true)
   })
 
   it("covers a doc obtained only via remote auto-resolve", async () => {

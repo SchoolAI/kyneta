@@ -51,7 +51,16 @@ tee for near-zero cost; they are first-class `diagnostic` events.
 
 Push spine (engine/protocol/doc/directory/diagnostic), wire-frame layer (all
 transports), and the substrate-history pull (Loro deep with time-travel; Yjs
-summary) are shipped and tested. `ObsEvent` is **experimental** (`v: 1`) until
-the renderers teach us the right shape. Known deferrals: `onWireError →
-diagnostic`, the substrate **op-DAG** drill-down, and Yjs `valueAt`
-time-travel (needs `gc: false`).
+summary) are shipped and tested. The renderer-agnostic **world model**
+(`@kyneta/devtools`) is shipped too — composed from `@kyneta/index` (append
+logs + cross-peer `docId` grouping) and `@kyneta/changefeed` `ReactiveMap`s
+(LWW status), fed by one pure classifier; it dogfoods the framework's own
+data primitives. **Next**: renderers (in-app panel, then the multi-peer
+inspector) and `Line` egress (the `discriminatedSum` schema makes `ObsEvent`
+a clean `Line` message).
+
+`ObsEvent` is **experimental** (`v: 1`) until the renderers teach us the right
+shape. Known deferrals: `onWireError → diagnostic`; the substrate **op-DAG**
+drill-down; Yjs `valueAt` time-travel (needs `gc: false`); a correct
+frame-level cross-peer thread (awaits a content-addressed `Frame.hash` — frame
+`seq` collides per channel/direction).

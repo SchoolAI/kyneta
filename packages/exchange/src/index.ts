@@ -24,6 +24,7 @@ export {
   type ObsOp,
   type ObsSink,
   observeInput,
+  observePeerSyncState,
   observeSessionEffect,
   observeSyncEffect,
   summarizeChangeset,

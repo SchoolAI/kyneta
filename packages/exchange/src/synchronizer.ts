@@ -60,6 +60,7 @@ import {
   type ObservationBus,
   type ObsSink,
   observeInput,
+  observePeerSyncState,
   observeSessionEffect,
   observeSyncEffect,
   summarizeChangeset,
@@ -1530,11 +1531,17 @@ export class Synchronizer {
   }
 
   #emitPeerSyncChanges(docIds: readonly DocId[]): void {
-    if (this.#peerSyncListeners.size === 0 || docIds.length === 0) return
+    if (docIds.length === 0) return
+    const observing = this.#observationBus.enabled
+    if (this.#peerSyncListeners.size === 0 && !observing) return
 
     for (const docId of docIds) {
       if (!this.#docRuntimes.has(docId)) continue
       const peerStates = this.getPeerStates(docId)
+      // Observation tee — the authoritative per-peer-doc status, so a devtools
+      // fold reconstructs the directory/status view without re-deriving the
+      // sync program's reconciliation. Context: jj:pusmrzuy.
+      if (observing) this.#tee(observePeerSyncState(docId, peerStates))
       for (const listener of this.#peerSyncListeners) {
         listener(docId, peerStates)
       }
