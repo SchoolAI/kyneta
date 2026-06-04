@@ -14,7 +14,7 @@
 //   KYNETA_PG_URL=postgres://localhost:5432/kyneta_test pnpm verify
 
 import { Exchange } from "@kyneta/exchange"
-import { createPostgresStore } from "@kyneta/postgres-store"
+import { createPostgresStore, fromPool } from "@kyneta/postgres-store"
 import { batch, Schema } from "@kyneta/schema"
 import type { EntryPayloadJson } from "@kyneta/sql-store-core"
 import { yjs } from "@kyneta/yjs-schema"
@@ -69,8 +69,8 @@ describeIfEnabled(
     })
 
     it("two Postgres-backed exchanges converge and persist on both sides", async () => {
-      const serverStore = await createPostgresStore(serverPool)
-      const clientStore = await createPostgresStore(clientPool)
+      const serverStore = await createPostgresStore(fromPool(serverPool))
+      const clientStore = await createPostgresStore(fromPool(clientPool))
 
       const { serverExchange, clientExchange } = await createConnectedPair(
         lifecycle,
@@ -145,8 +145,8 @@ describeIfEnabled(
     it("state survives shutdown and exchanges resume syncing", async () => {
       // Phase 0: converge + shutdown.
       {
-        const serverStore = await createPostgresStore(serverPool)
-        const clientStore = await createPostgresStore(clientPool)
+        const serverStore = await createPostgresStore(fromPool(serverPool))
+        const clientStore = await createPostgresStore(fromPool(clientPool))
 
         const { serverExchange, clientExchange } = await createConnectedPair(
           lifecycle,
@@ -173,8 +173,8 @@ describeIfEnabled(
 
       // Phase 1: hydrate from Postgres alone (no transport).
       {
-        const serverStore = await createPostgresStore(serverPool)
-        const clientStore = await createPostgresStore(clientPool)
+        const serverStore = await createPostgresStore(fromPool(serverPool))
+        const clientStore = await createPostgresStore(fromPool(clientPool))
 
         const serverExchange = lifecycle.registerExchange(
           new Exchange({
@@ -206,8 +206,8 @@ describeIfEnabled(
 
       // Phase 2: fresh WebSocket transports — sync resumes on top of state.
       {
-        const serverStore = await createPostgresStore(serverPool)
-        const clientStore = await createPostgresStore(clientPool)
+        const serverStore = await createPostgresStore(fromPool(serverPool))
+        const clientStore = await createPostgresStore(fromPool(clientPool))
 
         const { serverExchange, clientExchange } = await createConnectedPair(
           lifecycle,
@@ -295,7 +295,7 @@ describeIfEnabled(
       db.close()
 
       // Hydrate from Postgres — the doc should round-trip identically.
-      const pgStore = await createPostgresStore(serverPool)
+      const pgStore = await createPostgresStore(fromPool(serverPool))
       const pgExchange = lifecycle.registerExchange(
         new Exchange({
           id: "pg-sink",
