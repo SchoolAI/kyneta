@@ -473,7 +473,7 @@ describe("plain replica snapshot import falls back to replicaFactory.fromSnapsho
 // ---------------------------------------------------------------------------
 
 describe("schema hash compatibility", () => {
-  it("schema hash mismatch rejects sync — no import, warning logged", async () => {
+  it("schema hash mismatch rejects sync — no import, diagnostic logged", async () => {
     const bridge = new Bridge()
 
     // Schema A

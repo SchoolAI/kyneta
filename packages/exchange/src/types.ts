@@ -5,7 +5,12 @@
 // This file defines sync-specific types that depend on them.
 
 import type { ChangeBase } from "@kyneta/changefeed"
-import type { ChannelId, DocId, PeerIdentityDetails } from "@kyneta/transport"
+import type {
+  ChannelId,
+  DocId,
+  PeerId,
+  PeerIdentityDetails,
+} from "@kyneta/transport"
 
 // Re-export transport identity types so existing `from "./types.js"` imports
 // within exchange (e.g. sync.ts) continue to resolve.
@@ -44,6 +49,64 @@ export type PeerSyncState = {
  * `sync(doc).settled({ offlineAfter })`, not here.
  */
 export type Connectivity = "online" | "connecting" | "offline"
+
+// ---------------------------------------------------------------------------
+// Diagnostics — structured silent-failure signals
+// ---------------------------------------------------------------------------
+
+/**
+ * Machine-readable diagnostic kind — the single discriminant of `Diagnostic`.
+ * Future deferred causes (`store-error`, `wire-reassembly`) become new
+ * variants with their own exact fields, never new optionals on the existing
+ * ones. `code` is the programmatic `kind` the planned structured
+ * `onProtocolWarning` callback (jj:wkwskqsy) would expose. Context: jj:nztkqwpm.
+ */
+export type DiagnosticCode =
+  | "self-connection"
+  | "duplicate-peer"
+  | "protocol-skew"
+  | "protocol-mismatch"
+  | "replica-type-mismatch"
+  | "schema-hash-mismatch"
+  | "sync-mode-mismatch"
+
+interface DiagnosticCore {
+  readonly severity: "error" | "warning"
+  /** Human-readable line — also what the shell logs to the console. */
+  readonly message: string
+}
+/** The remote counterparty the diagnostic concerns. */
+interface PeerScoped {
+  readonly peer: PeerId
+}
+/** The two compared values of a mismatch — symmetric, not directional. */
+interface Comparison {
+  readonly local: string
+  readonly remote: string
+}
+
+/**
+ * A structured diagnostic — a discriminated union keyed on `code`, so each
+ * cause carries exactly its fields (no optionals; illegal states cannot be
+ * represented). Produced by the session/sync programs as a `diagnostic`
+ * effect and surfaced through the observation bus as a `DiagnosticBody`
+ * (jj:qpmkoryn). Context: jj:nztkqwpm.
+ */
+export type Diagnostic =
+  | (DiagnosticCore &
+      PeerScoped & { readonly code: "self-connection" | "duplicate-peer" })
+  | (DiagnosticCore &
+      PeerScoped &
+      Comparison & { readonly code: "protocol-skew" | "protocol-mismatch" })
+  | (DiagnosticCore &
+      PeerScoped &
+      Comparison & {
+        readonly code:
+          | "replica-type-mismatch"
+          | "schema-hash-mismatch"
+          | "sync-mode-mismatch"
+        readonly docId: DocId
+      })
 
 // ---------------------------------------------------------------------------
 // Peer document sync tracking

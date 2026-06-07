@@ -25,7 +25,7 @@ import type {
   SyncMsg,
   VacantMsg,
 } from "@kyneta/transport"
-import type { DocChange, PeerDocSyncState } from "./types.js"
+import type { Diagnostic, DocChange, PeerDocSyncState } from "./types.js"
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 // STATE
@@ -190,6 +190,17 @@ export type SyncInput =
  * Effects are side effects produced by the update function.
  * The shell executes them, resolving PeerId → ChannelId as needed.
  */
+/** The diagnostics the sync program can emit (per-doc mismatches). */
+type SyncDiagnostic = Extract<
+  Diagnostic,
+  {
+    code:
+      | "replica-type-mismatch"
+      | "schema-hash-mismatch"
+      | "sync-mode-mismatch"
+  }
+>
+
 export type SyncEffect =
   | { type: "send-to-peer"; to: PeerId; message: SyncMsg }
   | { type: "send-to-peers"; to: PeerId[]; message: SyncMsg }
@@ -231,7 +242,7 @@ export type SyncEffect =
   | { type: "emit-doc-events"; events: readonly DocChange[] }
   | { type: "emit-ready-state-changes"; docIds: readonly DocId[] }
   | { type: "emit-state-advanced"; docIds: readonly DocId[] }
-  | { type: "warning"; message: string }
+  | ({ type: "diagnostic" } & SyncDiagnostic)
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 // UPDATE SIGNATURE
@@ -1135,7 +1146,13 @@ function handlePresent(
       // Known doc — validate replicaType compatibility
       if (!replicaTypesCompatible(docEntry.replicaType, replicaType)) {
         effects.push({
-          type: "warning",
+          type: "diagnostic",
+          code: "replica-type-mismatch",
+          severity: "error",
+          peer: from,
+          docId,
+          local: JSON.stringify(docEntry.replicaType),
+          remote: JSON.stringify(replicaType),
           message:
             `[exchange] replica type mismatch for doc '${docId}': ` +
             `local [${docEntry.replicaType}] vs remote [${replicaType}] — skipping sync`,
@@ -1158,7 +1175,13 @@ function handlePresent(
       }
       if (!compatible) {
         effects.push({
-          type: "warning",
+          type: "diagnostic",
+          code: "schema-hash-mismatch",
+          severity: "error",
+          peer: from,
+          docId,
+          local: docEntry.schemaHash,
+          remote: schemaHash,
           message:
             `[exchange] schema hash mismatch for doc '${docId}': ` +
             `local '${docEntry.schemaHash}' vs remote '${schemaHash}' — skipping sync`,
@@ -1172,7 +1195,13 @@ function handlePresent(
         docEntry.syncMode.durability !== syncMode.durability
       ) {
         effects.push({
-          type: "warning",
+          type: "diagnostic",
+          code: "sync-mode-mismatch",
+          severity: "error",
+          peer: from,
+          docId,
+          local: JSON.stringify(docEntry.syncMode),
+          remote: JSON.stringify(syncMode),
           message:
             `[exchange] syncMode mismatch for doc '${docId}': ` +
             `local ${JSON.stringify(docEntry.syncMode)} vs remote ${JSON.stringify(syncMode)} — skipping sync`,

@@ -25,7 +25,7 @@ import {
 } from "@kyneta/transport"
 import { classifyProtocolSkew } from "./protocol-version.js"
 import type { SyncInput } from "./sync-program.js"
-import type { PeerChange } from "./types.js"
+import type { Diagnostic, PeerChange } from "./types.js"
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 // STATE
@@ -102,6 +102,18 @@ export type SessionInput =
 // EFFECTS
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
+/** The diagnostics the session program can emit (peer-identity + protocol). */
+type SessionDiagnostic = Extract<
+  Diagnostic,
+  {
+    code:
+      | "self-connection"
+      | "duplicate-peer"
+      | "protocol-skew"
+      | "protocol-mismatch"
+  }
+>
+
 export type SessionEffect =
   | { type: "send"; to: ChannelId; message: LifecycleMsg }
   | { type: "reject-channel"; channelId: ChannelId }
@@ -109,7 +121,7 @@ export type SessionEffect =
   | { type: "cancel-departure-timer"; peerId: PeerId }
   | { type: "sync-event"; event: SyncInput }
   | { type: "emit-peer-events"; events: readonly PeerChange[] }
-  | { type: "diagnostic"; severity: "error" | "warning"; message: string }
+  | ({ type: "diagnostic" } & SessionDiagnostic)
 
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 // UPDATE SIGNATURE
@@ -187,11 +199,12 @@ function detectPeerIdentityWarning(
   model: SessionModel,
   fromChannelId: ChannelId,
   remotePeerId: PeerId,
-): SessionEffect | undefined {
+): SessionDiagnostic | undefined {
   if (remotePeerId === model.identity.peerId) {
     return {
-      type: "diagnostic",
-      severity: "warning",
+      code: "self-connection",
+      severity: "error",
+      peer: remotePeerId,
       message: `[exchange] self-connection detected — remote peer "${remotePeerId}" has the same peerId as this exchange. This will cause sync failures. Ensure server and client have different peerIds.`,
     }
   }
@@ -201,8 +214,9 @@ function detectPeerIdentityWarning(
     otherChannels.delete(fromChannelId)
     if (otherChannels.size > 0) {
       return {
-        type: "diagnostic",
-        severity: "warning",
+        code: "duplicate-peer",
+        severity: "error",
+        peer: remotePeerId,
         message: `[exchange] duplicate peerId "${remotePeerId}" — peer already has ${otherChannels.size} active channel(s). Two participants sharing the same peerId will corrupt CRDT state. Ensure each browser tab / client has a unique peerId.`,
       }
     }
@@ -231,25 +245,32 @@ function detectPeerIdentityWarning(
 function detectProtocolVersionDiagnostic(
   peerProtocolVersion: ProtocolVersion | undefined,
   remotePeerId: PeerId,
-): SessionEffect | undefined {
+): SessionDiagnostic | undefined {
   // Defensive: post-establish this is always concrete (the wire boundary
   // defaults it), but `ChannelEntry` carries it optionally.
   if (peerProtocolVersion === undefined) return undefined
-  const peer = `v${peerProtocolVersion.major}.${peerProtocolVersion.minor}`
+  const remote = `v${peerProtocolVersion.major}.${peerProtocolVersion.minor}`
+  const local = `v${PROTOCOL_VERSION.major}.${PROTOCOL_VERSION.minor}`
   switch (classifyProtocolSkew(PROTOCOL_VERSION, peerProtocolVersion)) {
     case "compatible":
       return undefined
     case "minor-skew":
       return {
-        type: "diagnostic",
+        code: "protocol-skew",
         severity: "warning",
-        message: `[exchange] protocol minor skew — peer "${remotePeerId}" at ${peer}, this peer at v${PROTOCOL_VERSION.major}.${PROTOCOL_VERSION.minor}; compatible, but behaviors may differ in refinements.`,
+        peer: remotePeerId,
+        local,
+        remote,
+        message: `[exchange] protocol minor skew — peer "${remotePeerId}" at ${remote}, this peer at ${local}; compatible, but behaviors may differ in refinements.`,
       }
     case "major-mismatch":
       return {
-        type: "diagnostic",
+        code: "protocol-mismatch",
         severity: "error",
-        message: `[exchange] protocol major mismatch — peer "${remotePeerId}" at ${peer}, this peer at v${PROTOCOL_VERSION.major}.x; no shared sync wire-contract major, data will not converge with it.`,
+        peer: remotePeerId,
+        local,
+        remote,
+        message: `[exchange] protocol major mismatch — peer "${remotePeerId}" at ${remote}, this peer at v${PROTOCOL_VERSION.major}.x; no shared sync wire-contract major, data will not converge with it.`,
       }
   }
 }
@@ -326,8 +347,8 @@ function completeEstablish(
     nextModel = { ...model, peers }
   }
 
-  const warning = detectPeerIdentityWarning(model, channelId, remotePeerId)
-  if (warning) effects.push(warning)
+  const idDiagnostic = detectPeerIdentityWarning(model, channelId, remotePeerId)
+  if (idDiagnostic) effects.push({ type: "diagnostic", ...idDiagnostic })
 
   // Diagnostic only — deliberately does not gate the sync graph entry above
   // (see detectProtocolVersionDiagnostic). Context: jj:yukrpnwm
@@ -335,7 +356,8 @@ function completeEstablish(
     channelEntry.peerProtocolVersion,
     remotePeerId,
   )
-  if (protocolDiagnostic) effects.push(protocolDiagnostic)
+  if (protocolDiagnostic)
+    effects.push({ type: "diagnostic", ...protocolDiagnostic })
 
   return [nextModel, ...effects]
 }

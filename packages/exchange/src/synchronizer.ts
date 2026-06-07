@@ -1143,8 +1143,13 @@ export class Synchronizer {
       case "emit-state-advanced":
         this.#emitStateAdvanced(effect.docIds)
         break
-      case "warning":
-        console.warn(effect.message)
+      case "diagnostic":
+        // Severity-aware console (mirrors #executeSessionEffect). The
+        // convergence-preventing mismatches are `severity: "error"`. The
+        // observation bus surfaces the structured `Diagnostic` (jj:qpmkoryn).
+        // Context: jj:nztkqwpm
+        if (effect.severity === "error") console.error(effect.message)
+        else console.warn(effect.message)
         break
     }
   }

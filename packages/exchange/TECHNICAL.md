@@ -202,13 +202,13 @@ The seven are defined once in `@kyneta/transport`; the wire encoding is defined 
 
 `establish` carries a required `protocolVersion` (`{ major, minor }`, from `@kyneta/transport`) — sparse on the wire (absent `pv` ⇒ `PROTOCOL_VERSION = (1, 0)`, defaulted at the inbound transform). The session program records the peer's value on `ChannelEntry.peerProtocolVersion` (optional — unknown until the remote `establish` arrives) and, at `completeEstablish`, runs `detectProtocolVersionDiagnostic` alongside `detectPeerIdentityWarning`. The pure classifier `classifyProtocolSkew` (`src/protocol-version.ts`) is the comparison core:
 
-- differing `major` → `"major-mismatch"` → `diagnostic` effect with `severity: "error"`.
-- same major, differing `minor` → `"minor-skew"` → `diagnostic` with `severity: "warning"` (backward-compatible refinement; informational only).
+- differing `major` → `"major-mismatch"` → `diagnostic` effect with `code: "protocol-mismatch"`, `severity: "error"`.
+- same major, differing `minor` → `"minor-skew"` → `diagnostic` with `code: "protocol-skew"`, `severity: "warning"` (backward-compatible refinement; informational only).
 - equal / absent → silent.
 
 **Warn/error-only — it never gates.** The peer's `syncEffect` is emitted unchanged, so an incompatible peer remains observable and enters the sync graph (data simply will not converge). This deliberately avoids inventing a "visible-but-inert" peer state — the per-doc schema-hash mismatch path (`sync-program.ts`) already establishes the precedent of *skipping work*, never withholding the peer, so the frozen `SyncRef`/`peerStates` surface is untouched. A 2.0 peer's self version is permanently `(1, 0)`, so the error/warning branches are reserve-only until a real major-2 peer exists; actually refusing to sync is deferred to that release.
 
-The `SessionEffect` diagnostic is `{ type: "diagnostic"; severity: "error" | "warning"; message }` — the shell maps `severity` to `console.error`/`console.warn`. This severity shape is what the future structured `onProtocolWarning(docId, kind, severity, error)` callback will reuse. **Parity candidate:** `SyncEffect` still has a separate `{ type: "warning" }` (schema-hash / syncMode mismatches); unifying it to the `diagnostic` shape is a deliberate follow-up, not done here.
+Both programs emit one unified `diagnostic` effect carrying a structured `Diagnostic` (`src/types.ts`) — a discriminated union keyed on `code` (`self-connection`, `duplicate-peer`, `protocol-skew`, `protocol-mismatch`, `replica-type-mismatch`, `schema-hash-mismatch`, `sync-mode-mismatch`) with `severity`, `message`, `peer`, and — per variant — `local`/`remote` and `docId`. **No optionals:** each cause carries exactly its fields, and deferred causes (`store-error`, `wire-reassembly`) become new variants, never new optionals on the existing ones. The shell maps `severity` to `console.error`/`console.warn` for both programs. `code` is the programmatic `kind` the planned structured `onProtocolWarning` callback (jj:wkwskqsy) would expose. This folds in the former `SyncEffect` `{ type: "warning" }` (schema-hash / replica-type / syncMode mismatches), now `severity: "error"` since they prevent convergence. Context: jj:nztkqwpm.
 
 ### Sync-mode dispatch
 
@@ -253,7 +253,7 @@ When a peer announces an unknown doc, four checks run in order:
 3. **`resolve` callback.** The application's `resolve(peer, docMeta)` runs. It returns one of the four dispositions.
 4. **Two-tiered default (no `resolve` callback).** If `replicaType` is supported (present in `Capabilities` as a replica-only entry), default is `Defer()`. Otherwise `Reject()`.
 
-For *known* docs (already in `DocRuntime`), all three metadata fields — `replicaType`, `syncMode`, `schemaHash` — are validated against the local entry. Any mismatch (comparing all three `SyncMode` axes: `writerModel`, `delivery`, `durability`) skips sync with a console warning. `supportedHashes` admits heterogeneous-schema sync: two peers with different migrated schema versions can sync if their `supportedHashes` sets overlap.
+For *known* docs (already in `DocRuntime`), all three metadata fields — `replicaType`, `syncMode`, `schemaHash` — are validated against the local entry. Any mismatch (comparing all three `SyncMode` axes: `writerModel`, `delivery`, `durability`) skips sync, surfacing a structured `diagnostic` (`code: "replica-type-mismatch" | "schema-hash-mismatch" | "sync-mode-mismatch"`, `severity: "error"`, carrying `peer`/`docId`/`local`/`remote`) logged via `console.error`. `supportedHashes` admits heterogeneous-schema sync: two peers with different migrated schema versions can sync if their `supportedHashes` sets overlap.
 
 ---
 

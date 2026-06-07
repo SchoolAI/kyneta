@@ -16,6 +16,7 @@ import {
   type SyncModel,
   type SyncUpdate,
 } from "../sync-program.js"
+import type { Diagnostic } from "../types.js"
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -617,7 +618,7 @@ describe("sync-program", () => {
       expect(interestSend).toBeUndefined()
     })
 
-    it("replica type mismatch: emits warning", () => {
+    it("replica type mismatch: emits a diagnostic", () => {
       const update = makeUpdate()
       let model = initSync(alice)
       ;[model] = addPeer(update, model, "bob", bob)
@@ -635,7 +636,7 @@ describe("sync-program", () => {
         ],
       })
 
-      const warnings = effectsOfType(effects, "warning")
+      const warnings = effectsOfType(effects, "diagnostic")
       expect(warnings.length).toBe(1)
       expect(defined(warnings[0]).message).toContain("replica type mismatch")
 
@@ -644,7 +645,7 @@ describe("sync-program", () => {
       expect(sends.length).toBe(0)
     })
 
-    it("schema hash mismatch: emits warning", () => {
+    it("schema hash mismatch: emits a diagnostic", () => {
       const update = makeUpdate()
       let model = initSync(alice)
       ;[model] = addPeer(update, model, "bob", bob)
@@ -662,7 +663,7 @@ describe("sync-program", () => {
         ],
       })
 
-      const warnings = effectsOfType(effects, "warning")
+      const warnings = effectsOfType(effects, "diagnostic")
       expect(warnings.length).toBe(1)
       expect(defined(warnings[0]).message).toContain("schema hash mismatch")
 
@@ -695,7 +696,7 @@ describe("sync-program", () => {
       })
 
       // Should NOT produce warnings — hashes overlap at "v1"
-      const warnings = effectsOfType(effects, "warning")
+      const warnings = effectsOfType(effects, "diagnostic")
       expect(warnings.length).toBe(0)
 
       // Should send interest (sync proceeds)
@@ -725,7 +726,7 @@ describe("sync-program", () => {
       })
 
       // Should proceed (exact match on primary hash)
-      const warnings = effectsOfType(effects, "warning")
+      const warnings = effectsOfType(effects, "diagnostic")
       expect(warnings.length).toBe(0)
 
       const sends = effectsOfType(effects, "send-to-peer")
@@ -756,7 +757,7 @@ describe("sync-program", () => {
         ],
       })
 
-      const warnings = effectsOfType(effects, "warning")
+      const warnings = effectsOfType(effects, "diagnostic")
       expect(warnings.length).toBe(1)
       expect(defined(warnings[0]).message).toContain("schema hash mismatch")
 
@@ -764,7 +765,7 @@ describe("sync-program", () => {
       expect(sends.length).toBe(0)
     })
 
-    it("syncMode mismatch: emits warning", () => {
+    it("syncMode mismatch: emits a diagnostic", () => {
       const update = makeUpdate()
       let model = initSync(alice)
       ;[model] = addPeer(update, model, "bob", bob)
@@ -784,12 +785,63 @@ describe("sync-program", () => {
         ],
       })
 
-      const warnings = effectsOfType(effects, "warning")
+      const warnings = effectsOfType(effects, "diagnostic")
       expect(warnings.length).toBe(1)
       expect(defined(warnings[0]).message).toContain("syncMode mismatch")
 
       const sends = effectsOfType(effects, "send-to-peer")
       expect(sends.length).toBe(0)
+    })
+
+    it("schema hash mismatch: the diagnostic carries structured fields", () => {
+      const update = makeUpdate()
+      let model = initSync(alice)
+      ;[model] = addPeer(update, model, "bob", bob)
+      ;[model] = ensureDoc(update, model, "doc-1", { schemaHash: "local-hash" })
+
+      const [, effects] = receiveMessage(update, model, "bob", {
+        type: "present",
+        docs: [
+          {
+            docId: "doc-1",
+            replicaType: ["test", 0, 0],
+            syncMode: SYNC_COLLABORATIVE,
+            schemaHash: "remote-hash",
+          },
+        ],
+      })
+
+      const diagnostics = effectsOfType(effects, "diagnostic")
+      expect(diagnostics.length).toBe(1)
+      // Structured — not a substring of `message`. Context: jj:nztkqwpm
+      expect(defined(diagnostics[0])).toMatchObject({
+        type: "diagnostic",
+        code: "schema-hash-mismatch",
+        severity: "error",
+        peer: "bob",
+        docId: "doc-1",
+        local: "local-hash",
+        remote: "remote-hash",
+      })
+    })
+
+    it("Diagnostic forbids illegal states (type-level)", () => {
+      // @ts-expect-error — a doc-sync code must carry `docId`
+      const _missingDocId: Diagnostic = {
+        code: "schema-hash-mismatch",
+        severity: "error",
+        peer: "bob",
+        local: "a",
+        remote: "b",
+      }
+      // @ts-expect-error — a comparison code must carry `local`/`remote`
+      const _missingComparison: Diagnostic = {
+        code: "sync-mode-mismatch",
+        severity: "error",
+        peer: "bob",
+        docId: "doc-1",
+      }
+      expect([_missingDocId, _missingComparison]).toHaveLength(2)
     })
   })
 
