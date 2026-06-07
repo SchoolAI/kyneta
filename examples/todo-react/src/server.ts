@@ -27,11 +27,13 @@ import {
   wrapNodeWebsocket,
 } from "@kyneta/websocket-transport/server"
 import { createLevelDBStore } from "@kyneta/leveldb-store"
+import { streamObservations } from "@kyneta/devtools"
 import { createServer as createViteServer } from "vite"
 import { WebSocketServer } from "ws"
 import { TodoDoc } from "./schema.js"
+import { createWriteStream } from "node:fs"
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+const out = createWriteStream("observations.ndjson", { flags: "a" })
 
 // ─────────────────────────────────────────────────────────────────────────
 // 1. Exchange — server-side sync hub
@@ -46,6 +48,10 @@ const exchange = new Exchange({
   /** Uncomment to add local storage persistence via LevelDB */
   // stores: [await createLevelDBStore("./todo.db")],
 })
+
+const _stop = streamObservations(exchange, line => out.write(line))
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
 // Register the todos document. When clients connect, the Exchange
 // automatically syncs via the three-message protocol (discover →

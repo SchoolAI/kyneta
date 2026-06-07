@@ -76,3 +76,110 @@ export function docActivity(
 export function timeline(model: WorldModel): readonly ObsEvent[] {
   return [...model.events.current.values()].sort(byPeerSeq)
 }
+
+/**
+ * The convergence rollup — egocentric to the observed peer.
+ *
+ * - `pending`: `syncStates` entries with `state === "pending"`.
+ * - `pendingDocs`: docs with ≥1 pending peer (a fact).
+ * - `stuckDocs`: pending docs that also carry an `error` diagnostic for that doc.
+ * - `errors` / `diagnostics`: diagnostics with `severity === "error"` / total.
+ * - `state`: `pending === 0 ? "converged" : errors > 0 ? "stuck" : "syncing"`.
+ */
+export interface ConvergenceState {
+  readonly state: "converged" | "syncing" | "stuck"
+  readonly pending: number
+  readonly pendingDocs: readonly string[]
+  readonly stuckDocs: readonly string[]
+  readonly errors: number
+  readonly diagnostics: number
+}
+
+/**
+ * Convergence — a pure, clock-free, fact-first projection. `pending` counts
+ * ONLY `state === "pending"` (`synced`/`vacant` are terminal/non-blocking;
+ * `vacant` is the settled "peer isn't syncing this"). `stuck` gates on `error`
+ * severity (the convergence-preventing mismatches — schema-hash / replica-type
+ * / sync-mode — are `error`, jj:nztkqwpm; protocol minor-skew is a `warning`
+ * and does NOT gate). Per-doc attribution: `stuckDocs` = pending docs that also
+ * carry an `error` diagnostic keyed to that `docId`. A peer/protocol error
+ * (`self-connection`/`duplicate-peer`/`protocol-mismatch`, no `docId`) still
+ * produces a *global* `stuck` with an empty `stuckDocs` — honest: the failure
+ * is peer-scoped, not doc-scoped.
+ *
+ * Reads `syncStates`/`diagnostics` `.current` directly — both `severity` and
+ * `docId` live on `DiagnosticEntry`, so there is no join back to `events` for
+ * the structured `code` (that is only the log formatter's concern). Quiescence
+ * ("wedged") is the clock-INJECTED `stalledDocs`, kept out of this projection.
+ */
+export function convergence(model: WorldModel): ConvergenceState {
+  const pendingDocs = new Set<string>()
+  let pending = 0
+  for (const entry of model.syncStates.current.values()) {
+    if (entry.state === "pending") {
+      pending++
+      pendingDocs.add(entry.docId)
+    }
+  }
+
+  const errorDocs = new Set<string>()
+  let errors = 0
+  let diagnostics = 0
+  for (const diag of model.diagnostics.current.values()) {
+    diagnostics++
+    if (diag.severity === "error") {
+      errors++
+      if (diag.docId !== undefined) errorDocs.add(diag.docId)
+    }
+  }
+
+  const stuckDocs = [...pendingDocs]
+    .filter(docId => errorDocs.has(docId))
+    .sort()
+  const state = pending === 0 ? "converged" : errors > 0 ? "stuck" : "syncing"
+
+  return {
+    state,
+    pending,
+    pendingDocs: [...pendingDocs].sort(),
+    stuckDocs,
+    errors,
+    diagnostics,
+  }
+}
+
+/**
+ * Staleness — the clock-INJECTED counterpart to the clock-free `convergence`.
+ * Returns the pending docs whose latest observed event `t` is older than
+ * `now - quietMs`. The shell supplies `now`, so this is testable with a fixed
+ * clock and `convergence` itself keeps no clock (clean FC/IS).
+ *
+ * `ObsEvent.t` is the EMITTER's wall-clock — pass `Date.now()` for a live
+ * in-process tap, and the latest observed `t` (or disable the hint) for a
+ * recorded/remote stream where wall-clock isn't comparable. A pending doc with
+ * no surviving activity (events evicted by the FIFO cap) is skipped — staleness
+ * can't be proven without a `t`.
+ */
+export function stalledDocs(
+  model: WorldModel,
+  opts: { now: number; quietMs: number },
+): readonly string[] {
+  const threshold = opts.now - opts.quietMs
+
+  const pendingDocs = new Set<string>()
+  for (const entry of model.syncStates.current.values()) {
+    if (entry.state === "pending") pendingDocs.add(entry.docId)
+  }
+
+  const out: string[] = []
+  for (const docId of pendingDocs) {
+    const activity = docActivity(model, docId)
+    if (activity.length === 0) continue
+    // Latest `t` via a loop, not `Math.max(...spread)` — a high-volume stream
+    // can make the activity array large enough to overflow the call stack.
+    let latest = Number.NEGATIVE_INFINITY
+    for (const e of activity) if (e.t > latest) latest = e.t
+    if (latest < threshold) out.push(docId)
+  }
+  return out.sort()
+}

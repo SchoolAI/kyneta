@@ -6,6 +6,7 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
+    "@kyneta/devtools": "workspace:^",
     "@kyneta/exchange": "workspace:^",
     "@kyneta/leveldb-store": "workspace:^",
     "@kyneta/react": "workspace:^",

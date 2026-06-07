@@ -206,6 +206,9 @@ importers:
 
   examples/todo-react:
     dependencies:
+      '@kyneta/devtools':
+        specifier: workspace:^
+        version: link:../../packages/devtools
       '@kyneta/exchange':
         specifier: workspace:^
         version: link:../../packages/exchange

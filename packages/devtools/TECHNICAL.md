@@ -2,9 +2,9 @@
 
 > **Package**: `@kyneta/devtools`
 > **Role**: A reactive **world model** folded from the Kyneta observation (`ObsEvent`) stream, composed from existing machinery — `@kyneta/index` (append logs + cross-peer grouping) and `@kyneta/changefeed` `ReactiveMap`s (LWW current-state). The only bespoke logic is one pure classifier.
-> **Depends on**: `@kyneta/index`, `@kyneta/changefeed`, `@kyneta/exchange` (the `ObsEvent` type; `observe` at runtime only inside `attach`)
-> **Depended on by**: DevTools renderers (in-app panel, multi-peer inspector — not yet built)
-> **Canonical symbols**: `classify`, `Routing`, `WorldStream`, `createWorldModel`, `WorldModelHandle`, `CreateWorldModelOptions`, `attach`, `ObservableExchange`, `WorldModel`, `PeerView`, `DocView`, `SyncEntry`, `DiagnosticEntry`, `WorldMapChange`, `docView`, `docActivity`, `syncFor`, `timeline`, `DocViewComposite`
+> **Depends on**: `@kyneta/index`, `@kyneta/changefeed`, `@kyneta/exchange` (the `ObsEvent` type; `observe` at runtime inside `attach` / `streamObservations` / `logObservations`)
+> **Depended on by**: DevTools renderers (in-app panel, multi-peer inspector — not yet built); NDJSON consumers (tail / pipe / record the observation stream)
+> **Canonical symbols**: `classify`, `Routing`, `WorldStream`, `createWorldModel`, `WorldModelHandle`, `CreateWorldModelOptions`, `attach`, `ObservableExchange`, `WorldModel`, `PeerView`, `DocView`, `SyncEntry`, `DiagnosticEntry`, `WorldMapChange`, `docView`, `docActivity`, `syncFor`, `timeline`, `DocViewComposite`, `serializeObservation`, `parseObservation`, `streamObservations`, `ingestObservations`, `ingestObservationStream`, `convergence`, `ConvergenceState`, `stalledDocs`, `formatObservation`, `logObservations`, `LogObservationsOptions`
 > **Key invariant(s)**:
 > 1. The world model is folded **purely from the `ObsEvent` stream** — never by reaching into the live Exchange. This keeps it delivery-agnostic (the same fold consumes one peer's `observe()` and a merged multi-peer stream).
 > 2. The only bespoke logic is `classify` (pure, total). Grouping, joins, integration, and reactivity are reused `@kyneta/index` + `@kyneta/changefeed`.
@@ -58,6 +58,35 @@ To **group** an LWW map, the map is bridged into the index via `Source.fromReact
 
 `select.ts` selectors read group **membership** from a `SecondaryIndex`'s `.current` (`Map<groupKey, Set<entryKey>>`) and resolve **values** from the base store (`events` / `syncStates`). They never call `SecondaryIndex.get(key)`: that allocates a fresh `ReactiveMap` + a parent subscription retained until index `dispose()` on *every* call — a leak under repeated rendering. `.get()` is reserved for a renderer that genuinely holds one group's live subscription. Context: jj:qwzkmzvy.
 
+### Observation stream — egress / ingest (the two planes)
+
+Observability splits into two planes (jj:kvulloro):
+
+- **Observation plane** — events, sync status, diagnostics, directory, op-*summaries*. `ObsEvent` is plain JSON, folds without an Exchange, location-independent. **This plane egresses.**
+- **Interpretation plane** — actual doc *values*. Needs the substrate + schema; in-process only. The stream carries op summaries (`ChangesetBody.ops` = `{ type, path? }`), never values or CRDT bytes — so it does not cross a process boundary.
+
+`src/stream.ts` is the observation plane's **data path**, platform-neutral (sinks are `(line) => void`, sources are `Iterable`/`AsyncIterable<string>` — no Node `Writable`/`stdout`/`console`):
+
+- `serializeObservation(event) → string` / `parseObservation(line) → ObsEvent | undefined` — the NDJSON line codec. `parse` is **tolerant**: blank/torn input *and* valid-JSON scalars (`null`/`42`/`"x"`) return `undefined`. The guard is structural (reject anything not an object carrying `peerId`/`seq`) so a torn line never reaches `classify`; `v` is preserved and unknown layers survive — forward-compat, not a validation boundary.
+- `streamObservations(exchange, write) → detach` — taps `exchange.observe`, writes `serialize(ev) + "\n"` per event. Passive (inherits `observe`'s zero-cost-when-unobserved + fire-and-forget); no producer/core change.
+- `ingestObservations(lines, model)` / `ingestObservationStream(asyncLines, model)` — fold NDJSON back into a `createWorldModel()` with **no Exchange** (reusing `model.ingest`). Malformed lines are skipped (total, never throws). The caller frames bytes into lines (e.g. Node `readline`); this consumes one line per item.
+
+This cashes out the delivery-agnostic invariant: egress → ingest reconstructs the same `peers`/`documents`/`syncStates` a direct `attach` reaches (proven by the two-peer round-trip test). Useful standalone: `… | jq 'select(.layer=="diagnostic")'`.
+
+**Scope**: local egress only. Network / cross-machine egress + auth, and the `Line`-native (`discriminatedSum`) schema-validated egress, are deferred — and the latter is where real validation belongs (Kyneta's own schema algebra, not a third-party validator). Context: jj:qpqwrlsx.
+
+### Convergence + staleness projections
+
+`convergence(model) → ConvergenceState` (`src/select.ts`) is a **pure, clock-free** rollup over `syncStates` + the structured diagnostics: `pending` counts only `state === "pending"` (`synced`/`vacant` are terminal/non-blocking — `vacant` is the settled "peer isn't syncing this"); `stuck` gates on **`error` severity** (warnings — e.g. protocol minor-skew — never gate) and is **per-doc where attributable** (`stuckDocs` = pending docs that also carry an `error` diagnostic for that `docId`); a peer/protocol error (`self-connection`/`duplicate-peer`/`protocol-mismatch`, no `docId`) yields a *global* `stuck` with empty `stuckDocs`. `state = pending === 0 ? "converged" : errors > 0 ? "stuck" : "syncing"`. Reads `severity`/`docId` off `DiagnosticEntry` — no join back to `events` for the structured `code` (that is only the formatter's concern).
+
+Limitations (honest, same register as the `seq`-isn't-cross-peer and egocentric caveats): (1) `pending` counts only `"pending"`; (2) `stuck` errs **loud** — a past (possibly resolved) `error` still reads `stuck` while unrelated work is pending (`diagnostics` is a bounded append log; "diagnostics since converged" is a noted refinement); (3) a hard failure that prevents a doc from ever becoming `pending` reads `converged` in the header while its diagnostic still surfaces in the diagnostics view.
+
+`stalledDocs(model, { now, quietMs }) → string[]` is the clock-**injected** counterpart (the shell supplies `now`; `convergence` itself keeps no clock — clean FC/IS). Returns the pending docs whose latest observed event `t` is older than `now - quietMs` (reusing `docActivity`'s max `t`; a pending doc with no surviving activity is skipped). `ObsEvent.t` is the *emitter's* wall-clock — pass `Date.now()` for a live in-process tap, the latest observed `t` (or disable the hint) for a recorded/remote stream where wall-clock isn't comparable.
+
+### Diagnostics-loud log head
+
+`formatObservation(event, { color? }) → string` (`src/log.ts`) is a **pure** correlated one-line render keyed `peerId:seq` + layer + a per-layer summary; `diagnostic` events render their **structured cause** (`severity` + `code` + `local`/`remote`), not just the message. ANSI is optional and off by default (portable, hand-rolled — no `chalk`). `logObservations(exchange, opts?) → detach` is the shell: prints each event via `formatObservation` and escalates `error`-severity diagnostics (default `console.error`; warnings print normally; `onDiagnostic` overrides). `console` lives only in this shell — it is universal (browser/Deno/Node), unlike `process.stdout`; the data path (`src/stream.ts`) stays sink-only.
+
 ---
 
 ## Public API
@@ -68,6 +97,13 @@ To **group** an LWW map, the map is bridged into the index via `Source.fromReact
 | `attach(exchange, model) → () => void` | Subscribe `exchange.observe` → `model.ingest`; returns detach. Caller owns the model. |
 | `classify(event) → Routing[]` | The pure routing core (exported for testing/reuse). |
 | `docView` / `docActivity` / `syncFor` / `timeline` | Pure selectors over the live views. |
+| `serializeObservation` / `parseObservation` | NDJSON line codec — tolerant structural-guard parse; preserves `v`. |
+| `streamObservations(exchange, write) → detach` | Egress: tap `observe`, write one NDJSON record per event to a `(line) => void` sink. |
+| `ingestObservations(lines, model)` / `ingestObservationStream(asyncLines, model)` | Fold NDJSON back into a model with **no Exchange** (skips malformed lines). |
+| `convergence(model) → ConvergenceState` | Pure clock-free rollup: `converged`/`syncing`/`stuck` + per-doc `stuckDocs`. |
+| `stalledDocs(model, { now, quietMs })` | Clock-injected staleness hint (pending docs quiet too long). |
+| `formatObservation(event, { color? }) → string` | Pure one-line render; diagnostics show their structured cause. |
+| `logObservations(exchange, opts?) → detach` | Shell: print each event + escalate `error` diagnostics (default `console.error`). |
 
 `WorldModel` fields: `events`, `diagnostics` (index `Collection`s); `peers`, `documents`, `syncStates` (`ReactiveMap`s); `byDoc`, `syncByDoc` (`SecondaryIndex`es).
 
@@ -78,9 +114,11 @@ To **group** an LWW map, the map is bridged into the index via `Source.fromReact
 | `src/classify.ts` | The pure classifier — `ObsEvent → Routing[]`. The only bespoke logic. |
 | `src/model.ts` | `WorldModel` shape + view value types (`PeerView`/`DocView`/`SyncEntry`/`DiagnosticEntry`). |
 | `src/world.ts` | Shell: per-stream backing (index `Collection`s + changefeed `ReactiveMap`s), `byDoc` + `syncByDoc` groupings, the uniform `WriteTarget` table (`lwwTarget`), `createWorldModel`, `attach`, `boundedHandle`. |
-| `src/select.ts` | Pure selectors (`docView`, `docActivity`, `syncFor`, `timeline`) — membership from index `.current`, values from the base store. |
+| `src/select.ts` | Pure selectors (`docView`, `docActivity`, `syncFor`, `timeline`) + projections (`convergence`, `stalledDocs`) — membership from index `.current`, values from the base store. |
+| `src/stream.ts` | Observation-plane data path: NDJSON codec (`serializeObservation`/`parseObservation`), egress (`streamObservations`), Exchange-free ingest (`ingestObservations`/`ingestObservationStream`). |
+| `src/log.ts` | Diagnostics-loud head: pure `formatObservation` + the `logObservations` shell (sink + `error` escalation). |
 | `src/index.ts` | Public barrel. |
 
 ## Testing
 
-`classify.test.ts` is pure (ObsEvent literals → routings; totality). `world.test.ts` / `views.test.ts` run a two-peer `Bridge` (`@kyneta/bridge-transport`), merge both peers' `observe()` streams into one model, and assert convergence + the cross-peer `byDoc` / `syncByDoc` groupings + `events`/`diagnostics` retention + selector-call stability. **Tests**: 11 passed. Run with `cd packages/devtools && pnpm verify`.
+`classify.test.ts` is pure (ObsEvent literals → routings; totality). `world.test.ts` / `views.test.ts` run a two-peer `Bridge` (`@kyneta/bridge-transport`), merge both peers' `observe()` streams into one model, and assert convergence + the cross-peer `byDoc` / `syncByDoc` groupings + `events`/`diagnostics` retention + selector-call stability. `stream.test.ts` adds the pure codec round-trip (`toEqual`, since the producer emits explicit `undefined` optionals that `JSON.stringify` drops) + tolerant-parse (blank/torn/scalar/identity-less) + a two-peer egress→ingest round-trip (the delivery-agnostic proof) + detach; `select.test.ts` covers `convergence`/`stalledDocs` from `ObsEvent` literals (no clock); `log.test.ts` covers `formatObservation` + the `logObservations` escalation/detach shell. **Tests**: 38 passed. Run with `cd packages/devtools && pnpm verify`.

@@ -1,0 +1,58 @@
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=0","v":1,"seq":0,"t":1780878007777,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=0","v":1,"seq":1,"t":1780878007777,"peerId":"todo-react-server"}
+{"layer":"directory","kind":"doc","change":"doc-created","docId":"todos","v":1,"seq":2,"t":1780878007777,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"session","summary":"peers=0 channels=1","v":1,"seq":3,"t":1780878030380,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"receive","frameSeq":1,"frameKind":"complete","size":47,"v":1,"seq":4,"t":1780878030388,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"in","channelId":1,"msgType":"establish","v":1,"seq":5,"t":1780878030389,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"session","summary":"peers=1 channels=1","v":1,"seq":6,"t":1780878030389,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"out","channelId":1,"msgType":"establish","v":1,"seq":7,"t":1780878030389,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":8,"t":1780878030389,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"out","peer":"715cb8268d76b2a8","msgType":"present","docs":["todos"],"v":1,"seq":9,"t":1780878030389,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"session","summary":"peers=1 channels=1","v":1,"seq":10,"t":1780878030389,"peerId":"todo-react-server"}
+{"layer":"directory","kind":"peer","change":"peer-established","peer":"715cb8268d76b2a8","v":1,"seq":11,"t":1780878030389,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"send","frameSeq":1,"frameKind":"complete","size":57,"v":1,"seq":12,"t":1780878030390,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"send","frameSeq":2,"frameKind":"complete","size":89,"v":1,"seq":13,"t":1780878030390,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"receive","frameSeq":2,"frameKind":"complete","size":47,"v":1,"seq":14,"t":1780878030391,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"in","channelId":1,"msgType":"establish","v":1,"seq":15,"t":1780878030391,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"receive","frameSeq":3,"frameKind":"complete","size":89,"v":1,"seq":16,"t":1780878030391,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"in","peer":"715cb8268d76b2a8","msgType":"present","docs":["todos"],"v":1,"seq":17,"t":1780878030391,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"out","peer":"715cb8268d76b2a8","msgType":"interest","docId":"todos","version":"AQAB.AAEAAQ==","v":1,"seq":18,"t":1780878030392,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"send","frameSeq":3,"frameKind":"complete","size":37,"v":1,"seq":19,"t":1780878030392,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"receive","frameSeq":4,"frameKind":"complete","size":37,"v":1,"seq":20,"t":1780878030392,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"in","peer":"715cb8268d76b2a8","msgType":"interest","docId":"todos","version":"AQAB.AAEAAQ==","v":1,"seq":21,"t":1780878030392,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":22,"t":1780878030392,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"out","peer":"715cb8268d76b2a8","msgType":"offer","docId":"todos","version":"AQAB.AAEAAQ==","v":1,"seq":23,"t":1780878030392,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"out","peer":"715cb8268d76b2a8","msgType":"interest","docId":"todos","version":"AQAB.AAEAAQ==","v":1,"seq":24,"t":1780878030393,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":25,"t":1780878030393,"peerId":"todo-react-server"}
+{"layer":"directory","kind":"sync-state","docId":"todos","peer":"715cb8268d76b2a8","state":"pending","v":1,"seq":26,"t":1780878030393,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"send","frameSeq":4,"frameKind":"complete","size":50,"v":1,"seq":27,"t":1780878030393,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"send","frameSeq":5,"frameKind":"complete","size":37,"v":1,"seq":28,"t":1780878030393,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"receive","frameSeq":5,"frameKind":"complete","size":50,"v":1,"seq":29,"t":1780878030393,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"in","peer":"715cb8268d76b2a8","msgType":"offer","docId":"todos","version":"AQAB.AAEAAQ==","v":1,"seq":30,"t":1780878030393,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":31,"t":1780878030393,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":32,"t":1780878030393,"peerId":"todo-react-server"}
+{"layer":"directory","kind":"sync-state","docId":"todos","peer":"715cb8268d76b2a8","state":"synced","v":1,"seq":33,"t":1780878030393,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"receive","frameSeq":6,"frameKind":"complete","size":37,"v":1,"seq":34,"t":1780878030394,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"in","peer":"715cb8268d76b2a8","msgType":"interest","docId":"todos","version":"AQAB.AAEAAQ==","v":1,"seq":35,"t":1780878030394,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":36,"t":1780878030394,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"out","peer":"715cb8268d76b2a8","msgType":"offer","docId":"todos","version":"AQAB.AAEAAQ==","v":1,"seq":37,"t":1780878030394,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":38,"t":1780878030394,"peerId":"todo-react-server"}
+{"layer":"directory","kind":"sync-state","docId":"todos","peer":"715cb8268d76b2a8","state":"synced","v":1,"seq":39,"t":1780878030394,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"send","frameSeq":6,"frameKind":"complete","size":50,"v":1,"seq":40,"t":1780878030394,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"receive","frameSeq":7,"frameKind":"complete","size":50,"v":1,"seq":41,"t":1780878030395,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"in","peer":"715cb8268d76b2a8","msgType":"offer","docId":"todos","version":"AQAB.AAEAAQ==","v":1,"seq":42,"t":1780878030395,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":43,"t":1780878030395,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":44,"t":1780878030396,"peerId":"todo-react-server"}
+{"layer":"directory","kind":"sync-state","docId":"todos","peer":"715cb8268d76b2a8","state":"synced","v":1,"seq":45,"t":1780878030396,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"receive","frameSeq":8,"frameKind":"complete","size":156,"v":1,"seq":46,"t":1780878062792,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"in","peer":"715cb8268d76b2a8","msgType":"offer","docId":"todos","version":"AuvPgbMLBAAB.AALrz4GzCwQAAQ==","v":1,"seq":47,"t":1780878062793,"peerId":"todo-react-server"}
+{"layer":"doc","kind":"changeset","docId":"todos","origin":"sync","replay":true,"ops":[{"type":"sequence","path":"todos"}],"v":1,"seq":48,"t":1780878062802,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":49,"t":1780878062807,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":50,"t":1780878062808,"peerId":"todo-react-server"}
+{"layer":"directory","kind":"sync-state","docId":"todos","peer":"715cb8268d76b2a8","state":"synced","v":1,"seq":51,"t":1780878062808,"peerId":"todo-react-server"}
+{"layer":"wire","kind":"frame","dir":"receive","frameSeq":9,"frameKind":"complete","size":81,"v":1,"seq":52,"t":1780878097570,"peerId":"todo-react-server"}
+{"layer":"protocol","kind":"message","dir":"in","peer":"715cb8268d76b2a8","msgType":"offer","docId":"todos","version":"AuvPgbMLBQAB.AALrz4GzCwUAAQ==","v":1,"seq":53,"t":1780878097570,"peerId":"todo-react-server"}
+{"layer":"doc","kind":"changeset","docId":"todos","origin":"sync","replay":true,"ops":[{"type":"text","path":"todos[0].text"}],"v":1,"seq":54,"t":1780878097572,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":55,"t":1780878097572,"peerId":"todo-react-server"}
+{"layer":"engine","kind":"transition","program":"sync","summary":"docs=1 peers=1","v":1,"seq":56,"t":1780878097572,"peerId":"todo-react-server"}
+{"layer":"directory","kind":"sync-state","docId":"todos","peer":"715cb8268d76b2a8","state":"synced","v":1,"seq":57,"t":1780878097572,"peerId":"todo-react-server"}

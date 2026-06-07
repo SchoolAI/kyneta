@@ -7,6 +7,11 @@
 // multi-peer stream via `model.ingest`. Experimental — tracks ObsEvent v1.
 
 export { classify, type Routing, type WorldStream } from "./classify.js"
+export {
+  formatObservation,
+  type LogObservationsOptions,
+  logObservations,
+} from "./log.js"
 export type {
   DiagnosticEntry,
   DocView,
@@ -15,12 +20,22 @@ export type {
   WorldModel,
 } from "./model.js"
 export {
+  type ConvergenceState,
+  convergence,
   type DocViewComposite,
   docActivity,
   docView,
+  stalledDocs,
   syncFor,
   timeline,
 } from "./select.js"
+export {
+  ingestObservationStream,
+  ingestObservations,
+  parseObservation,
+  serializeObservation,
+  streamObservations,
+} from "./stream.js"
 export {
   attach,
   type CreateWorldModelOptions,

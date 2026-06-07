@@ -94,6 +94,11 @@ const stop = exchange.observe(ev => console.log(ev.peerId, ev.layer, ev))
 Opt-in and zero-cost when no sink is attached. The `ObsEvent` shape is
 experimental (`v: 1`) and may change. See `packages/exchange/PRODUCT.md`.
 
+The stream is also serializable: `@kyneta/devtools` can tail, pipe, or record
+it as NDJSON and fold it back into a reactive world model **without an
+Exchange** (the observation plane is location-independent; doc *values* stay
+in-process). Experimental.
+
 ## Why Kyneta
 
 **Schemas should be walked once.** A schema tree gets traversed for reading, mutation, observation, validation, sync, and more. Most frameworks implement these as parallel switch dispatches that drift apart. Kyneta's schema algebra collapses them into one catamorphism with pluggable interpreters — all behaviors are derived from the same structure. Your schema is the single source of truth not by convention, but by construction. Add a field and every behavior follows. There is nothing else to update.
@@ -162,7 +167,7 @@ A plain JS substrate is built into `@kyneta/schema` — no external package need
 
 | Package | Description | Tests |
 |---------|-------------|-------|
-| [`@kyneta/devtools`](./packages/devtools) | Reactive world model over `exchange.observe()` (`ObsEvent`), composed from `@kyneta/index` + `@kyneta/changefeed`. One pure classifier; cross-peer correlation by `docId`. Experimental. | 9 |
+| [`@kyneta/devtools`](./packages/devtools) | Reactive world model over `exchange.observe()` (`ObsEvent`), composed from `@kyneta/index` + `@kyneta/changefeed`. One pure classifier; cross-peer correlation by `docId`. NDJSON egress/ingest, a `convergence` rollup, and a diagnostics-loud log. Experimental. | 38 |
 
 ## Dependencies
 
