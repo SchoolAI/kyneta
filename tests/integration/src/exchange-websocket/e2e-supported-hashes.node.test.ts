@@ -26,6 +26,35 @@ const lifecycle = createTestLifecycle()
 
 afterEach(() => lifecycle.cleanup())
 
+/**
+ * Capture protocol diagnostics across both console streams.
+ *
+ * Diagnostics route by severity (`synchronizer.ts`): convergence-preventing
+ * mismatches are `severity: "error"` → `console.error`; advisory ones →
+ * `console.warn`. Tests that assert on a specific diagnostic must not assume
+ * a stream — capture both. Returns a `restore` function (call it to undo the
+ * patch) that also carries `.matching(substr)` for filtering captured lines.
+ */
+function captureDiagnostics(): {
+  (): void
+  matching: (substr: string) => string[]
+} {
+  const lines: string[] = []
+  const originalWarn = console.warn
+  const originalError = console.error
+  const sink = (...args: unknown[]) => {
+    lines.push(args.map(String).join(" "))
+  }
+  console.warn = sink
+  console.error = sink
+  const restore = (() => {
+    console.warn = originalWarn
+    console.error = originalError
+  }) as { (): void; matching: (substr: string) => string[] }
+  restore.matching = (substr: string) => lines.filter(l => l.includes(substr))
+  return restore
+}
+
 describe("supportedHashes — cross-migrated-version sync", () => {
   it("server with migrated chain syncs with client at an ancestor schema version", async () => {
     // Server runs the migrated schema: rename("name" → "title")
@@ -64,14 +93,12 @@ describe("supportedHashes — cross-migrated-version sync", () => {
       { schemas: [serverSchema, clientSchema] },
     )
 
-    // Capture warnings — "schema hash mismatch — skipping sync" indicates
-    // the supportedHashes intersection failed, which would mean the
-    // chain walk didn't produce the expected ancestor hash.
-    const warnings: string[] = []
-    const originalWarn = console.warn
-    console.warn = (msg: unknown) => {
-      warnings.push(String(msg))
-    }
+    // Capture diagnostics — "schema hash mismatch — skipping sync" indicates
+    // the supportedHashes intersection failed, which would mean the chain
+    // walk didn't produce the expected ancestor hash. The mismatch is a
+    // convergence-preventing diagnostic (`severity: "error"`), so it lands on
+    // `console.error`; capture both streams to be severity-agnostic.
+    const restore = captureDiagnostics()
 
     try {
       // Server creates the doc under its (newer) schema.
@@ -94,13 +121,10 @@ describe("supportedHashes — cross-migrated-version sync", () => {
       // rename.
       expect(docClient.count()).toBe(42)
 
-      // No "schema hash mismatch" warning fired — sync proceeded.
-      const mismatchWarnings = warnings.filter(w =>
-        w.includes("schema hash mismatch"),
-      )
-      expect(mismatchWarnings).toEqual([])
+      // No "schema hash mismatch" diagnostic fired — sync proceeded.
+      expect(restore.matching("schema hash mismatch")).toEqual([])
     } finally {
-      console.warn = originalWarn
+      restore()
     }
   })
 
@@ -128,11 +152,7 @@ describe("supportedHashes — cross-migrated-version sync", () => {
       { schemas: [schemaA, schemaB] },
     )
 
-    const warnings: string[] = []
-    const originalWarn = console.warn
-    console.warn = (msg: unknown) => {
-      warnings.push(String(msg))
-    }
+    const restore = captureDiagnostics()
 
     try {
       const docServer = serverExchange.get("doc-disjoint", schemaA)
@@ -146,13 +166,12 @@ describe("supportedHashes — cross-migrated-version sync", () => {
       await drain()
 
       // Confirms the rejection path is reachable — otherwise the positive
-      // case above could be a false positive.
-      const mismatchWarnings = warnings.filter(w =>
-        w.includes("schema hash mismatch"),
-      )
-      expect(mismatchWarnings.length).toBeGreaterThan(0)
+      // case above could be a false positive. The mismatch is emitted as a
+      // `severity: "error"` diagnostic (→ console.error), so we assert across
+      // both captured streams.
+      expect(restore.matching("schema hash mismatch").length).toBeGreaterThan(0)
     } finally {
-      console.warn = originalWarn
+      restore()
     }
   })
 })

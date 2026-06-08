@@ -30,8 +30,11 @@ import {
   createRef,
   type Defer,
   type DevtoolsHistory,
+  type DocRef,
   type FactoryBuilder,
   type Interpret,
+  type NativeMap,
+  type ProductSchema,
   type Ref,
   type Reject,
   type ReplicaFactoryLike,
@@ -77,6 +80,28 @@ import { validatePeerId } from "./utils.js"
  * The four possible dispositions when classifying a discovered document.
  */
 export type Disposition = Interpret | Replicate | Defer | Reject
+
+/**
+ * Call signature for {@link Exchange.get}.
+ *
+ * Returns the precise root ref `DocRef<S, N>` for product-schema documents
+ * (the common case) — so `unwrap(doc)` resolves to the substrate's root
+ * container (`LoroDoc` / `Y.Doc` / `PlainState`) rather than the per-node
+ * `N["struct"]`. Non-product roots fall back to `Ref<S, N>`.
+ *
+ * The conditional (`S extends ProductSchema ? … : …`) is load-bearing: it
+ * keeps `DocRef<S, N>` *deferred* while `S` is the abstract type parameter
+ * of this signature. Returning `DocRef<S, N>` unconditionally would force
+ * TypeScript to instantiate it against an abstract `S` when checking the
+ * `get` field's contextual type, which re-enters the deeply recursive
+ * `SchemaRef` tree and trips `TS2589`. A deferred conditional is only
+ * resolved once `S` is concrete at a call site, where the depth is bounded.
+ * (Confirmed empirically; this is the same shape `useDocument` uses.)
+ */
+type Get = <S extends SchemaNode, N extends NativeMap>(
+  docId: DocId,
+  bound: BoundSchema<S, N>,
+) => S extends ProductSchema ? DocRef<S, N> : Ref<S, N>
 
 /**
  * Peer identity input — the *input* shape for Exchange construction.
@@ -827,23 +852,41 @@ export class Exchange {
    * learns about the doc after hydration completes, so present/interest
    * messages carry the hydrated version.
    *
+   * For a product-schema root (the common case), the returned ref is a
+   * `DocRef<S, N>`: its top-level `[NATIVE]` resolves to the substrate's
+   * *root* container (`unwrap(doc)` → `LoroDoc` / `Y.Doc` / `PlainState`),
+   * while nested struct fields resolve to their per-node container
+   * (`unwrap(doc.field)` → `LoroMap` / `Y.Map` / `undefined`). The native
+   * map `N` is threaded from the `BoundSchema`, so `unwrap` is precisely
+   * typed end-to-end — no union, no narrowing, no separate accessor.
+   *
    * @param docId - The document ID
    * @param bound - A BoundSchema created by `bind()`, `json.bind()`, or `loro.bind()`
-   * @returns A full-stack Ref<S> with sync capabilities via `sync()`
+   * @returns A full-stack DocRef<S, N> with sync capabilities via `sync()`
    *
    * @example
    * ```typescript
-   * import { json } from "@kyneta/schema"
+   * import { json, unwrap } from "@kyneta/schema"
    * import { loro } from "@kyneta/loro-schema"
    *
    * const TodoDoc = loro.bind(Schema.struct({ title: Schema.text() }))
    * const doc = exchange.get("my-doc", TodoDoc)
+   * unwrap(doc) // LoroDoc — the root container, precisely typed
    *
    * // Initial content via batch() after construction:
    * batch(doc, d => { d.title.insert(0, "Hello") })
    * ```
    */
-  get<S extends SchemaNode>(docId: DocId, bound: BoundSchema<S>): Ref<S> {
+  get: Get = (docId, bound) => this.#getImpl(docId, bound) as never
+
+  /**
+   * Implementation of {@link get}. Kept generic only in `S` and returning the
+   * plain `Ref<S>` so the heavy `DocRef`/native-map inference stays out of the
+   * checked method body — the precise `DocRef<S, N>` return type is supplied
+   * by the {@link Get} call-signature on the public `get` field, which the
+   * `as never` cast bridges. See {@link Get} for the TS2589 rationale.
+   */
+  #getImpl<S extends SchemaNode>(docId: DocId, bound: BoundSchema<S>): Ref<S> {
     // Check cache first
     const cached = this.#docCache.get(docId)
 

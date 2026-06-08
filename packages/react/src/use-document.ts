@@ -10,7 +10,14 @@
 // budget when S is a generic parameter inside useMemo's callback.
 
 import type { Exchange } from "@kyneta/exchange"
-import type { BoundSchema, Ref, SchemaNode } from "@kyneta/schema"
+import type {
+  BoundSchema,
+  DocRef,
+  NativeMap,
+  ProductSchema,
+  Ref,
+  SchemaNode,
+} from "@kyneta/schema"
 import { useMemo } from "react"
 import { useExchange } from "./exchange-context.js"
 
@@ -19,14 +26,21 @@ import { useExchange } from "./exchange-context.js"
 // ---------------------------------------------------------------------------
 
 // The `as any` cast inside the implementation avoids TS2589: useMemo
-// tries to evaluate Exchange.get()'s return type Ref<S> deeply when
-// S is a generic parameter, exceeding TypeScript's recursion budget.
-// The outer call signature provides the correct Ref<S> return type.
+// tries to evaluate the document ref type deeply when S is a generic
+// parameter, exceeding TypeScript's recursion budget. The outer call
+// signature provides the correct return type.
+//
+// The return type mirrors `Exchange.get`: a product-schema root yields the
+// precise `DocRef<S, N>` (so `unwrap(doc)` is the root container — `LoroDoc`
+// / `Y.Doc` / `PlainState` — not `N["struct"]`), with `N` threaded from the
+// `BoundSchema`. The `S extends ProductSchema ? … : …` conditional keeps
+// `DocRef<S, N>` deferred against the abstract `S`, which is what avoids
+// TS2589 here — returning `DocRef<S, N>` unconditionally trips it.
 
-type UseDocument = <S extends SchemaNode>(
+type UseDocument = <S extends SchemaNode, N extends NativeMap>(
   docId: string,
-  bound: BoundSchema<S>,
-) => Ref<S>
+  bound: BoundSchema<S, N>,
+) => S extends ProductSchema ? DocRef<S, N> : Ref<S, N>
 
 // ---------------------------------------------------------------------------
 // useDocument

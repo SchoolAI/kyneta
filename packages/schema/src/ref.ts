@@ -64,12 +64,7 @@ import type {
   WritableSetRef,
   WritableTreeRef,
 } from "./interpreters/writable.js"
-import type {
-  HasNative,
-  NATIVE,
-  NativeMap,
-  UnknownNativeMap,
-} from "./native.js"
+import type { HasNative, NativeMap, UnknownNativeMap } from "./native.js"
 import type {
   CounterSchema,
   DiscriminatedSumSchema,
@@ -315,32 +310,43 @@ export type SchemaRef<
 // ---------------------------------------------------------------------------
 
 /**
- * Helper to extract and preserve call signatures that `Omit` drops.
- * `Omit` is implemented as `Pick<T, Exclude<keyof T, K>>`, and `keyof T`
- * ignores call signatures. This helper restores them.
- */
-type PreserveCall<T> = T extends (...args: infer A) => infer R
-  ? (...args: A) => R
-  : unknown
-
-/**
- * Root document ref type. Replaces the product-level `N["struct"]` native
- * type with `N["root"]` — e.g. `LoroDoc` instead of `LoroMap`.
+ * Root document ref type. Identical in shape to `Ref<S, N>` for a product
+ * schema, except the top-level `[NATIVE]` slot resolves to `N["root"]`
+ * (e.g. `LoroDoc`) instead of `N["struct"]` (e.g. `LoroMap`). This matches
+ * runtime behavior: `nativeResolver` returns the native *document* at
+ * `path.segments.length === 0`, and the per-node native for children.
  *
- * At the type level, this uses `Omit` to strip the inherited `[NATIVE]`
- * from `SchemaRef` (which would be `N["struct"]` for a product) and
- * re-intersects `HasNative<N["root"]>`. This matches the runtime behavior:
- * `nativeResolver` returns the native doc at `path.segments.length === 0`.
+ * Rather than `Omit`-ing `[NATIVE]` off `SchemaRef` and re-intersecting
+ * (which forces `keyof` + a full mapped reconstruction + a second
+ * `SchemaRef` instantiation — three deep evaluations, the TS2589 trigger
+ * documented in jj:tvpmzxvx), this re-expresses the product branch of
+ * `SchemaRef` directly with `N["root"]` as the wrapped native. Cost is one
+ * product-body instantiation — the same as a plain `Ref<Product, N>`.
+ * Children remain `SchemaRef<F[K], "rwc", N>`, so nested structs naturally
+ * resolve to `N["struct"]`.
  *
- * `createDoc` returns `DocRef<S, N>`. Children use `N["struct"]` /
- * `N["text"]` / etc. naturally from `SchemaRef`.
+ * Non-product roots (rare) fall through to a plain `SchemaRef`.
+ *
+ * `unwrap` is unchanged: `unwrap(docRef)` indexes `[NATIVE]` → `N["root"]`;
+ * `unwrap(docRef.child)` indexes the child's `[NATIVE]` → `N["struct"]`.
+ *
+ * IMPORTANT: public-facing aliases that return `DocRef<S, N>` for a generic
+ * `S` (e.g. `Exchange.get`, `useDocument`) MUST gate it behind a conditional
+ * — `S extends ProductSchema ? DocRef<S, N> : Ref<S, N>` — so the deferred
+ * conditional prevents `DocRef` from being instantiated against an abstract
+ * `S` during signature/contextual-type checking (the other TS2589 trigger,
+ * confirmed empirically).
  */
-export type DocRef<
-  S extends Schema,
-  N extends NativeMap = UnknownNativeMap,
-> = Omit<SchemaRef<S, "rwc", N>, typeof NATIVE> &
-  HasNative<N["root"]> &
-  PreserveCall<SchemaRef<S, "rwc", N>>
+export type DocRef<S extends Schema, N extends NativeMap = UnknownNativeMap> =
+  S extends ProductSchema<infer F>
+    ? Wrap<
+        (() => { [K in keyof F]: Plain<F[K]> }) & {
+          readonly [K in keyof F]: SchemaRef<F[K], "rwc", N>
+        } & ProductRef<{ [K in keyof F]: Plain<F[K]> }>,
+        "rwc",
+        N["root"]
+      >
+    : SchemaRef<S, "rwc", N>
 
 // ---------------------------------------------------------------------------
 // Tier aliases — the user-facing ref types

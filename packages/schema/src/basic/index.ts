@@ -54,15 +54,25 @@ export { exportEntirety } from "../sync.js"
 
 import type { Op } from "../changefeed.js"
 import { createRef } from "../create-doc.js"
+import type { PlainNativeMap } from "../native.js"
 import { SUBSTRATE } from "../native.js"
 import { RawPath } from "../path.js"
-import type { Ref } from "../ref.js"
+import type { DocRef } from "../ref.js"
 import type { ProductSchema } from "../schema.js"
 import type { SubstratePayload } from "../substrate.js"
 import { PlainVersion, plainSubstrateFactory } from "../substrates/plain.js"
 
-// Interface call signature avoids TS2589 on Ref<S> when S is generic.
-type CreateDoc = <S extends ProductSchema>(schema: S) => Ref<S>
+// Interface call signature avoids TS2589 on the deep ref type when S is
+// generic (the `as CreateDoc` cast defers evaluation to concrete call sites).
+//
+// Returns the precise `DocRef<S, PlainNativeMap>`: the basic API always backs
+// documents with the plain substrate, so the root native is `PlainState`.
+// `unwrap(createDoc(schema))` → `PlainState` (the backing JS object), and
+// `unwrap(doc.nestedStruct)` → `undefined` (plain has no per-node container).
+// This matches the generic `createDoc` in `create-doc.ts` and runtime.
+type CreateDoc = <S extends ProductSchema>(
+  schema: S,
+) => DocRef<S, PlainNativeMap>
 
 /**
  * Create a live document from a schema.
@@ -76,7 +86,7 @@ export const createDoc: CreateDoc = (schema =>
 type CreateDocFromEntirety = <S extends ProductSchema>(
   schema: S,
   payload: SubstratePayload,
-) => Ref<S>
+) => DocRef<S, PlainNativeMap>
 
 /**
  * Reconstruct a live document from a substrate entirety payload.

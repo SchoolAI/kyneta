@@ -12,6 +12,7 @@ import {
   bind,
   Defer,
   json,
+  type PlainState,
   plainReplicaFactory,
   plainSubstrateFactory,
   Schema,
@@ -21,6 +22,10 @@ import {
   unwrap,
 } from "@kyneta/schema"
 import type { PeerIdentityDetails } from "@kyneta/transport"
+import type {
+  LoroDoc as LoroDocNative,
+  LoroMap as LoroMapNative,
+} from "loro-crdt"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   Exchange,
@@ -308,26 +313,39 @@ describe("Exchange", () => {
       })
 
       it("unwrap(ref) returns the LoroDoc for a Loro-backed exchange doc", () => {
-        const LoroDoc = loro.bind(Schema.struct({ title: Schema.text() }))
+        const LoroBound = loro.bind(
+          Schema.struct({
+            title: Schema.text(),
+            meta: Schema.struct({ author: Schema.string() }),
+          }),
+        )
         const exchange = new Exchange({
           id: "test",
-          schemas: [LoroDoc],
+          schemas: [LoroBound],
         })
-        const doc = exchange.get("doc-1", LoroDoc)
+        const doc = exchange.get("doc-1", LoroBound)
 
-        const loroDoc = unwrap(doc as any)
+        // Precise root native: unwrap(doc) is exactly LoroDoc — no union, no
+        // narrowing, no `as any`. The native map threads through Exchange.get.
+        const loroDoc: LoroDocNative = unwrap(doc)
         expect(typeof loroDoc.toJSON).toBe("function")
         expect(typeof loroDoc.getText).toBe("function")
+
+        // Nested struct fields resolve to the per-node container (LoroMap),
+        // NOT the root LoroDoc — the root override applies only to the root.
+        const nested: LoroMapNative = unwrap(doc.meta)
+        expect(nested).toBeDefined()
       })
 
-      it("unwrap(ref) returns non-LoroDoc native for a plain-backed exchange doc", () => {
+      it("unwrap(ref) returns the PlainState for a plain-backed exchange doc", () => {
         const exchange = new Exchange({ id: "test" })
         const doc = exchange.get("doc-1", TestDoc)
 
-        const native = unwrap(doc as any)
+        // Precise root native: PlainState (the backing JS object), threaded
+        // from json.bind()'s PlainNativeMap — not `unknown`, not a LoroDoc.
+        const native: PlainState = unwrap(doc)
         expect(native).toBeDefined()
-        // Plain substrate root native is the PlainState, not a LoroDoc
-        expect((native as any).getText).toBeUndefined()
+        expect((native as { getText?: unknown }).getText).toBeUndefined()
       })
     })
 
